@@ -1,0 +1,16 @@
+{
+  "_checkout": "2022.6.3",
+  "_output_dir": "/root",
+  "_repo_dir": "/root/.cookiecutters/cookiecutter-hypermodern-python",
+  "_template": "gh:cjolowicz/cookiecutter-hypermodern-python",
+  "author": "Fred Stober",
+  "copyright_year": "2023",
+  "development_status": "Development Status :: 3 - Alpha",
+  "email": "pyado@fredstober.de",
+  "friendly_name": "Pythonic Azure DevOps Interface",
+  "github_user": "fredstober",
+  "license": "MIT",
+  "package_name": "pyado",
+  "project_name": "pyado",
+  "version": "0.0.0"
+}
