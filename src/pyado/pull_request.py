@@ -95,7 +95,7 @@ class PullRequestStatusInfo(BaseModel):
 
     context: PullRequestStatusContext
     description: Optional[str] = None
-    iteration_id: PullRequestIteration
+    iteration_id: PullRequestIteration = Field(alias="iterationId")
     state: PullRequestStatusState
     target_url: Optional[AnyUrl] = Field(default=None, alias="targetUrl")
 
@@ -134,7 +134,7 @@ def test() -> None:
     # Test PR status flags
     status = PullRequestStatusInfo(
         description="Test 1",
-        iteration_id=4,
+        iterationId=4,
         context=PullRequestStatusContext(genre="test", name="test"),
         state="pending",
         targetUrl=AnyUrl("https://google.com"),
