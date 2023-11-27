@@ -4,6 +4,8 @@ from typing import TypeAlias
 from uuid import UUID
 
 from pydantic import BaseModel
+from pydantic import ConfigDict
+from pydantic import Field
 
 from pyado.api_call import ApiCall
 from pyado.api_call import get_test_api_call
@@ -93,6 +95,17 @@ def send_job_logs(log_api_call: ApiCall, message: str) -> None:
     )
 
 
+class _JobEventPayload(BaseModel):
+    """Type to store the job event payload."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: JobEventName
+    task_id: TaskId = Field(alias="taskId")
+    job_id: JobId = Field(alias="jobId")
+    result: JobEventResult
+
+
 def send_job_event(
     plan_api_call: ApiCall,
     task_id: TaskId,
@@ -106,16 +119,16 @@ def send_job_event(
     /specification/distributedTask/7.1/httpExamples/events/
     POST_distributedtask_PostEvent.json
     """
-    job_event_payload = {
-        "name": job_event_name,
-        "taskId": task_id,
-        "jobId": job_id,
-        "result": job_event_result,
-    }
+    job_event_payload = _JobEventPayload(
+        name=job_event_name,
+        taskId=task_id,
+        jobId=job_id,
+        result=job_event_result,
+    )
     plan_api_call.post(
         "events",
         version="7.1-preview.1",
-        json=job_event_payload,
+        json=job_event_payload.model_dump(mode="json", by_alias=True),
     )
 
 
