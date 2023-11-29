@@ -134,13 +134,15 @@ class ApiCall(BaseModel):
         return f"Invalid error response: {error_message}"
 
     @staticmethod
-    def _parse_response(response: requests.Response) -> Any:
+    def _parse_response(response: requests.Response, raw: bool = False) -> Any:
         """Parse API response from Azure DevOps."""
         try:
             response.raise_for_status()
         except Exception as ex:
             error_message = ApiCall._get_error_message(response)
             raise RuntimeError(error_message) from ex
+        if raw:
+            return response.content
         if not response.content:  # Handle b'' return values
             return None
         try:
@@ -151,7 +153,11 @@ class ApiCall(BaseModel):
 
     @staticmethod
     def _request(
-        method: str, api_call: "ApiCall", json: Any = None, data: Any = None
+        method: str,
+        api_call: "ApiCall",
+        json: Any = None,
+        data: Any = None,
+        raw: bool = False,
     ) -> Any:
         """Helper function to interact with the Azure DevOps API."""
         base64_auth = _encode_as_base64(f":{api_call.access_token}")
@@ -173,7 +179,7 @@ class ApiCall(BaseModel):
             url=api_call.url.unicode_string(),
             **kwargs,
         )
-        return ApiCall._parse_response(response)
+        return ApiCall._parse_response(response, raw)
 
     def get(
         self,
@@ -184,6 +190,16 @@ class ApiCall(BaseModel):
         """Helper function to interact with the Azure DevOps API via GET."""
         api_call = self.build_call(*args, parameters=parameters, version=version)
         return ApiCall._request("GET", api_call)
+
+    def get_raw(
+        self,
+        *args: str | int | UUID,
+        parameters: Optional[dict[str, int | str]] = None,
+        version: Optional[str] = None,
+    ) -> Any:
+        """Helper function to interact with the Azure DevOps API via GET."""
+        api_call = self.build_call(*args, parameters=parameters, version=version)
+        return ApiCall._request("GET", api_call, raw=True)
 
     def put(
         self,

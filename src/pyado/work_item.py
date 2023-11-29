@@ -34,7 +34,7 @@ class WorkItemInfo(BaseModel):
     """Type to store work item details."""
 
     id: WorkItemId
-    fields: dict[str, Any]
+    fields: dict[WorkItemField, Any]
     relations: list[WorkItemRelation]
 
 
