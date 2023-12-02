@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pyado"
-version = "0.1.6"
+version = "0.1.7"
 description = "Pythonic Azure DevOps Interface"
 authors = ["Fred Stober <pyado@fredstober.de>"]
 license = "MIT"

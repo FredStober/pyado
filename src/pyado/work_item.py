@@ -8,8 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic.networks import AnyUrl
 
-from pyado.api_call import ADOUrl
 from pyado.api_call import ApiCall
 from pyado.api_call import JsonPatchAdd
 from pyado.api_call import get_test_api_call
@@ -26,7 +26,7 @@ class WorkItemRelation(BaseModel):
     """Type to store work item relationships."""
 
     rel: WorkItemRelationType
-    url: ADOUrl
+    url: AnyUrl
     attributes: Optional[dict[str, Any]] = None
 
 
@@ -52,10 +52,11 @@ def iter_work_item_details(
     """Iterate over the work items."""
     request_json: dict[str, Any] = {
         "ids": work_item_id_list,
-        "$expand": "relations",
     }
     if work_item_field_list:
         request_json["fields"] = work_item_field_list
+    else:
+        request_json["$expand"] = "relations"
     response = project_api_call.post(
         "wit",
         "workitemsbatch",
