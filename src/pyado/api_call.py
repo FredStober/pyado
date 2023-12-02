@@ -171,15 +171,21 @@ class ApiCall(BaseModel):
         if data is not None:
             kwargs = {"data": data}
         session = requests.Session()
-        response = session.request(
-            method,
-            headers=headers,
-            params=api_call.parameters,
-            timeout=api_call.timeout,
-            url=api_call.url.unicode_string(),
-            **kwargs,
-        )
-        return ApiCall._parse_response(response, raw)
+        max_retries = 3
+        for retry in range(max_retries, 0, -1):  # max_retries, ..., 1
+            try:
+                response = session.request(
+                    method,
+                    headers=headers,
+                    params=api_call.parameters,
+                    timeout=api_call.timeout,
+                    url=api_call.url.unicode_string(),
+                    **kwargs,
+                )
+                return ApiCall._parse_response(response, raw)
+            except ConnectionResetError:
+                if retry == 1:
+                    raise
 
     def get(
         self,
