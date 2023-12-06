@@ -25,6 +25,7 @@ BuildLogId: TypeAlias = int
 BuildRecordType: TypeAlias = Literal[
     "Checkpoint",
     "Checkpoint.Approval",
+    "Checkpoint.Authorization",
     "Checkpoint.ExtendsCheck",
     "Phase",
     "Stage",
