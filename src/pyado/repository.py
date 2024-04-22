@@ -1,6 +1,7 @@
 """Module to interact with Azure DevOps repositories."""
 
 from typing import Iterator
+from typing import Optional
 from typing import TypeAlias
 from uuid import UUID
 
