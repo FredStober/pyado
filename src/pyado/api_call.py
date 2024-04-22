@@ -1,4 +1,5 @@
 """Module with utilities to interact with Azure DevOps."""
+
 import base64
 import json as jsonlib
 import pathlib

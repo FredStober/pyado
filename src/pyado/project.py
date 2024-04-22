@@ -1,4 +1,5 @@
 """Module to interact with Azure DevOps projects."""
+
 from datetime import datetime
 from typing import Literal
 from typing import TypeAlias

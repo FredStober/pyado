@@ -1,4 +1,5 @@
 """Module to interact with Azure DevOps work items."""
+
 from typing import Literal
 from typing import TypeAlias
 from uuid import UUID

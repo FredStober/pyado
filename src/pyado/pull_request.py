@@ -1,4 +1,5 @@
 """Module to interact with Azure DevOps pull requests."""
+
 from typing import Iterator
 from typing import Literal
 from typing import Optional

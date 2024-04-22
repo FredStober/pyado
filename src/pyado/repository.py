@@ -1,11 +1,12 @@
 """Module to interact with Azure DevOps repositories."""
+
 from typing import Iterator
 from typing import TypeAlias
 from uuid import UUID
 
 from pydantic import BaseModel
 from pydantic import Field
-from pydantic import PositiveInt
+from pydantic import NonNegativeInt
 
 from pyado.api_call import ADOUrl
 from pyado.api_call import ApiCall
@@ -26,8 +27,8 @@ class RepositoryInfo(BaseModel):
     id: RepositoryId
     name: RepositoryName
     project: ProjectInfo
-    default_branch: BranchName = Field(alias="defaultBranch")
-    size: PositiveInt
+    default_branch: Optional[BranchName] = Field(alias="defaultBranch", default=None)
+    size: NonNegativeInt
     remote_url: ADOUrl = Field(alias="remoteUrl")
     ssh_url: SshUrl = Field(alias="sshUrl")
     web_url: ADOUrl = Field(alias="webUrl")

@@ -1,4 +1,5 @@
 """Sphinx configuration."""
+
 project = "Pythonic Azure DevOps Interface"
 author = "Fred Stober"
 copyright = "2023, Fred Stober"

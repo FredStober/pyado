@@ -1,4 +1,5 @@
 """Module to interact with Azure DevOps work items."""
+
 from datetime import datetime
 from typing import Any
 from typing import Iterator
