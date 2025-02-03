@@ -49,7 +49,7 @@ myst-parser = {version = ">=2.0.0"}
 [tool.poetry.group.dev.dependencies]
 nox = "^2023.4.22"
 nox-poetry = "^1.0.3"
-types-requests = "^2.31.0.10"
+types-requests = ">=2.23.0"
 
 [tool.coverage.paths]
 source = ["src", "*/site-packages"]
