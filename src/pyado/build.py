@@ -105,6 +105,7 @@ class BuildRecordInfo(BaseModel, extra="forbid"):
     log: Optional[BuildLogInfo]
     name: str
     order: Optional[int] = None
+    ref_name: Optional[str] = Field(alias='refName')
     parent_id: Optional[TaskId] = Field(alias="parentId")
     percent_complete: Optional[int] = Field(alias="percentComplete")
     previous_attempts: list[BuildAttemptInfo] = Field(alias="previousAttempts")
