@@ -83,7 +83,7 @@ class BuildAttemptInfo(BaseModel, extra="forbid"):
 class BuildIssue(BaseModel, extra="forbid"):
     """Type for build message issues."""
 
-    category: str
+    category: Optional[str] = None
     data: Optional[dict[str, str]] = {}
     message: str
     type: Literal["error", "warning"]
