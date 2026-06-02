@@ -2,24 +2,29 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-from typing import Any
+from typing import Annotated, Any
 from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
 import requests
-from pydantic.networks import AnyUrl
 
 from pyado import (
     ApiCall,
+    CustomWorkItemBase,
     SprintIterationInfo,
+    SprintIterationTimeframe,
     WorkItemAttachmentRef,
     WorkItemComment,
+    WorkItemExpand,
+    WorkItemFieldMap,
     WorkItemInfo,
+    WorkItemLink,
     WorkItemRef,
     WorkItemRelation,
-    add_artifact_link,
+    WorkItemRelationType,
     add_work_item_attachment,
+    add_work_item_link,
     add_work_item_tag,
     create_work_item,
     get_work_item,
@@ -30,6 +35,7 @@ from pyado import (
     iter_work_item_details,
     post_wiql,
     post_work_item_comment,
+    query_work_items,
     remove_work_item_tag,
     update_work_item,
 )
@@ -156,7 +162,7 @@ class TestCreateWorkItem:
             "System.WorkItemType": "Task",
             "System.Title": "Child",
         }
-        parent_url = AnyUrl("https://dev.azure.com/org/proj/_apis/wit/workItems/1")
+        parent_url = "https://dev.azure.com/org/proj/_apis/wit/workItems/1"
         relation = WorkItemRelation(
             rel="System.LinkTypes.Hierarchy-Reverse",
             url=parent_url,
@@ -209,7 +215,11 @@ class TestIterSprintIterations:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            list(iter_sprint_iterations(api_call, timeframe_filter="current"))
+            list(
+                iter_sprint_iterations(
+                    api_call, timeframe_filter=SprintIterationTimeframe.CURRENT
+                )
+            )
         call = mock_req.call_args
         params = call.kwargs.get("params") or {}
         assert "$timeframe" in params
@@ -243,7 +253,7 @@ class TestWorkItemRelation:
         """Attributes field defaults to None."""
         relation = WorkItemRelation(
             rel="System.LinkTypes.Hierarchy-Reverse",
-            url=AnyUrl("https://dev.azure.com/org/proj/_apis/wit/workItems/1"),
+            url="https://dev.azure.com/org/proj/_apis/wit/workItems/1",
         )
         assert relation.attributes is None
 
@@ -252,7 +262,7 @@ class TestWorkItemRelation:
         """Attributes field can hold arbitrary data."""
         relation = WorkItemRelation(
             rel="System.LinkTypes.Hierarchy-Reverse",
-            url=AnyUrl("https://dev.azure.com/org/proj/_apis/wit/workItems/1"),
+            url="https://dev.azure.com/org/proj/_apis/wit/workItems/1",
             attributes={"name": "Parent"},
         )
         assert relation.attributes == {"name": "Parent"}
@@ -305,6 +315,42 @@ class TestRunWiql:
         with patch.object(requests.Session, "request", return_value=mock_response):
             result = post_wiql(api_call, "SELECT [System.Id] FROM WorkItems WHERE 1=0")
         assert result == []
+
+
+class TestQueryWorkItems:
+    """Tests for query_work_items."""
+
+    @staticmethod
+    def test_yields_work_item_details_for_query_results(api_call: ApiCall) -> None:
+        """Runs WIQL query then fetches and yields full work item details."""
+        wiql_response = _make_mock_response({"workItems": [{"id": 1}, {"id": 2}]})
+        batch_response = _make_mock_response(
+            {"value": [make_work_item_dict(1), make_work_item_dict(2)]}
+        )
+        with patch.object(
+            requests.Session,
+            "request",
+            side_effect=[wiql_response, batch_response],
+        ):
+            result = list(
+                query_work_items(api_call, "SELECT [System.Id] FROM WorkItems")
+            )
+        assert len(result) == 2
+        assert result[0].id == 1
+        assert result[1].id == 2
+
+    @staticmethod
+    def test_yields_nothing_when_query_returns_no_results(api_call: ApiCall) -> None:
+        """Returns immediately without making a batch call when WIQL returns empty."""
+        wiql_response = _make_mock_response({"workItems": []})
+        with patch.object(
+            requests.Session, "request", return_value=wiql_response
+        ) as mock_req:
+            result = list(
+                query_work_items(api_call, "SELECT [System.Id] FROM WorkItems")
+            )
+        assert result == []
+        assert mock_req.call_count == 1
 
 
 class TestUpdateWorkItem:
@@ -456,15 +502,15 @@ class TestGetWorkItem:
         assert "$expand" not in params
 
     @staticmethod
-    def test_with_expand_relations_adds_expand_param(
+    def test_with_expand_adds_expand_param(
         work_item_api_call: ApiCall,
     ) -> None:
-        """Includes $expand=relations when expand_relations=True."""
+        """Includes $expand query parameter when expand is provided."""
         mock_response = _make_mock_response(make_single_work_item_dict())
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            get_work_item(work_item_api_call, expand_relations=True)
+            get_work_item(work_item_api_call, expand=WorkItemExpand.RELATIONS)
         params = mock_req.call_args.kwargs.get("params") or {}
         assert params.get("$expand") == "relations"
 
@@ -625,31 +671,231 @@ class TestRemoveWorkItemTag:
         assert result == ["Other"]
 
 
-class TestAddArtifactLink:
-    """Tests for add_artifact_link."""
+class TestCustomWorkItemBase:
+    """Tests for CustomWorkItemBase.to_fields."""
 
     @staticmethod
-    def test_includes_comment_in_attributes(work_item_api_call: ApiCall) -> None:
-        """Includes comment in relation attributes when provided."""
+    def test_to_fields_maps_annotated_fields() -> None:
+        """Maps WorkItemFieldMap-annotated fields to ADO field names."""
+
+        class SimpleTicket(CustomWorkItemBase):
+            title: Annotated[str, WorkItemFieldMap("System.Title")]
+
+        result = SimpleTicket(title="My title").to_fields()
+        assert result == {"System.Title": "My title"}
+
+    @staticmethod
+    def test_to_fields_skips_none_values() -> None:
+        """Fields with None value are excluded from the result."""
+
+        class OptionalTicket(CustomWorkItemBase):
+            title: Annotated[str | None, WorkItemFieldMap("System.Title")] = None
+
+        result = OptionalTicket().to_fields()
+        assert "System.Title" not in result
+
+    @staticmethod
+    def test_to_fields_multiple_markers_copies_to_each_path() -> None:
+        """A field with multiple WorkItemFieldMap markers maps to all ADO paths."""
+
+        class MultiTicket(CustomWorkItemBase):
+            desc: Annotated[
+                str,
+                WorkItemFieldMap("System.Description"),
+                WorkItemFieldMap("Microsoft.VSTS.TCM.ReproSteps"),
+            ]
+
+        result = MultiTicket(desc="details").to_fields()
+        assert result["System.Description"] == "details"
+        assert result["Microsoft.VSTS.TCM.ReproSteps"] == "details"
+
+    @staticmethod
+    def test_to_fields_ignores_non_field_map_metadata() -> None:
+        """Metadata items that are not WorkItemFieldMap are skipped."""
+
+        class MixedMetaTicket(CustomWorkItemBase):
+            title: Annotated[str, "extra-meta", WorkItemFieldMap("System.Title")]
+
+        result = MixedMetaTicket(title="hello").to_fields()
+        assert result == {"System.Title": "hello"}
+
+
+class TestWorkItemLink:
+    """Tests for WorkItemLink factory class."""
+
+    # --- artifact links ---
+
+    @staticmethod
+    def test_build_returns_artifact_link_relation() -> None:
+        """build() produces an ArtifactLink with the build vstfs URL."""
+        result = WorkItemLink.build(42)
+        assert result.rel == WorkItemRelationType.ARTIFACT_LINK
+        assert "Build/Build" in result.url
+        assert "42" in result.url
+        assert result.attributes == {"name": "Build"}
+
+    @staticmethod
+    def test_build_with_comment_includes_comment_in_attributes() -> None:
+        """build() with comment adds it to the attributes dict."""
+        result = WorkItemLink.build(42, comment="see build")
+        assert result.attributes == {"name": "Build", "comment": "see build"}
+
+    @staticmethod
+    def test_commit_returns_artifact_link_relation() -> None:
+        """commit() produces an ArtifactLink with the commit vstfs URL."""
+        project_id = uuid4()
+        repo_id = uuid4()
+        result = WorkItemLink.commit(project_id, repo_id, "abc123")
+        assert result.rel == WorkItemRelationType.ARTIFACT_LINK
+        assert "Git/Commit" in result.url
+        assert str(project_id) in result.url
+        assert result.attributes == {"name": "Fixed in Commit"}
+
+    @staticmethod
+    def test_pull_request_returns_artifact_link_relation() -> None:
+        """pull_request() produces an ArtifactLink with the PR vstfs URL."""
+        project_id = uuid4()
+        repo_id = uuid4()
+        result = WorkItemLink.pull_request(project_id, repo_id, 7)
+        assert result.rel == WorkItemRelationType.ARTIFACT_LINK
+        assert "Git/PullRequestId" in result.url
+        assert result.attributes == {"name": "Pull Request"}
+
+    # --- work-item links ---
+
+    @staticmethod
+    def test_related_returns_related_link_without_comment() -> None:
+        """related() produces a RELATED link with no attributes when no comment."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/5"
+        result = WorkItemLink.related(url)
+        assert result.rel == WorkItemRelationType.RELATED
+        assert result.url == url
+        assert result.attributes is None
+
+    @staticmethod
+    def test_related_with_comment_includes_attributes() -> None:
+        """related() with comment sets attributes dict."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/5"
+        result = WorkItemLink.related(url, comment="related to")
+        assert result.attributes == {"comment": "related to"}
+
+    @staticmethod
+    def test_parent_returns_parent_link() -> None:
+        """parent() produces a PARENT (Hierarchy-Reverse) link."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/1"
+        result = WorkItemLink.parent(url)
+        assert result.rel == WorkItemRelationType.PARENT
+
+    @staticmethod
+    def test_child_returns_child_link() -> None:
+        """child() produces a CHILD (Hierarchy-Forward) link."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/2"
+        result = WorkItemLink.child(url)
+        assert result.rel == WorkItemRelationType.CHILD
+
+    @staticmethod
+    def test_duplicate_returns_duplicate_link() -> None:
+        """duplicate() produces a DUPLICATE (Duplicate-Forward) link."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/3"
+        result = WorkItemLink.duplicate(url)
+        assert result.rel == WorkItemRelationType.DUPLICATE
+
+    @staticmethod
+    def test_duplicate_of_returns_duplicate_of_link() -> None:
+        """duplicate_of() produces a DUPLICATE_OF (Duplicate-Reverse) link."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/3"
+        result = WorkItemLink.duplicate_of(url)
+        assert result.rel == WorkItemRelationType.DUPLICATE_OF
+
+    @staticmethod
+    def test_successor_returns_successor_link() -> None:
+        """successor() produces a SUCCESSOR (Dependency-Forward) link."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/4"
+        result = WorkItemLink.successor(url)
+        assert result.rel == WorkItemRelationType.SUCCESSOR
+
+    @staticmethod
+    def test_predecessor_returns_predecessor_link() -> None:
+        """predecessor() produces a PREDECESSOR (Dependency-Reverse) link."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/4"
+        result = WorkItemLink.predecessor(url)
+        assert result.rel == WorkItemRelationType.PREDECESSOR
+
+    @staticmethod
+    def test_tested_by_returns_tested_by_link() -> None:
+        """tested_by() produces a TESTED_BY (TestedBy-Forward) link."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/10"
+        result = WorkItemLink.tested_by(url)
+        assert result.rel == WorkItemRelationType.TESTED_BY
+
+    @staticmethod
+    def test_tests_returns_tests_link() -> None:
+        """tests() produces a TESTS (TestedBy-Reverse) link."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/10"
+        result = WorkItemLink.tests(url)
+        assert result.rel == WorkItemRelationType.TESTS
+
+    @staticmethod
+    def test_test_case_returns_test_case_link() -> None:
+        """test_case() produces a TEST_CASE (SharedParam-Forward) link."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/10"
+        result = WorkItemLink.test_case(url)
+        assert result.rel == WorkItemRelationType.TEST_CASE
+
+    @staticmethod
+    def test_shared_parameter_referenced_by_returns_correct_link() -> None:
+        """shared_parameter_referenced_by() returns SHARED_PARAMETER_REFERENCED_BY."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/10"
+        result = WorkItemLink.shared_parameter_referenced_by(url)
+        assert result.rel == WorkItemRelationType.SHARED_PARAMETER_REFERENCED_BY
+
+    @staticmethod
+    def test_affects_returns_affects_link() -> None:
+        """affects() produces an AFFECTS (Affects-Forward) link."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/11"
+        result = WorkItemLink.affects(url)
+        assert result.rel == WorkItemRelationType.AFFECTS
+
+    @staticmethod
+    def test_affected_by_returns_affected_by_link() -> None:
+        """affected_by() produces an AFFECTED_BY (Affects-Reverse) link."""
+        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/11"
+        result = WorkItemLink.affected_by(url)
+        assert result.rel == WorkItemRelationType.AFFECTED_BY
+
+    # --- hyperlink ---
+
+    @staticmethod
+    def test_hyperlink_without_comment() -> None:
+        """hyperlink() without comment sets attributes to None."""
+        result = WorkItemLink.hyperlink("https://example.com")
+        assert result.rel == WorkItemRelationType.HYPERLINK
+        assert result.url == "https://example.com"
+        assert result.attributes is None
+
+    @staticmethod
+    def test_hyperlink_with_comment() -> None:
+        """hyperlink() with comment sets attributes dict."""
+        result = WorkItemLink.hyperlink("https://example.com", comment="see docs")
+        assert result.attributes == {"comment": "see docs"}
+
+
+class TestAddWorkItemLink:
+    """Tests for add_work_item_link."""
+
+    @staticmethod
+    def test_patches_work_item_with_relation(work_item_api_call: ApiCall) -> None:
+        """Sends a PATCH with the relation serialised at /relations/-."""
+        link = WorkItemLink.related(
+            "https://dev.azure.com/org/proj/_apis/wit/workItems/5"
+        )
         mock_response = _make_mock_response(make_single_work_item_dict())
-        artifact_url = "vstfs:///Git/PullRequestId/proj%2Frepo%2F1"
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            add_artifact_link(work_item_api_call, artifact_url, comment="PR link")
+            result = add_work_item_link(work_item_api_call, link)
+        assert isinstance(result, WorkItemInfo)
+        assert mock_req.call_args.args[0] == "PATCH"
         sent_json = mock_req.call_args.kwargs.get("json") or []
-        relation_value = sent_json[0]["value"]
-        assert relation_value["attributes"]["comment"] == "PR link"
-
-    @staticmethod
-    def test_omits_comment_when_none(work_item_api_call: ApiCall) -> None:
-        """Does not include comment key in attributes when comment is None."""
-        mock_response = _make_mock_response(make_single_work_item_dict())
-        artifact_url = "vstfs:///Git/PullRequestId/proj%2Frepo%2F2"
-        with patch.object(
-            requests.Session, "request", return_value=mock_response
-        ) as mock_req:
-            add_artifact_link(work_item_api_call, artifact_url)
-        sent_json = mock_req.call_args.kwargs.get("json") or []
-        relation_value = sent_json[0]["value"]
-        assert "comment" not in relation_value["attributes"]
+        assert sent_json[0]["path"] == "/relations/-"
+        assert sent_json[0]["value"]["rel"] == WorkItemRelationType.RELATED

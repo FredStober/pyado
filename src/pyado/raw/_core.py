@@ -58,6 +58,7 @@ class HTMLTextFilter(HTMLParser):
 
 AccessToken: TypeAlias = str
 
+#: Validated HTTPS URL accepted by ADO API calls (max 256 characters).
 ADOUrl: TypeAlias = Annotated[
     HttpUrl,
     UrlConstraints(

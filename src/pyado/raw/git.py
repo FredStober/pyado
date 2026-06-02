@@ -4,7 +4,8 @@
 
 from collections.abc import Iterator
 from datetime import datetime
-from typing import Literal, cast
+from enum import StrEnum
+from typing import cast
 from uuid import UUID
 
 from pydantic import BaseModel, Field, NonNegativeInt
@@ -21,15 +22,18 @@ __all__ = [
     "GitCommitChange",
     "GitCommitChangeItem",
     "GitCommitRef",
+    "GitCommitSearchCriteria",
     "GitPushChange",
     "GitPushChangeItem",
     "GitPushChangeType",
     "GitPushCommit",
+    "GitPushContentType",
     "GitPushNewContent",
     "GitPushRefUpdate",
     "GitPushRequest",
     "GitPushResult",
     "GitRef",
+    "GitRefFilter",
     "GitRefUpdate",
     "GitStatus",
     "PullRequestStatusContext",
@@ -54,6 +58,7 @@ RepositoryId = UUID
 CommitId = str
 SshUrl = str
 
+#: Null commit SHA used to represent a non-existent ref (e.g. deleting a branch).
 ZERO_SHA: CommitId = "0000000000000000000000000000000000000000"
 
 
@@ -153,6 +158,25 @@ class GitRef(BaseModel):
     object_id: CommitId = Field(alias="objectId")
 
 
+class GitRefFilter(BaseModel):
+    """Filter criteria for listing git refs.
+
+    All fields are optional; only non-None values are forwarded as query
+    parameters.
+
+    Attributes:
+        name_filter: Prefix filter applied by ADO, e.g. ``"heads/main"`` to
+            match exactly ``refs/heads/main`` (ADO strips the ``refs/`` prefix
+            before matching).
+        name_contains: Substring filter applied to the full ref name.
+    """
+
+    name_filter: str | None = Field(default=None, serialization_alias="filter")
+    name_contains: str | None = Field(
+        default=None, serialization_alias="filterContains"
+    )
+
+
 class _GitRefResults(BaseModel):
     """Internal: container for git ref list results."""
 
@@ -164,6 +188,29 @@ class CommitDiffPage(BaseModel):
 
     changes: list[GitCommitChange] = []
     all_changes_included: bool = Field(alias="allChangesIncluded", default=True)
+
+
+class GitCommitSearchCriteria(BaseModel):
+    """Search criteria for listing commits in a repository.
+
+    All fields are optional; only non-None values are forwarded as
+    ``searchCriteria.*`` query parameters.
+
+    Attributes:
+        item_path: Filter to commits that touched this file path.
+        item_version: Version string for the item version filter.
+        item_version_type: Version type (e.g. ``"commit"``).
+        top: Maximum number of commits to return.
+    """
+
+    item_path: str | None = Field(default=None, serialization_alias="itemPath")
+    item_version: str | None = Field(
+        default=None, serialization_alias="itemVersion.version"
+    )
+    item_version_type: str | None = Field(
+        default=None, serialization_alias="itemVersion.versionType"
+    )
+    top: int | None = Field(default=None, serialization_alias="$top")
 
 
 class _GitCommitSearchResults(BaseModel):
@@ -184,7 +231,21 @@ class GitRefUpdate(BaseModel):
 # Push models
 # ---------------------------------------------------------------------------
 
-GitPushChangeType = Literal["add", "edit", "delete", "rename"]
+
+class GitPushChangeType(StrEnum):
+    """Operation type for a single file change within a git push."""
+
+    ADD = "add"
+    EDIT = "edit"
+    DELETE = "delete"
+    RENAME = "rename"
+
+
+class GitPushContentType(StrEnum):
+    """Content encoding for new file content in a git push."""
+
+    RAWTEXT = "rawtext"
+    BASE64ENCODED = "base64encoded"
 
 
 class GitPushChangeItem(BaseModel):
@@ -197,8 +258,8 @@ class GitPushNewContent(BaseModel):
     """New file content within a push change."""
 
     content: str
-    content_type: Literal["rawtext", "base64encoded"] = Field(
-        default="rawtext", serialization_alias="contentType"
+    content_type: GitPushContentType = Field(
+        default=GitPushContentType.RAWTEXT, serialization_alias="contentType"
     )
 
 
@@ -223,7 +284,21 @@ class GitPushCommit(BaseModel):
 
 
 class GitPushRefUpdate(BaseModel):
-    """A ref update payload within a push request."""
+    """A ref update entry within a push request.
+
+    Each entry tells ADO which branch (or tag) to advance and from which
+    commit it is currently expected to point.  A single push can carry
+    multiple entries, allowing several refs to be updated atomically in one
+    API call — mirroring native Git push semantics
+    (e.g. ``git push origin main feature/foo``).
+
+    Attributes:
+        name: Full ref name, e.g. ``"refs/heads/main"``.
+        old_object_id: The commit SHA the ref currently points to.  ADO uses
+            this as an optimistic-concurrency guard: the push is rejected if
+            the ref has moved since you read it.  Use :data:`ZERO_SHA` when
+            pushing to a ref that does not yet exist (creating a new branch).
+    """
 
     name: str
     old_object_id: CommitId = Field(serialization_alias="oldObjectId")
@@ -237,7 +312,21 @@ class GitPushResult(BaseModel):
 
 
 class GitPushRequest(BaseModel):
-    """Request body for pushing commits to a repository."""
+    """Request body for ``POST .../pushes``.
+
+    A push bundles two things together:
+
+    * **ref_updates** — which branch/tag pointers to move.  More than one
+      entry is allowed; all updates land atomically in a single push event.
+    * **commits** — the new commit objects to create.  The same commit(s)
+      are applied to every ref listed in *ref_updates*.
+
+    Attributes:
+        ref_updates: One entry per ref being updated.  See
+            :class:`GitPushRefUpdate` for details.
+        commits: Ordered list of commits to include in the push.  Each
+            commit carries one or more :class:`GitPushChange` file changes.
+    """
 
     ref_updates: list[GitPushRefUpdate] = Field(serialization_alias="refUpdates")
     commits: list[GitPushCommit]
@@ -353,35 +442,27 @@ def get_commit_diff_page(
 
 def get_repository_commits(
     repository_api_call: ApiCall,
-    *,
-    item_path: str | None = None,
-    item_version: str | None = None,
-    item_version_type: str | None = None,
-    top: int | None = None,
+    search_criteria: GitCommitSearchCriteria | None = None,
 ) -> list[GitCommitRef]:
     """Search commits in a repository.
 
     Args:
         repository_api_call: Repository-level ADO API call (from
             get_repository_api_call).
-        item_path: Filter to commits that touched this file path.
-        item_version: Version string for the item version filter.
-        item_version_type: Version type for the item version filter
-            (e.g. ``"commit"``).
-        top: Maximum number of commits to return.
+        search_criteria: Optional search criteria model; only non-None
+            fields are forwarded as ``searchCriteria.*`` query parameters.
 
     Returns:
         List of GitCommitRef objects matching the search criteria.
     """
-    parameters: dict[str, int | str] = {}
-    if item_path is not None:
-        parameters["searchCriteria.itemPath"] = item_path
-    if item_version is not None:
-        parameters["searchCriteria.itemVersion.version"] = item_version
-    if item_version_type is not None:
-        parameters["searchCriteria.itemVersion.versionType"] = item_version_type
-    if top is not None:
-        parameters["searchCriteria.$top"] = top
+    criteria_dict = (
+        search_criteria.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if search_criteria
+        else {}
+    )
+    parameters: dict[str, int | str] = {
+        f"searchCriteria.{key}": value for key, value in criteria_dict.items()
+    }
     response = repository_api_call.get(
         "commits", parameters=parameters, version="7.1-preview.1"
     )
@@ -409,28 +490,24 @@ def post_repository_refs(
 
 def iter_refs(
     repository_api_call: ApiCall,
-    *,
-    name_filter: str | None = None,
-    name_contains: str | None = None,
+    ref_filter: GitRefFilter | None = None,
 ) -> Iterator[GitRef]:
     """Iterate over git refs in a repository.
 
     Args:
         repository_api_call: Repository-level ADO API call (from
             get_repository_api_call).
-        name_filter: Prefix filter applied by ADO, e.g. ``"heads/main"`` to
-            match exactly ``refs/heads/main`` (ADO strips the ``refs/`` prefix
-            before matching).
-        name_contains: Substring filter applied to the full ref name.
+        ref_filter: Optional filter model; only non-None fields are forwarded
+            as query parameters.
 
     Yields:
         GitRef for each matching ref.
     """
-    parameters: dict[str, int | str | bool] = {}
-    if name_filter is not None:
-        parameters["filter"] = name_filter
-    if name_contains is not None:
-        parameters["filterContains"] = name_contains
+    parameters = (
+        ref_filter.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if ref_filter
+        else {}
+    )
     response = repository_api_call.get(
         "refs",
         parameters=parameters,

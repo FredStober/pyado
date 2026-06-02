@@ -14,30 +14,39 @@ __all__ = [
     "BuildDetails",
     "BuildId",
     "BuildIssue",
+    "BuildIssueType",
     "BuildLogId",
     "BuildLogInfo",
+    "BuildLogType",
     "BuildQueueRequest",
     "BuildRecordInfo",
+    "BuildRecordResult",
+    "BuildRecordState",
     "BuildRecordType",
     "BuildRecordTypeInfo",
     "BuildResult",
+    "BuildSearchCriteria",
     "BuildStatus",
     "CommitDiffPage",
     "CommitId",
+    "CustomWorkItemBase",
     "GitCommitChange",
     "GitCommitChangeItem",
     "GitCommitRef",
+    "GitCommitSearchCriteria",
     "GitForkRef",
     "GitPullRequestMergeStrategy",
     "GitPushChange",
     "GitPushChangeItem",
     "GitPushChangeType",
     "GitPushCommit",
+    "GitPushContentType",
     "GitPushNewContent",
     "GitPushRefUpdate",
     "GitPushRequest",
     "GitPushResult",
     "GitRef",
+    "GitRefFilter",
     "GitRefUpdate",
     "GitStatus",
     "HTMLTextFilter",
@@ -61,6 +70,8 @@ __all__ = [
     "ProjectId",
     "ProjectInfo",
     "ProjectName",
+    "ProjectState",
+    "ProjectVisibility",
     "PullRequestCompletionOptions",
     "PullRequestCreateRequest",
     "PullRequestCreated",
@@ -74,6 +85,7 @@ __all__ = [
     "PullRequestReviewer",
     "PullRequestReviewerRequest",
     "PullRequestReviewerVoteRequest",
+    "PullRequestSearchCriteria",
     "PullRequestStatus",
     "PullRequestStatusContext",
     "PullRequestStatusRequest",
@@ -98,6 +110,7 @@ __all__ = [
     "SprintIterationId",
     "SprintIterationInfo",
     "SprintIterationPath",
+    "SprintIterationTimeframe",
     "SshUrl",
     "TaskId",
     "TimelineId",
@@ -109,21 +122,30 @@ __all__ = [
     "VariableGroupUpdateRequest",
     "VariableGroupUserInfo",
     "VariableInfo",
+    "WorkItemArtifactUrlPrefix",
     "WorkItemAttachmentRef",
     "WorkItemComment",
+    "WorkItemExpand",
     "WorkItemField",
+    "WorkItemFieldMap",
+    "WorkItemFieldName",
     "WorkItemId",
     "WorkItemInfo",
+    "WorkItemLink",
     "WorkItemRef",
     "WorkItemRelation",
     "WorkItemRelationType",
     "WorkItemsBatchRequest",
-    "add_artifact_link",
+    "abandon_pr",
     "add_file",
     "add_pr_reviewer",
     "add_work_item_attachment",
+    "add_work_item_link",
     "add_work_item_tag",
     "approve_pipeline",
+    "cancel_build",
+    "cancel_pipeline_run",
+    "complete_pr",
     "create_branch",
     "create_pr",
     "create_pr_thread",
@@ -187,9 +209,12 @@ __all__ = [
     "iter_work_item_comments",
     "iter_work_item_details",
     "iter_work_items_between_builds",
+    "link_pr_work_item",
     "make_commit",
     "make_ref_update",
     "patch_approvals",
+    "patch_build",
+    "patch_pipeline_run",
     "patch_pr",
     "patch_timeline_records",
     "patch_work_item",
@@ -215,6 +240,7 @@ __all__ = [
     "put_pr_reviewer",
     "put_pr_reviewer_vote",
     "put_variable_group",
+    "query_work_items",
     "remove_work_item_tag",
     "rename_file",
     "reply_to_pr_thread",
@@ -228,7 +254,16 @@ __all__ = [
 ]
 
 from pyado.high import (
-    add_artifact_link as add_artifact_link,
+    CustomWorkItemBase as CustomWorkItemBase,
+)
+from pyado.high import (
+    WorkItemFieldMap as WorkItemFieldMap,
+)
+from pyado.high import (
+    WorkItemLink as WorkItemLink,
+)
+from pyado.high import (
+    abandon_pr as abandon_pr,
 )
 from pyado.high import (
     add_file as add_file,
@@ -240,10 +275,22 @@ from pyado.high import (
     add_work_item_attachment as add_work_item_attachment,
 )
 from pyado.high import (
+    add_work_item_link as add_work_item_link,
+)
+from pyado.high import (
     add_work_item_tag as add_work_item_tag,
 )
 from pyado.high import (
     approve_pipeline as approve_pipeline,
+)
+from pyado.high import (
+    cancel_build as cancel_build,
+)
+from pyado.high import (
+    cancel_pipeline_run as cancel_pipeline_run,
+)
+from pyado.high import (
+    complete_pr as complete_pr,
 )
 from pyado.high import (
     create_branch as create_branch,
@@ -303,10 +350,16 @@ from pyado.high import (
     iter_work_item_details as iter_work_item_details,
 )
 from pyado.high import (
+    link_pr_work_item as link_pr_work_item,
+)
+from pyado.high import (
     make_commit as make_commit,
 )
 from pyado.high import (
     push_commits as push_commits,
+)
+from pyado.high import (
+    query_work_items as query_work_items,
 )
 from pyado.high import (
     remove_work_item_tag as remove_work_item_tag,
@@ -372,16 +425,28 @@ from pyado.raw import (
     BuildIssue as BuildIssue,
 )
 from pyado.raw import (
+    BuildIssueType as BuildIssueType,
+)
+from pyado.raw import (
     BuildLogId as BuildLogId,
 )
 from pyado.raw import (
     BuildLogInfo as BuildLogInfo,
 )
 from pyado.raw import (
+    BuildLogType as BuildLogType,
+)
+from pyado.raw import (
     BuildQueueRequest as BuildQueueRequest,
 )
 from pyado.raw import (
     BuildRecordInfo as BuildRecordInfo,
+)
+from pyado.raw import (
+    BuildRecordResult as BuildRecordResult,
+)
+from pyado.raw import (
+    BuildRecordState as BuildRecordState,
 )
 from pyado.raw import (
     BuildRecordType as BuildRecordType,
@@ -391,6 +456,9 @@ from pyado.raw import (
 )
 from pyado.raw import (
     BuildResult as BuildResult,
+)
+from pyado.raw import (
+    BuildSearchCriteria as BuildSearchCriteria,
 )
 from pyado.raw import (
     BuildStatus as BuildStatus,
@@ -411,6 +479,9 @@ from pyado.raw import (
     GitCommitRef as GitCommitRef,
 )
 from pyado.raw import (
+    GitCommitSearchCriteria as GitCommitSearchCriteria,
+)
+from pyado.raw import (
     GitForkRef as GitForkRef,
 )
 from pyado.raw import (
@@ -429,6 +500,9 @@ from pyado.raw import (
     GitPushCommit as GitPushCommit,
 )
 from pyado.raw import (
+    GitPushContentType as GitPushContentType,
+)
+from pyado.raw import (
     GitPushNewContent as GitPushNewContent,
 )
 from pyado.raw import (
@@ -442,6 +516,9 @@ from pyado.raw import (
 )
 from pyado.raw import (
     GitRef as GitRef,
+)
+from pyado.raw import (
+    GitRefFilter as GitRefFilter,
 )
 from pyado.raw import (
     GitRefUpdate as GitRefUpdate,
@@ -513,6 +590,12 @@ from pyado.raw import (
     ProjectName as ProjectName,
 )
 from pyado.raw import (
+    ProjectState as ProjectState,
+)
+from pyado.raw import (
+    ProjectVisibility as ProjectVisibility,
+)
+from pyado.raw import (
     PullRequestCompletionOptions as PullRequestCompletionOptions,
 )
 from pyado.raw import (
@@ -550,6 +633,9 @@ from pyado.raw import (
 )
 from pyado.raw import (
     PullRequestReviewerVoteRequest as PullRequestReviewerVoteRequest,
+)
+from pyado.raw import (
+    PullRequestSearchCriteria as PullRequestSearchCriteria,
 )
 from pyado.raw import (
     PullRequestStatus as PullRequestStatus,
@@ -624,6 +710,9 @@ from pyado.raw import (
     SprintIterationPath as SprintIterationPath,
 )
 from pyado.raw import (
+    SprintIterationTimeframe as SprintIterationTimeframe,
+)
+from pyado.raw import (
     SshUrl as SshUrl,
 )
 from pyado.raw import (
@@ -657,13 +746,22 @@ from pyado.raw import (
     VariableInfo as VariableInfo,
 )
 from pyado.raw import (
+    WorkItemArtifactUrlPrefix as WorkItemArtifactUrlPrefix,
+)
+from pyado.raw import (
     WorkItemAttachmentRef as WorkItemAttachmentRef,
 )
 from pyado.raw import (
     WorkItemComment as WorkItemComment,
 )
 from pyado.raw import (
+    WorkItemExpand as WorkItemExpand,
+)
+from pyado.raw import (
     WorkItemField as WorkItemField,
+)
+from pyado.raw import (
+    WorkItemFieldName as WorkItemFieldName,
 )
 from pyado.raw import (
     WorkItemId as WorkItemId,
@@ -820,6 +918,12 @@ from pyado.raw import (
 )
 from pyado.raw import (
     patch_approvals as patch_approvals,
+)
+from pyado.raw import (
+    patch_build as patch_build,
+)
+from pyado.raw import (
+    patch_pipeline_run as patch_pipeline_run,
 )
 from pyado.raw import (
     patch_pr as patch_pr,

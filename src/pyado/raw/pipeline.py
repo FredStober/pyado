@@ -9,7 +9,8 @@ events, and environment approvals).
 
 from collections.abc import Iterator
 from datetime import datetime
-from typing import Any, Literal
+from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -51,6 +52,7 @@ __all__ = [
     "iter_pipeline_runs",
     "iter_pipelines",
     "patch_approvals",
+    "patch_pipeline_run",
     "patch_timeline_records",
     "post_job_event",
     "post_job_feed",
@@ -59,33 +61,50 @@ __all__ = [
 ]
 
 JobId = UUID
-JobEventName = Literal["TaskCompleted"]
-JobEventResult = Literal["succeeded", "failed"]
 
-PipelineRunState = Literal[
-    "unknown",
-    "inProgress",
-    "canceling",
-    "completed",
-]
 
-PipelineRunResult = Literal[
-    "unknown",
-    "succeeded",
-    "failed",
-    "canceled",
-]
+class JobEventName(StrEnum):
+    """Event name sent to the job completion endpoint."""
 
-PipelineApprovalStatus = Literal[
-    "approved",
-    "canceled",
-    "failed",
-    "pending",
-    "rejected",
-    "skipped",
-    "timedOut",
-    "undefined",
-]
+    TASK_COMPLETED = "TaskCompleted"
+
+
+class JobEventResult(StrEnum):
+    """Outcome value reported with a job completion event."""
+
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class PipelineRunState(StrEnum):
+    """Possible lifecycle states of a pipeline run."""
+
+    UNKNOWN = "unknown"
+    IN_PROGRESS = "inProgress"
+    CANCELING = "canceling"
+    COMPLETED = "completed"
+
+
+class PipelineRunResult(StrEnum):
+    """Possible outcome values for a completed pipeline run."""
+
+    UNKNOWN = "unknown"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELED = "canceled"
+
+
+class PipelineApprovalStatus(StrEnum):
+    """Possible status values for a pipeline approval step."""
+
+    APPROVED = "approved"
+    CANCELED = "canceled"
+    FAILED = "failed"
+    PENDING = "pending"
+    REJECTED = "rejected"
+    SKIPPED = "skipped"
+    TIMED_OUT = "timedOut"
+    UNDEFINED = "undefined"
 
 
 class PipelineInfo(BaseModel):
@@ -224,12 +243,9 @@ def iter_pipelines(
     Yields:
         PipelineInfo for each pipeline.
     """
-    parameters: dict[str, int | str | bool] = {}
-    if order_by is not None:
-        parameters["orderBy"] = order_by
     response = project_api_call.get(
         "pipelines",
-        parameters=parameters,
+        parameters={"orderBy": order_by} if order_by is not None else None,
         version="7.1",
     )
     yield from _PipelineListResults.model_validate(response).value
@@ -251,13 +267,14 @@ def get_pipeline(
     Returns:
         PipelineInfo for the requested pipeline.
     """
-    parameters: dict[str, int | str | bool] = {}
-    if pipeline_version is not None:
-        parameters["pipelineVersion"] = pipeline_version
     response = project_api_call.get(
         "pipelines",
         str(pipeline_id),
-        parameters=parameters,
+        parameters=(
+            {"pipelineVersion": pipeline_version}
+            if pipeline_version is not None
+            else None
+        ),
         version="7.1",
     )
     return PipelineInfo.model_validate(response)
@@ -310,6 +327,34 @@ def get_pipeline_run(
         "runs",
         str(run_id),
         version="7.1",
+    )
+    return PipelineRunInfo.model_validate(response)
+
+
+def patch_pipeline_run(
+    project_api_call: ApiCall,
+    pipeline_id: int,
+    run_id: int,
+    state: PipelineRunState,
+) -> PipelineRunInfo:
+    """Update the state of a pipeline run.
+
+    Args:
+        project_api_call: Project-level ADO API call.
+        pipeline_id: The numeric pipeline ID.
+        run_id: The numeric run (build) ID.
+        state: New run state to set (e.g. ``"canceling"``).
+
+    Returns:
+        PipelineRunInfo reflecting the updated run state.
+    """
+    response = project_api_call.patch(
+        "pipelines",
+        str(pipeline_id),
+        "runs",
+        str(run_id),
+        version="7.1",
+        json={"state": state},
     )
     return PipelineRunInfo.model_validate(response)
 
@@ -489,13 +534,10 @@ def iter_approvals(
     Yields:
         PipelineApproval for each matching approval.
     """
-    parameters: dict[str, int | str | bool] = {}
-    if state is not None:
-        parameters["state"] = state
     response = project_api_call.get(
         "pipelines",
         "approvals",
-        parameters=parameters,
+        parameters={"state": state} if state is not None else None,
         version="7.1-preview.1",
     )
     yield from _PipelineApprovalResults.model_validate(response).value

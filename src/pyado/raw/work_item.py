@@ -4,7 +4,8 @@
 
 from collections.abc import Iterator
 from datetime import datetime
-from typing import Any, Literal
+from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -17,9 +18,13 @@ __all__ = [
     "SprintIterationId",
     "SprintIterationInfo",
     "SprintIterationPath",
+    "SprintIterationTimeframe",
+    "WorkItemArtifactUrlPrefix",
     "WorkItemAttachmentRef",
     "WorkItemComment",
+    "WorkItemExpand",
     "WorkItemField",
+    "WorkItemFieldName",
     "WorkItemId",
     "WorkItemInfo",
     "WorkItemRef",
@@ -42,14 +47,127 @@ SprintIterationId = UUID
 SprintIterationPath = str
 WorkItemField = str
 WorkItemId = int
-WorkItemRelationType = str
+
+
+class WorkItemFieldName(StrEnum):
+    """Well-known ADO work item field reference names.
+
+    Use these as keys when reading ``WorkItemInfo.fields`` or building
+    ``fields`` dicts for ``create_work_item`` / ``update_work_item``.
+
+    Example::
+
+        title = wi.fields[WorkItemFieldName.TITLE]
+        update_work_item(api, {WorkItemFieldName.STATE: "Active"})
+    """
+
+    # --- System fields ---
+    ID = "System.Id"
+    TITLE = "System.Title"
+    DESCRIPTION = "System.Description"
+    WORK_ITEM_TYPE = "System.WorkItemType"
+    STATE = "System.State"
+    REASON = "System.Reason"
+    ASSIGNED_TO = "System.AssignedTo"
+    CREATED_DATE = "System.CreatedDate"
+    CREATED_BY = "System.CreatedBy"
+    CHANGED_DATE = "System.ChangedDate"
+    CHANGED_BY = "System.ChangedBy"
+    COMMENT_COUNT = "System.CommentCount"
+    TEAM_PROJECT = "System.TeamProject"
+    AREA_PATH = "System.AreaPath"
+    AREA_ID = "System.AreaId"
+    ITERATION_PATH = "System.IterationPath"
+    ITERATION_ID = "System.IterationId"
+    REV = "System.Rev"
+    HISTORY = "System.History"
+    ATTACHED_FILE_COUNT = "System.AttachedFileCount"
+    HYPERLINK_COUNT = "System.HyperLinkCount"
+    EXTERNAL_LINK_COUNT = "System.ExternalLinkCount"
+    RELATED_LINK_COUNT = "System.RelatedLinkCount"
+    TAGS = "System.Tags"
+    BOARD_COLUMN = "System.BoardColumn"
+    BOARD_COLUMN_DONE = "System.BoardColumnDone"
+    BOARD_LANE = "System.BoardLane"
+    PARENT = "System.Parent"
+    # --- Microsoft.VSTS.Common fields ---
+    PRIORITY = "Microsoft.VSTS.Common.Priority"
+    SEVERITY = "Microsoft.VSTS.Common.Severity"
+    VALUE_AREA = "Microsoft.VSTS.Common.ValueArea"
+    BUSINESS_VALUE = "Microsoft.VSTS.Common.BusinessValue"
+    TIME_CRITICALITY = "Microsoft.VSTS.Common.TimeCriticality"
+    RISK = "Microsoft.VSTS.Common.Risk"
+    EFFORT = "Microsoft.VSTS.Common.Effort"
+    ACTIVITY = "Microsoft.VSTS.Common.Activity"
+    STACK_RANK = "Microsoft.VSTS.Common.StackRank"
+    BACKLOG_PRIORITY = "Microsoft.VSTS.Common.BacklogPriority"
+    CLOSED_DATE = "Microsoft.VSTS.Common.ClosedDate"
+    CLOSED_BY = "Microsoft.VSTS.Common.ClosedBy"
+    RESOLVED_DATE = "Microsoft.VSTS.Common.ResolvedDate"
+    RESOLVED_BY = "Microsoft.VSTS.Common.ResolvedBy"
+    RESOLVED_REASON = "Microsoft.VSTS.Common.ResolvedReason"
+    ACCEPTANCE_CRITERIA = "Microsoft.VSTS.Common.AcceptanceCriteria"
+    STATE_CHANGE_DATE = "Microsoft.VSTS.Common.StateChangeDate"
+    # --- Microsoft.VSTS.Scheduling fields ---
+    REMAINING_WORK = "Microsoft.VSTS.Scheduling.RemainingWork"
+    COMPLETED_WORK = "Microsoft.VSTS.Scheduling.CompletedWork"
+    ORIGINAL_ESTIMATE = "Microsoft.VSTS.Scheduling.OriginalEstimate"
+    STORY_POINTS = "Microsoft.VSTS.Scheduling.StoryPoints"
+    START_DATE = "Microsoft.VSTS.Scheduling.StartDate"
+    FINISH_DATE = "Microsoft.VSTS.Scheduling.FinishDate"
+    TARGET_DATE = "Microsoft.VSTS.Scheduling.TargetDate"
+    # --- Microsoft.VSTS.Build fields ---
+    INTEGRATION_BUILD = "Microsoft.VSTS.Build.IntegrationBuild"
+    FOUND_IN = "Microsoft.VSTS.Build.FoundIn"
+
+
+class WorkItemRelationType(StrEnum):
+    """Well-known work item relation type strings for WorkItemRelation.rel.
+
+    External artifact links (pull requests, builds, commits) use ARTIFACT_LINK
+    with a ``vstfs://`` URL built from WorkItemArtifactUrlPrefix.
+    """
+
+    # External artifact and attachment links
+    ARTIFACT_LINK = "ArtifactLink"
+    ATTACHED_FILE = "AttachedFile"
+    HYPERLINK = "Hyperlink"
+    # Work item link types (ADO built-ins)
+    RELATED = "System.LinkTypes.Related"
+    DUPLICATE = "System.LinkTypes.Duplicate-Forward"
+    DUPLICATE_OF = "System.LinkTypes.Duplicate-Reverse"
+    SUCCESSOR = "System.LinkTypes.Dependency-Forward"
+    PREDECESSOR = "System.LinkTypes.Dependency-Reverse"
+    CHILD = "System.LinkTypes.Hierarchy-Forward"
+    PARENT = "System.LinkTypes.Hierarchy-Reverse"
+    # VSTS / Azure Boards process template link types
+    TESTED_BY = "Microsoft.VSTS.Common.TestedBy-Forward"
+    TESTS = "Microsoft.VSTS.Common.TestedBy-Reverse"
+    TEST_CASE = "Microsoft.VSTS.TestCase.SharedParameterReferencedBy-Forward"
+    SHARED_PARAMETER_REFERENCED_BY = (
+        "Microsoft.VSTS.TestCase.SharedParameterReferencedBy-Reverse"
+    )
+    AFFECTS = "Microsoft.VSTS.Common.Affects-Forward"
+    AFFECTED_BY = "Microsoft.VSTS.Common.Affects-Reverse"
+
+
+class WorkItemArtifactUrlPrefix(StrEnum):
+    """vstfs:/// URL prefixes for work item artifact links.
+
+    Append ``/{artifact_id}`` to form a complete artifact URL:
+    ``f"{WorkItemArtifactUrlPrefix.BUILD}/{build_id}"``.
+    """
+
+    BUILD = "vstfs:///Build/Build"
+    COMMIT = "vstfs:///Git/Commit"
+    PULL_REQUEST = "vstfs:///Git/PullRequestId"
 
 
 class WorkItemRelation(BaseModel):
     """Type to store work item relationships."""
 
-    rel: WorkItemRelationType
-    url: AnyUrl
+    rel: str
+    url: str
     attributes: dict[str, Any] | None = None
 
 
@@ -69,12 +187,25 @@ class _WorkItemInfoResults(BaseModel):
     value: list[WorkItemInfo]
 
 
+class SprintIterationTimeframe(StrEnum):
+    """Relative timeframe values for filtering sprint iterations.
+
+    Only ``CURRENT`` is currently supported as a filter value by ADO.
+    All three values appear in the ``timeFrame`` field of
+    ``SprintIterationAttributes``.
+    """
+
+    PAST = "past"
+    CURRENT = "current"
+    FUTURE = "future"
+
+
 class SprintIterationAttributes(BaseModel):
     """Type to store sprint attribute information."""
 
     start_date: datetime | None = Field(alias="startDate", default=None)
     finish_date: datetime | None = Field(alias="finishDate", default=None)
-    timeframe: str = Field(alias="timeFrame")
+    timeframe: SprintIterationTimeframe = Field(alias="timeFrame")
 
 
 class SprintIterationInfo(BaseModel):
@@ -143,6 +274,16 @@ class WorkItemAttachmentRef(BaseModel):
     url: AnyUrl
 
 
+class WorkItemExpand(StrEnum):
+    """Expand options for work item fetch requests."""
+
+    NONE = "none"
+    RELATIONS = "relations"
+    FIELDS = "fields"
+    LINKS = "links"
+    ALL = "all"
+
+
 class WorkItemsBatchRequest(BaseModel):
     """Request body for fetching a batch of work items.
 
@@ -151,9 +292,7 @@ class WorkItemsBatchRequest(BaseModel):
 
     ids: list[WorkItemId]
     fields: list[WorkItemField] | None = None
-    expand: Literal["relations"] | None = Field(
-        default=None, serialization_alias="$expand"
-    )
+    expand: WorkItemExpand | None = Field(default=None, serialization_alias="$expand")
 
 
 class _WorkItemCommentRequest(BaseModel):
@@ -164,27 +303,24 @@ class _WorkItemCommentRequest(BaseModel):
 
 def iter_sprint_iterations(
     team_api_call: ApiCall,
-    timeframe_filter: str | None = None,
+    timeframe_filter: SprintIterationTimeframe | None = None,
 ) -> Iterator[SprintIterationInfo]:
     """Iterate over the sprint iterations for a team.
 
     Args:
         team_api_call: Team-level ADO API call (URL includes the team segment).
-        timeframe_filter: When provided, filters by timeframe (e.g.
-            ``"current"``).
+        timeframe_filter: When provided, filters by timeframe. Only
+            ``SprintIterationTimeframe.CURRENT`` is supported by ADO.
 
     Yields:
         SprintIterationInfo objects for each iteration.
     """
-    parameters: dict[str, int | str] = {}
-    if timeframe_filter:
-        parameters["$timeframe"] = timeframe_filter
     response = team_api_call.get(
         "work",
         "teamsettings",
         "iterations",
         version="7.1",
-        parameters=parameters,
+        parameters=({"$timeframe": timeframe_filter} if timeframe_filter else None),
     )
     results = _SprintIterationInfoResults.model_validate(response)
     yield from results.value
@@ -240,41 +376,43 @@ def iter_work_item_comments(
     Yields:
         WorkItemComment objects for each comment.
     """
-    parameters: dict[str, int | str | bool] = {}
+    continuation_token: str | None = None
     while True:
         response = work_item_api_call.get(
             "comments",
-            parameters=parameters,
+            parameters=(
+                {"continuationToken": continuation_token}
+                if continuation_token
+                else None
+            ),
             version="7.0-preview.3",
         )
         results = _WorkItemCommentResults.model_validate(response)
         yield from results.comments
-        if not results.continuation_token:
+        continuation_token = results.continuation_token
+        if not continuation_token:
             break
-        parameters["continuationToken"] = results.continuation_token
 
 
 def get_work_item(
     work_item_api_call: ApiCall,
     *,
-    expand_relations: bool = False,
+    expand: WorkItemExpand | None = None,
 ) -> WorkItemInfo:
     """Fetch a single work item by ID.
 
     Args:
         work_item_api_call: Work-item-level ADO API call (from
             get_work_item_api_call).
-        expand_relations: When True, related work item links are included in
-            the response.
+        expand: Optional expand mode; controls which extra data ADO includes
+            in the response (e.g. ``WorkItemExpand.RELATIONS`` to include
+            related work item links, ``WorkItemExpand.ALL`` for everything).
 
     Returns:
         WorkItemInfo for the work item.
     """
-    parameters: dict[str, int | str | bool] = {}
-    if expand_relations:
-        parameters["$expand"] = "relations"
     response = work_item_api_call.get(
-        parameters=parameters,
+        parameters={"$expand": expand} if expand is not None else None,
         version="7.1",
     )
     return WorkItemInfo.model_validate(response)

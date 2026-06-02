@@ -9,11 +9,13 @@ on:
 jobs:
   labeler:
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     steps:
     - name: Check out the repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Run Labeler
-      uses: crazy-max/ghaction-github-labeler@v4.0.0
+      uses: crazy-max/ghaction-github-labeler@v5
       with:
         skip-delete: true

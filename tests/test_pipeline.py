@@ -2,7 +2,7 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -32,6 +32,9 @@ from pyado import (
     update_timeline_records,
 )
 from tests.conftest import _make_mock_response, make_build_record_dict
+
+if TYPE_CHECKING:  # pragma: no cover
+    from pyado.raw.pipeline import JobEventName, JobEventResult, PipelineApprovalStatus
 
 HUB_NAME = "Build"
 PLAN_ID = uuid4()
@@ -135,7 +138,13 @@ class TestSendJobEvent:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            send_job_event(api_call, TASK_ID, JOB_ID, "TaskCompleted", "succeeded")
+            send_job_event(
+                api_call,
+                TASK_ID,
+                JOB_ID,
+                cast("JobEventName", "TaskCompleted"),
+                cast("JobEventResult", "succeeded"),
+            )
         mock_req.assert_called_once()
         call = mock_req.call_args
         assert call.args[0] == "POST"
@@ -238,7 +247,11 @@ class TestIterApprovals:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            list(iter_approvals(api_call, state="approved"))
+            list(
+                iter_approvals(
+                    api_call, state=cast("PipelineApprovalStatus", "approved")
+                )
+            )
         params = mock_req.call_args.kwargs.get("params") or {}
         assert params.get("state") == "approved"
 

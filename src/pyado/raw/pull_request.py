@@ -4,8 +4,8 @@
 
 from collections.abc import Iterator
 from datetime import datetime
-from enum import IntEnum
-from typing import Any, Literal
+from enum import IntEnum, StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.networks import AnyUrl
@@ -36,6 +36,7 @@ __all__ = [
     "PullRequestReviewer",
     "PullRequestReviewerRequest",
     "PullRequestReviewerVoteRequest",
+    "PullRequestSearchCriteria",
     "PullRequestStatus",
     "PullRequestStatusRequest",
     "PullRequestStatusState",
@@ -74,35 +75,66 @@ __all__ = [
 
 PullRequestId = int
 PullRequestIteration = int
-PullRequestStatusState = Literal[
-    "error",
-    "failed",
-    "notApplicable",
-    "notSet",
-    "pending",
-    "succeeded",
-]
-PullRequestMergeStatus = Literal[
-    "notSet",
-    "queued",
-    "conflicts",
-    "succeeded",
-    "rejectedByPolicy",
-    "failure",
-]
-PullRequestThreadStatus = Literal[
-    "active", "byDesign", "closed", "fixed", "pending", "unknown", "wontFix"
-]
-PullRequestMergeFailureType = Literal[
-    "none", "unknown", "caseSensitive", "objectTooLarge"
-]
-PullRequestStatus = Literal["active", "abandoned", "completed"]
-GitPullRequestMergeStrategy = Literal[
-    "noFastForward",
-    "squash",
-    "rebase",
-    "rebaseMerge",
-]
+
+
+class PullRequestStatusState(StrEnum):
+    """Possible state values for a PR status check."""
+
+    ERROR = "error"
+    FAILED = "failed"
+    NOT_APPLICABLE = "notApplicable"
+    NOT_SET = "notSet"
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+
+
+class PullRequestMergeStatus(StrEnum):
+    """Current merge status of a pull request."""
+
+    NOT_SET = "notSet"
+    QUEUED = "queued"
+    CONFLICTS = "conflicts"
+    SUCCEEDED = "succeeded"
+    REJECTED_BY_POLICY = "rejectedByPolicy"
+    FAILURE = "failure"
+
+
+class PullRequestThreadStatus(StrEnum):
+    """Possible status values for a PR review thread."""
+
+    ACTIVE = "active"
+    BY_DESIGN = "byDesign"
+    CLOSED = "closed"
+    FIXED = "fixed"
+    PENDING = "pending"
+    UNKNOWN = "unknown"
+    WONT_FIX = "wontFix"
+
+
+class PullRequestMergeFailureType(StrEnum):
+    """Reason a pull request merge failed."""
+
+    NONE = "none"
+    UNKNOWN = "unknown"
+    CASE_SENSITIVE = "caseSensitive"
+    OBJECT_TOO_LARGE = "objectTooLarge"
+
+
+class PullRequestStatus(StrEnum):
+    """Lifecycle state of a pull request."""
+
+    ACTIVE = "active"
+    ABANDONED = "abandoned"
+    COMPLETED = "completed"
+
+
+class GitPullRequestMergeStrategy(StrEnum):
+    """Merge strategies available when completing a pull request."""
+
+    NO_FAST_FORWARD = "noFastForward"
+    SQUASH = "squash"
+    REBASE = "rebase"
+    REBASE_MERGE = "rebaseMerge"
 
 
 class PullRequestThreadCommentType(IntEnum):
@@ -215,6 +247,33 @@ class PullRequestListItem(BaseModel):
         alias="lastMergeCommit", default=None
     )
     supports_iterations: bool = Field(alias="supportsIterations", default=False)
+
+
+class PullRequestSearchCriteria(BaseModel):
+    """Search criteria for listing pull requests.
+
+    All fields are optional; only non-None values are forwarded as
+    ``searchCriteria.*`` query parameters.
+
+    Attributes:
+        status: Filter by PR lifecycle state.
+        creator_id: Filter by the identity UUID of the PR creator.
+        reviewer_id: Filter by the identity UUID of a reviewer.
+        source_ref_name: Filter by source branch ref name.
+        target_ref_name: Filter by target branch ref name.
+        repository_id: Filter by repository UUID.
+    """
+
+    status: PullRequestStatus | None = None
+    creator_id: str | None = Field(default=None, serialization_alias="creatorId")
+    reviewer_id: str | None = Field(default=None, serialization_alias="reviewerId")
+    source_ref_name: str | None = Field(
+        default=None, serialization_alias="sourceRefName"
+    )
+    target_ref_name: str | None = Field(
+        default=None, serialization_alias="targetRefName"
+    )
+    repository_id: str | None = Field(default=None, serialization_alias="repositoryId")
 
 
 class _PullRequestListResults(BaseModel):
@@ -542,22 +601,26 @@ def post_pr_status(
 
 def iter_prs(
     project_api_call: ApiCall,
-    search_criteria: dict[str, int | str | bool] | None = None,
+    search_criteria: PullRequestSearchCriteria | None = None,
 ) -> Iterator[PullRequestListItem]:
     """Iterate over pull requests in the project matching the given criteria.
 
     Args:
         project_api_call: Project-level ADO API call.
-        search_criteria: Optional mapping of ``searchCriteria.*`` query
-            parameters (without the ``searchCriteria.`` prefix), e.g.
-            ``{"status": "active", "creatorId": "…"}``.
+        search_criteria: Optional search criteria model; only non-None
+            fields are forwarded as ``searchCriteria.*`` query parameters.
 
     Yields:
         PullRequestListItem for each matching pull request.
     """
     page_size = 100
+    criteria_dict = (
+        search_criteria.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if search_criteria
+        else {}
+    )
     parameters: dict[str, int | str | bool] = {
-        f"searchCriteria.{key}": value for key, value in (search_criteria or {}).items()
+        f"searchCriteria.{key}": value for key, value in criteria_dict.items()
     }
     parameters["$top"] = page_size
     skip = 0

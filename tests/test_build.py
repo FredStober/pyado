@@ -13,7 +13,12 @@ from pyado import (
     ApiCall,
     BuildDetails,
     BuildRecordInfo,
+    BuildSearchCriteria,
+    BuildStatus,
     PipelineDefinitionInfo,
+    PipelineRunInfo,
+    cancel_build,
+    cancel_pipeline_run,
     delete_build_tag,
     get_build_api_call,
     get_build_details,
@@ -233,7 +238,7 @@ class TestIterBuilds:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            list(iter_builds(api_call, definition_id=42))
+            list(iter_builds(api_call, BuildSearchCriteria(definition_id=42)))
         params = mock_req.call_args.kwargs.get("params") or {}
         assert params.get("definitions") == 42
 
@@ -244,7 +249,12 @@ class TestIterBuilds:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            list(iter_builds(api_call, status_filter="inProgress"))
+            list(
+                iter_builds(
+                    api_call,
+                    BuildSearchCriteria(status_filter=BuildStatus.IN_PROGRESS),
+                )
+            )
         params = mock_req.call_args.kwargs.get("params") or {}
         assert params.get("statusFilter") == "inProgress"
 
@@ -255,7 +265,12 @@ class TestIterBuilds:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            list(iter_builds(api_call, branch_name="refs/heads/main"))
+            list(
+                iter_builds(
+                    api_call,
+                    BuildSearchCriteria(branch_name="refs/heads/main"),
+                )
+            )
         params = mock_req.call_args.kwargs.get("params") or {}
         assert params.get("branchName") == "refs/heads/main"
 
@@ -266,7 +281,7 @@ class TestIterBuilds:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            list(iter_builds(api_call, top=10))
+            list(iter_builds(api_call, BuildSearchCriteria(top=10)))
         params = mock_req.call_args.kwargs.get("params") or {}
         assert params.get("$top") == 10
 
@@ -445,3 +460,54 @@ class TestDeleteBuildTag:
         with patch.object(requests.Session, "request", return_value=mock_response):
             result = delete_build_tag(api_call, "tag-b")
         assert result == ["tag-a"]
+
+
+class TestCancelBuild:
+    """Tests for cancel_build."""
+
+    @staticmethod
+    def test_patches_build_with_cancelling_status(api_call: ApiCall) -> None:
+        """Sends PATCH with status=cancelling and returns updated BuildDetails."""
+        build_api_call = get_build_api_call(api_call, 100)
+        response_data = make_build_details_dict(status="cancelling")
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            result = cancel_build(build_api_call)
+        assert isinstance(result, BuildDetails)
+        assert mock_req.call_args.args[0] == "PATCH"
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json.get("status") == BuildStatus.CANCELLING
+
+
+class TestCancelPipelineRun:
+    """Tests for cancel_pipeline_run."""
+
+    @staticmethod
+    def test_patches_run_with_canceling_state(api_call: ApiCall) -> None:
+        """Sends PATCH with state=canceling and returns updated PipelineRunInfo."""
+        run_data: dict[str, Any] = {
+            "id": 50,
+            "name": "20240115.1",
+            "state": "canceling",
+            "result": None,
+            "pipeline": {
+                "id": 1,
+                "revision": 1,
+                "name": "my-pipeline",
+                "folder": "\\",
+                "url": "https://dev.azure.com/org/proj/_apis/pipelines/1",
+            },
+            "createdDate": NOW_ISO,
+            "url": "https://dev.azure.com/org/proj/_apis/pipelines/1/runs/50",
+        }
+        mock_response = _make_mock_response(run_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            result = cancel_pipeline_run(api_call, 1, 50)
+        assert isinstance(result, PipelineRunInfo)
+        assert mock_req.call_args.args[0] == "PATCH"
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json.get("state") == "canceling"

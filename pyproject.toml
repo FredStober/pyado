@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "uv_build"
-requires = ["uv_build>=0.9.8,<0.10.0"]
+requires = ["uv_build>=0.9.8,<1.0.0"]
 
 [dependency-groups]
 dev = [
@@ -8,6 +8,7 @@ dev = [
   "prek>=0.4.3",
   "pytest>=9.0.3",
   "pytest-cov>=7.1.0",
+  "ruff>=0.11.0",
   "ty>=0.0.42",
   "types-requests>=2.32.0"
 ]
@@ -44,7 +45,7 @@ license = "MIT"
 name = "pyado"
 readme = "README.md"
 requires-python = ">=3.11"
-version = "0.2.3"
+version = "0.3.0"
 
 [project.urls]
 "Bug Tracker" = "https://github.com/fredstober/pyado/issues"

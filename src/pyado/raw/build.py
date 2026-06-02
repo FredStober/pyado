@@ -5,7 +5,8 @@
 import json as _json
 from collections.abc import Iterator
 from datetime import datetime
-from typing import Any, Literal
+from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_serializer
@@ -22,13 +23,18 @@ __all__ = [
     "BuildDetails",
     "BuildId",
     "BuildIssue",
+    "BuildIssueType",
     "BuildLogId",
     "BuildLogInfo",
+    "BuildLogType",
     "BuildQueueRequest",
     "BuildRecordInfo",
+    "BuildRecordResult",
+    "BuildRecordState",
     "BuildRecordType",
     "BuildRecordTypeInfo",
     "BuildResult",
+    "BuildSearchCriteria",
     "BuildStatus",
     "PipelineDefinitionInfo",
     "PlanId",
@@ -45,6 +51,7 @@ __all__ = [
     "iter_pipeline_definitions",
     "iter_timeline_records",
     "iter_work_items_between_builds",
+    "patch_build",
     "post_build",
     "post_build_tag",
 ]
@@ -54,32 +61,73 @@ TimelineId = UUID
 TaskId = UUID
 QueueId = int
 BuildLogId = int
-BuildStatus = Literal[
-    "all",
-    "cancelling",
-    "completed",
-    "inProgress",
-    "none",
-    "notStarted",
-    "postponed",
-]
-BuildResult = Literal[
-    "canceled",
-    "failed",
-    "none",
-    "partiallySucceeded",
-    "succeeded",
-]
-BuildRecordType = Literal[
-    "Checkpoint",
-    "Checkpoint.Approval",
-    "Checkpoint.Authorization",
-    "Checkpoint.ExtendsCheck",
-    "Phase",
-    "Stage",
-    "Job",
-    "Task",
-]
+
+
+class BuildStatus(StrEnum):
+    """Possible build status values used to filter or inspect a build."""
+
+    ALL = "all"
+    CANCELLING = "cancelling"
+    COMPLETED = "completed"
+    IN_PROGRESS = "inProgress"
+    NONE = "none"
+    NOT_STARTED = "notStarted"
+    POSTPONED = "postponed"
+
+
+class BuildResult(StrEnum):
+    """Possible outcome values for a completed build."""
+
+    CANCELED = "canceled"
+    FAILED = "failed"
+    NONE = "none"
+    PARTIALLY_SUCCEEDED = "partiallySucceeded"
+    SUCCEEDED = "succeeded"
+
+
+class BuildRecordType(StrEnum):
+    """Timeline record types present in a build's timeline."""
+
+    CHECKPOINT = "Checkpoint"
+    CHECKPOINT_APPROVAL = "Checkpoint.Approval"
+    CHECKPOINT_AUTHORIZATION = "Checkpoint.Authorization"
+    CHECKPOINT_EXTENDS_CHECK = "Checkpoint.ExtendsCheck"
+    PHASE = "Phase"
+    STAGE = "Stage"
+    JOB = "Job"
+    TASK = "Task"
+
+
+class BuildLogType(StrEnum):
+    """Log container types returned by the build log endpoint."""
+
+    CONTAINER = "Container"
+
+
+class BuildIssueType(StrEnum):
+    """Severity types for a build issue."""
+
+    ERROR = "error"
+    WARNING = "warning"
+
+
+class BuildRecordResult(StrEnum):
+    """Outcome values for a single timeline record within a build."""
+
+    CANCELED = "canceled"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    SUCCEEDED = "succeeded"
+
+
+class BuildRecordState(StrEnum):
+    """Lifecycle state values for a single timeline record within a build."""
+
+    COMPLETED = "completed"
+    IN_PROGRESS = "inProgress"
+    PENDING = "pending"
+
+
 PlanId = UUID
 
 
@@ -117,7 +165,7 @@ class BuildLogInfo(BaseModel, extra="forbid"):
     """Type to store build log details."""
 
     id: BuildLogId
-    log_type: Literal["Container"] = Field(alias="type")
+    log_type: BuildLogType = Field(alias="type")
     url: ADOUrl
 
 
@@ -143,7 +191,7 @@ class BuildIssue(BaseModel, extra="forbid"):
     category: str | None = None
     data: dict[str, str] | None = None
     message: str
-    type: Literal["error", "warning"]
+    type: BuildIssueType
 
 
 class BuildRecordInfo(BaseModel, extra="forbid"):
@@ -167,10 +215,10 @@ class BuildRecordInfo(BaseModel, extra="forbid"):
     percent_complete: int | None = Field(alias="percentComplete")
     previous_attempts: list[BuildAttemptInfo] = Field(alias="previousAttempts")
     queue_id: QueueId | None = Field(default=None, alias="queueId")
-    result: Literal["failed", "succeeded", "skipped", "canceled"] | None
+    result: BuildRecordResult | None
     result_code: str | None = Field(alias="resultCode")
     start_time: datetime | None = Field(alias="startTime")
-    state: Literal["completed", "pending", "inProgress"]
+    state: BuildRecordState
     task: BuildRecordTypeInfo | None
     type_name: BuildRecordType = Field(alias="type")
     url: AnyUrl | None
@@ -297,6 +345,27 @@ class _PipelineDefinitionResults(BaseModel):
     value: list[PipelineDefinitionInfo]
 
 
+class BuildSearchCriteria(BaseModel):
+    """Search criteria for listing build runs.
+
+    All fields are optional; only non-None values are forwarded as query
+    parameters to the builds list endpoint.
+
+    Attributes:
+        definition_id: Filter to a specific pipeline definition ID.
+        status_filter: Filter by build status.
+        branch_name: Filter by source branch ref name.
+        top: Maximum number of results to return.
+    """
+
+    definition_id: int | None = Field(default=None, serialization_alias="definitions")
+    status_filter: BuildStatus | None = Field(
+        default=None, serialization_alias="statusFilter"
+    )
+    branch_name: str | None = Field(default=None, serialization_alias="branchName")
+    top: int | None = Field(default=None, serialization_alias="$top")
+
+
 # ---------------------------------------------------------------------------
 # Functions
 # ---------------------------------------------------------------------------
@@ -344,16 +413,18 @@ def iter_work_items_between_builds(
     Yields:
         WorkItemRef for each work item in the build range.
     """
-    parameters: dict[str, int | str | bool] = {
-        "fromBuildId": from_build_id,
-        "toBuildId": to_build_id,
-    }
-    if top is not None:
-        parameters["$top"] = top
     response = project_api_call.get(
         "build",
         "workitems",
-        parameters=parameters,
+        parameters={
+            key: value
+            for key, value in {
+                "fromBuildId": from_build_id,
+                "toBuildId": to_build_id,
+                "$top": top,
+            }.items()
+            if value is not None
+        },
         version="7.1",
     )
     yield from _WorkItemRefResults.model_validate(response).value
@@ -465,34 +536,23 @@ def get_build_details(build_api_call: ApiCall) -> BuildDetails:
 
 def iter_builds(
     project_api_call: ApiCall,
-    *,
-    definition_id: int | None = None,
-    status_filter: BuildStatus | None = None,
-    branch_name: str | None = None,
-    top: int | None = None,
+    search_criteria: BuildSearchCriteria | None = None,
 ) -> Iterator[BuildDetails]:
     """Iterate over build runs in the project.
 
     Args:
         project_api_call: Project-level ADO API call.
-        definition_id: Filter to a specific pipeline definition ID.
-        status_filter: Filter by build status (e.g. ``"inProgress"``).
-        branch_name: Filter by source branch (e.g. ``"refs/heads/main"``).
-        top: Maximum number of results to return (server default applies when
-            omitted).
+        search_criteria: Optional search criteria model; only non-None
+            fields are forwarded as query parameters.
 
     Yields:
         BuildDetails for each matching build run.
     """
-    parameters: dict[str, int | str | bool] = {}
-    if definition_id is not None:
-        parameters["definitions"] = definition_id
-    if status_filter is not None:
-        parameters["statusFilter"] = status_filter
-    if branch_name is not None:
-        parameters["branchName"] = branch_name
-    if top is not None:
-        parameters["$top"] = top
+    parameters: dict[str, int | str | bool] = (
+        search_criteria.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if search_criteria
+        else {}
+    )
     response = project_api_call.get(
         "build",
         "builds",
@@ -524,6 +584,23 @@ def post_build(
     return BuildDetails.model_validate(response)
 
 
+def patch_build(build_api_call: ApiCall, status: BuildStatus) -> BuildDetails:
+    """Update the status of a build run.
+
+    Args:
+        build_api_call: Build-level ADO API call (from get_build_api_call).
+        status: New build status to set (e.g. ``"cancelling"``).
+
+    Returns:
+        BuildDetails reflecting the updated build state.
+    """
+    response = build_api_call.patch(
+        version="7.1",
+        json={"status": status},
+    )
+    return BuildDetails.model_validate(response)
+
+
 def iter_pipeline_definitions(
     project_api_call: ApiCall,
     *,
@@ -538,13 +615,10 @@ def iter_pipeline_definitions(
     Yields:
         PipelineDefinitionInfo for each matching definition.
     """
-    parameters: dict[str, int | str | bool] = {}
-    if name_filter is not None:
-        parameters["name"] = name_filter
     response = project_api_call.get(
         "build",
         "definitions",
-        parameters=parameters,
+        parameters={"name": name_filter} if name_filter is not None else None,
         version="7.1",
     )
     yield from _PipelineDefinitionResults.model_validate(response).value

@@ -14,6 +14,8 @@ from pyado import (
     ApiCall,
     PullRequestCreated,
     PullRequestIterationRecord,
+    PullRequestSearchCriteria,
+    PullRequestStatus,
     PullRequestStatusContext,
     PullRequestStatusRequest,
     PullRequestThreadCommentRequest,
@@ -23,7 +25,11 @@ from pyado import (
     PullRequestThreadResponse,
     PullRequestUpdateRequest,
     PullRequestVote,
+    WorkItemInfo,
+    WorkItemRelationType,
+    abandon_pr,
     add_pr_reviewer,
+    complete_pr,
     create_pr,
     create_pr_thread,
     delete_pr_label,
@@ -39,6 +45,7 @@ from pyado import (
     iter_pr_threads,
     iter_pr_work_item_ids,
     iter_prs,
+    link_pr_work_item,
     patch_pr,
     post_pr_label,
     post_pr_new_thread,
@@ -47,7 +54,7 @@ from pyado import (
     reply_to_pr_thread,
     set_pr_reviewer_vote,
 )
-from tests.conftest import _make_mock_response
+from tests.conftest import ACCESS_TOKEN, _make_mock_response
 
 REPO_ID = uuid4()
 PR_ID = 7
@@ -235,7 +242,14 @@ class TestIterPrs:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            list(iter_prs(api_call, search_criteria={"status": "active"}))
+            list(
+                iter_prs(
+                    api_call,
+                    search_criteria=PullRequestSearchCriteria(
+                        status=PullRequestStatus.ACTIVE
+                    ),
+                )
+            )
         params = mock_req.call_args.kwargs.get("params") or {}
         assert "searchCriteria.status" in params
         assert params["searchCriteria.status"] == "active"
@@ -713,3 +727,106 @@ class TestGetPrDetails:
         assert isinstance(result, PullRequestCreated)
         assert result.pr_id == 77
         assert result.title == "Fix bug"
+
+
+class TestCompletePr:
+    """Tests for complete_pr."""
+
+    @staticmethod
+    def test_patches_pr_with_completed_status(api_call: ApiCall) -> None:
+        """Sends PATCH with status=completed and the merge source commit ID."""
+        response_data = {**_PATCH_PR_RESPONSE, "status": "completed"}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            result = complete_pr(api_call, "abc123sha")
+        assert isinstance(result, PullRequestCreated)
+        assert mock_req.call_args.args[0] == "PATCH"
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json.get("status") == "completed"
+        assert sent_json.get("lastMergeSourceCommit") == {"commitId": "abc123sha"}
+
+
+class TestAbandonPr:
+    """Tests for abandon_pr."""
+
+    @staticmethod
+    def test_patches_pr_with_abandoned_status(api_call: ApiCall) -> None:
+        """Sends PATCH with status=abandoned and returns updated PullRequestCreated."""
+        response_data = {**_PATCH_PR_RESPONSE, "status": "abandoned"}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            result = abandon_pr(api_call)
+        assert isinstance(result, PullRequestCreated)
+        assert mock_req.call_args.args[0] == "PATCH"
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json.get("status") == "abandoned"
+
+
+class TestLinkPrWorkItem:
+    """Tests for link_pr_work_item."""
+
+    @staticmethod
+    def test_adds_pr_artifact_link_to_work_item() -> None:
+        """Fetches PR details then patches the work item with an ArtifactLink."""
+        repo_id = uuid4()
+        pr_data = {
+            "pullRequestId": 7,
+            "repository": {"id": str(repo_id)},
+            "status": "active",
+            "url": "https://dev.azure.com/org/myproject/_apis/git/pullRequests/7",
+            "title": "My PR",
+            "sourceRefName": "refs/heads/feature",
+            "targetRefName": "refs/heads/main",
+        }
+        wi_data: dict[str, Any] = {"id": 42, "fields": {"System.Title": "Task"}}
+        project_api_call = ApiCall(
+            access_token=ACCESS_TOKEN,
+            url="https://dev.azure.com/org/myproject/",
+        )
+        pr_api_call = get_pr_api_call(project_api_call, repo_id, 7)
+        pr_response = _make_mock_response(pr_data)
+        wi_response = _make_mock_response(wi_data)
+        with patch.object(
+            requests.Session,
+            "request",
+            side_effect=[pr_response, wi_response],
+        ) as mock_req:
+            result = link_pr_work_item(pr_api_call, project_api_call, 42)
+        assert isinstance(result, WorkItemInfo)
+        patch_call = mock_req.call_args_list[1]
+        assert patch_call.args[0] == "PATCH"
+        patch_body = patch_call.kwargs.get("json") or []
+        assert patch_body[0]["value"]["rel"] == WorkItemRelationType.ARTIFACT_LINK
+        assert "myproject" in patch_body[0]["value"]["url"]
+
+    @staticmethod
+    def test_includes_comment_in_link_attributes() -> None:
+        """Optional comment is included in the artifact link attributes."""
+        repo_id = uuid4()
+        pr_data = {
+            "pullRequestId": 3,
+            "repository": {"id": str(repo_id)},
+            "status": "active",
+            "url": "https://dev.azure.com/org/myproject/_apis/git/pullRequests/3",
+            "title": "PR",
+            "sourceRefName": "refs/heads/feature",
+            "targetRefName": "refs/heads/main",
+        }
+        wi_data: dict[str, Any] = {"id": 1, "fields": {}}
+        project_api_call = ApiCall(
+            access_token=ACCESS_TOKEN,
+            url="https://dev.azure.com/org/myproject/",
+        )
+        pr_api_call = get_pr_api_call(project_api_call, repo_id, 3)
+        with patch.object(
+            requests.Session,
+            "request",
+            side_effect=[_make_mock_response(pr_data), _make_mock_response(wi_data)],
+        ) as mock_req:
+            link_pr_work_item(pr_api_call, project_api_call, 1, comment="reviewed")
+        patch_body = mock_req.call_args_list[1].kwargs.get("json") or []
+        assert patch_body[0]["value"]["attributes"]["comment"] == "reviewed"
