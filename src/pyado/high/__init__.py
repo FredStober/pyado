@@ -38,6 +38,7 @@ __all__ = [
     "create_branch",
     "create_pr",
     "create_pr_thread",
+    "create_ref_update",
     "create_work_item",
     "delete_branch",
     "delete_file",
@@ -93,6 +94,9 @@ from pyado.high.git import (
 )
 from pyado.high.git import (
     create_branch as create_branch,
+)
+from pyado.high.git import (
+    create_ref_update as create_ref_update,
 )
 from pyado.high.git import (
     delete_branch as delete_branch,

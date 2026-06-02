@@ -127,6 +127,7 @@ __all__ = [
     "create_branch",
     "create_pr",
     "create_pr_thread",
+    "create_ref_update",
     "create_work_item",
     "delete_branch",
     "delete_build_tag",
@@ -252,6 +253,9 @@ from pyado.high import (
 )
 from pyado.high import (
     create_pr_thread as create_pr_thread,
+)
+from pyado.high import (
+    create_ref_update as create_ref_update,
 )
 from pyado.high import (
     create_work_item as create_work_item,

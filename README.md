@@ -30,7 +30,7 @@ diffing branches, linking work items, and more. Authentication, retries, and
 content-type negotiation are handled transparently — the focus stays on what
 your code needs to accomplish.
 
-[![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&size=16&pause=1500&color=0078D4&vCenter=true&width=720&height=45&lines=for+item+in+pyado.iter_work_item_details%28api%2C+ids%29%3A;pr+%3D+pyado.create_pr%28repo_api%2C+title%3D%22Add+telemetry%22%29;pyado.push_commits%28repo_api%2C+ref_updates%2C+commits%29;for+commit+in+pyado.iter_commits%28repo_api%2C+%22main%22%29%3A)](https://readme-typing-svg.demolab.com)
+[![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&size=16&pause=1500&color=0078D4&vCenter=true&width=720&height=45&lines=for+item+in+pyado.iter_work_item_details%28api%2C+ids%29%3A;pyado.push_commits%28repo_api%2C+ref_updates%2C+commits%29;pr+%3D+pyado.create_pr%28repo_api%2C+title%3D%22Update+config%22%29;for+commit+in+pyado.iter_commits%28repo_api%2C+%22main%22%29%3A)](https://readme-typing-svg.demolab.com)
 
 ---
 
@@ -49,26 +49,26 @@ refs = pyado.post_wiql(api, "SELECT [System.Id] FROM WorkItems WHERE [System.Sta
 for item in pyado.iter_work_item_details(api, [ref.id for ref in refs]):
     print(f"#{item.id}  {item.fields['System.Title']}")
 
-# Create a PR and link a work item
-repo_api = pyado.get_repository_api_call(api, repo_id)
-pr = pyado.create_pr(
-    repo_api,
-    title="Add telemetry",
-    source_branch="feature/telemetry",
-    target_branch="main",
-    work_item_ids=[item.id],
-)
-print(f"PR #{pr.pull_request_id} created")
-
 # Push a file change programmatically
+repo_api = pyado.get_repository_api_call(api, repo_id)
 result = pyado.push_commits(
     repo_api,
-    ref_updates=[pyado.make_ref_update("main", current_sha)],
+    ref_updates=[pyado.create_ref_update(repo_api, "main")],
     commits=[pyado.make_commit("chore: update config", [
         pyado.edit_file("/config/settings.json", '{"key": "value"}'),
     ])],
 )
 print(f"Pushed commit {result.commits[0].commit_id}")
+
+# Create a PR and link a work item
+pr = pyado.create_pr(
+    repo_api,
+    title="Update config",
+    source_branch="feature/update-config",
+    target_branch="main",
+    work_item_ids=[item.id],
+)
+print(f"PR #{pr.pull_request_id} created")
 ```
 
 ---

@@ -638,17 +638,23 @@ def post_pr_thread_comment(
     return PullRequestThreadCommentResponse.model_validate(response)
 
 
-def patch_pr(pr_api_call: ApiCall, update: PullRequestUpdateRequest) -> None:
+def patch_pr(
+    pr_api_call: ApiCall, update: PullRequestUpdateRequest
+) -> PullRequestCreated:
     """Update fields on a pull request.
 
     Args:
         pr_api_call: PR-level ADO API call.
         update: Fields to update; None values are omitted from the request.
+
+    Returns:
+        PullRequestCreated populated with the PR state after the update.
     """
-    pr_api_call.patch(
+    response = pr_api_call.patch(
         version="7.1-preview.1",
         json=update.model_dump(mode="json", by_alias=True, exclude_none=True),
     )
+    return PullRequestCreated.model_validate(response)
 
 
 def iter_pr_iterations(

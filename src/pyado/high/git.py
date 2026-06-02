@@ -22,6 +22,7 @@ from pyado.raw import (
     get_commit_diff_page,
     get_repository_commits,
     get_repository_item_bytes,
+    iter_refs,
     post_push,
     post_repository_refs,
 )
@@ -29,6 +30,7 @@ from pyado.raw import (
 __all__ = [
     "add_file",
     "create_branch",
+    "create_ref_update",
     "delete_branch",
     "delete_file",
     "edit_file",
@@ -108,6 +110,33 @@ def make_commit(message: str, changes: list[GitPushChange]) -> GitPushCommit:
         changes: One or more file changes to include in this commit.
     """
     return GitPushCommit(comment=message, changes=changes)
+
+
+def create_ref_update(
+    repository_api_call: ApiCall,
+    branch: BranchName,
+) -> GitPushRefUpdate:
+    """Return a ref-update entry for a branch, fetching its current SHA.
+
+    Looks up the current HEAD commit of *branch* via the refs endpoint and
+    returns a :class:`~pyado.raw.GitPushRefUpdate` ready to pass to
+    :func:`push_commits`.
+
+    Args:
+        repository_api_call: Repository-level ADO API call (from
+            :func:`~pyado.raw.get_repository_api_call`).
+        branch: Short branch name (e.g. ``"main"``).  A ``refs/heads/``
+            prefix is added automatically if absent.
+
+    Returns:
+        GitPushRefUpdate with the branch's current commit SHA as
+        ``old_object_id``.  Raises ``StopIteration`` if no ref
+        matching *branch* is found.
+    """
+    full_name = _full_ref(branch)
+    name_filter = full_name.removeprefix("refs/")
+    ref = next(iter_refs(repository_api_call, name_filter=name_filter))
+    return GitPushRefUpdate(name=full_name, old_object_id=ref.object_id)
 
 
 def push_commits(

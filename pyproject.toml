@@ -44,7 +44,7 @@ license = "MIT"
 name = "pyado"
 readme = "README.md"
 requires-python = ">=3.11"
-version = "0.2.2"
+version = "0.2.3"
 
 [project.urls]
 "Bug Tracker" = "https://github.com/fredstober/pyado/issues"

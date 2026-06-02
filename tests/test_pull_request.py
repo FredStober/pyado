@@ -452,20 +452,33 @@ class TestReplyToPrThreadHighLevel:
         assert sent_json["parentCommentId"] == 1
 
 
+_PATCH_PR_RESPONSE: dict[str, Any] = {
+    "pullRequestId": PR_ID,
+    "repository": {"id": str(REPO_ID)},
+    "status": "active",
+    "url": "https://example.com",
+    "title": "Updated title",
+    "sourceRefName": "refs/heads/feature",
+    "targetRefName": "refs/heads/main",
+}
+
+
 class TestUpdatePr:
     """Tests for patch_pr."""
 
     @staticmethod
     def test_patches_pr_fields(api_call: ApiCall) -> None:
-        """Sends a PATCH request with the given fields."""
-        mock_response = _make_mock_response(None)
+        """Sends PATCH request with given fields, returns PullRequestCreated."""
+        mock_response = _make_mock_response(_PATCH_PR_RESPONSE)
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            patch_pr(api_call, PullRequestUpdateRequest(title="Updated title"))
+            result = patch_pr(api_call, PullRequestUpdateRequest(title="Updated title"))
         assert mock_req.call_args.args[0] == "PATCH"
         sent_json = mock_req.call_args.kwargs.get("json") or {}
         assert sent_json["title"] == "Updated title"
+        assert isinstance(result, PullRequestCreated)
+        assert result.pr_id == PR_ID
 
 
 class TestIterPrIterations:
