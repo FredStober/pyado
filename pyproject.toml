@@ -8,24 +8,49 @@ dev = [
   "prek>=0.4.3",
   "pytest>=9.0.3",
   "pytest-cov>=7.1.0",
-  "sphinx>=8.2.3",
   "ty>=0.0.42",
   "types-requests>=2.32.0"
+]
+docs = [
+  "furo>=2024.1.29",
+  "myst-parser>=4.0.0",
+  "sphinx>=8.2.3"
 ]
 
 [project]
 authors = [
   {name = "Fred Stober", email = "pyado@fredstober.de"}
 ]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Internet :: WWW/HTTP"
+]
 dependencies = [
   "pydantic>=2.11.7",
   "requests>=2.32.2"
 ]
-description = "Add your description here"
+description = "Typed, Pydantic-backed wrappers and Pythonic convenience methods for the Azure DevOps REST API"
+keywords = ["azure", "devops", "ado", "api", "pydantic", "azure-devops"]
+license = "MIT"
 name = "pyado"
 readme = "README.md"
 requires-python = ">=3.11"
-version = "0.2.1"
+version = "0.2.2"
+
+[project.urls]
+"Bug Tracker" = "https://github.com/fredstober/pyado/issues"
+Documentation = "https://pyado.readthedocs.io/"
+Homepage = "https://github.com/fredstober/pyado"
+Repository = "https://github.com/fredstober/pyado"
 
 [tool.coverage.paths]
 source = ["src", "*/site-packages"]
