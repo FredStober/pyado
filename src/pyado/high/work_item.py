@@ -101,7 +101,7 @@ class CustomWorkItemBase(BaseModel):
             Mapping of ADO field reference names to their current values.
         """
         result: dict[WorkItemField, Any] = {}
-        for field_name, field_info in self.model_fields.items():
+        for field_name, field_info in self.__class__.model_fields.items():
             value = getattr(self, field_name)
             if value is None:
                 continue

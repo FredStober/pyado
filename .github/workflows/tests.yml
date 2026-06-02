@@ -9,8 +9,8 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: astral-sh/setup-uv@v5
+    - uses: actions/checkout@v6
+    - uses: astral-sh/setup-uv@v8
       with:
         enable-cache: true
     - run: uv run ruff check
@@ -20,8 +20,8 @@ jobs:
     name: Type check
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: astral-sh/setup-uv@v5
+    - uses: actions/checkout@v6
+    - uses: astral-sh/setup-uv@v8
       with:
         enable-cache: true
     - run: uv run mypy src/
@@ -35,8 +35,8 @@ jobs:
         python: ['3.11', '3.12', '3.13', '3.14']
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-    - uses: actions/checkout@v4
-    - uses: astral-sh/setup-uv@v5
+    - uses: actions/checkout@v6
+    - uses: astral-sh/setup-uv@v8
       with:
         python-version: ${{ matrix.python }}
         enable-cache: true
@@ -51,8 +51,8 @@ jobs:
     name: Docs
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: astral-sh/setup-uv@v5
+    - uses: actions/checkout@v6
+    - uses: astral-sh/setup-uv@v8
       with:
         enable-cache: true
     - run: uv run --group docs sphinx-build -W docs docs/_build/html
