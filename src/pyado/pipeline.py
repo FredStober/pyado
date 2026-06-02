@@ -1,22 +1,20 @@
 """Module to interact with Azure DevOps work items."""
+# Copyright (c) 2023, Fred Stober
+# SPDX-License-Identifier: MIT
 
-from typing import Literal
-from typing import TypeAlias
+from collections.abc import Iterator
+from typing import Literal, TypeAlias
 from uuid import UUID
 
-from pydantic import BaseModel
-from pydantic import ConfigDict
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from pyado.api_call import ApiCall
-from pyado.api_call import get_test_api_call
-from pyado.build import BuildLogId
-from pyado.build import BuildRecordInfo
-from pyado.build import TaskId
-from pyado.build import TimelineId
-from pyado.build import get_build_api_call
-from pyado.build import iter_timeline_records
-
+from pyado.build import (
+    BuildLogId,
+    BuildRecordInfo,
+    TaskId,
+    TimelineId,
+)
 
 PlanId: TypeAlias = UUID
 JobId: TypeAlias = UUID
@@ -25,9 +23,15 @@ JobEventResult: TypeAlias = Literal["succeeded", "failed"]
 
 
 def get_plan_api_call(
-    project_api_call: ApiCall, hub_name: str, plan_id: PlanId
+    project_api_call: ApiCall,
+    hub_name: str,
+    plan_id: PlanId,
 ) -> ApiCall:
-    """Get job API call."""
+    """Get plan API call.
+
+    Returns:
+        An ApiCall pointing at the distributed task plan resource.
+    """
     return project_api_call.build_call(
         "distributedtask",
         "hubs",
@@ -38,9 +42,16 @@ def get_plan_api_call(
 
 
 def get_timeline_api_call(
-    project_api_call: ApiCall, hub_name: str, plan_id: PlanId, timeline_id: TimelineId
+    project_api_call: ApiCall,
+    hub_name: str,
+    plan_id: PlanId,
+    timeline_id: TimelineId,
 ) -> ApiCall:
-    """Get timeline API call."""
+    """Get timeline API call.
+
+    Returns:
+        An ApiCall pointing at the timeline resource.
+    """
     api_call = get_plan_api_call(project_api_call, hub_name, plan_id)
     return api_call.build_call("timelines", timeline_id)
 
@@ -52,15 +63,26 @@ def get_job_api_call(
     timeline_id: TimelineId,
     job_id: JobId,
 ) -> ApiCall:
-    """Get job API call."""
+    """Get job API call.
+
+    Returns:
+        An ApiCall pointing at the job record resource.
+    """
     api_call = get_timeline_api_call(project_api_call, hub_name, plan_id, timeline_id)
     return api_call.build_call("records", job_id)
 
 
 def get_log_api_call(
-    project_api_call: ApiCall, hub_name: str, plan_id: PlanId, log_id: BuildLogId
+    project_api_call: ApiCall,
+    hub_name: str,
+    plan_id: PlanId,
+    log_id: BuildLogId,
 ) -> ApiCall:
-    """Get job log API call."""
+    """Get job log API call.
+
+    Returns:
+        An ApiCall pointing at the job log resource.
+    """
     api_call = get_plan_api_call(project_api_call, hub_name, plan_id)
     return api_call.build_call("logs", log_id)
 
@@ -99,11 +121,9 @@ def send_job_logs(log_api_call: ApiCall, message: str) -> None:
 class _JobEventPayload(BaseModel):
     """Type to store the job event payload."""
 
-    model_config = ConfigDict(populate_by_name=True)
-
     name: JobEventName
-    task_id: TaskId = Field(alias="taskId")
-    job_id: JobId = Field(alias="jobId")
+    task_id: TaskId = Field(serialization_alias="taskId")
+    job_id: JobId = Field(serialization_alias="jobId")
     result: JobEventResult
 
 
@@ -122,8 +142,8 @@ def send_job_event(
     """
     job_event_payload = _JobEventPayload(
         name=job_event_name,
-        taskId=task_id,
-        jobId=job_id,
+        task_id=task_id,
+        job_id=job_id,
         result=job_event_result,
     )
     plan_api_call.post(
@@ -141,7 +161,8 @@ class _TimelineRecordsUpdatePayload(BaseModel):
 
 
 def update_timeline_records(
-    timeline_api_call: ApiCall, records: list[BuildRecordInfo]
+    timeline_api_call: ApiCall,
+    records: list[BuildRecordInfo],
 ) -> None:
     """Update the timeline records."""
     payload = _TimelineRecordsUpdatePayload(value=records, count=len(records))
@@ -153,53 +174,89 @@ def update_timeline_records(
     )
 
 
-def test() -> None:
-    """Function to test the functions."""
-    test_api_call, test_config = get_test_api_call()
-    build_api_call = get_build_api_call(test_api_call, test_config["build_id"])
-    active_records = [
-        record
-        for record in iter_timeline_records(build_api_call)
-        if str(record.id) == test_config["active_task_id"]
-    ]
-    timeline_api_call = get_timeline_api_call(
-        test_api_call,
-        test_config["hub_name"],
-        test_config["plan_id"],
-        test_config["timeline_id"],
-    )
-    update_timeline_records(timeline_api_call, active_records)
+class _ApprovalIdentityRef(BaseModel):
+    """Internal: identity reference within an approval."""
 
-    job_api_call = get_job_api_call(
-        test_api_call,
-        test_config["hub_name"],
-        test_config["plan_id"],
-        test_config["timeline_id"],
-        test_config["job_id"],
-    )
-    send_job_feed(job_api_call, ["Test Feed Message"])
-
-    log_api_call = get_log_api_call(
-        test_api_call,
-        test_config["hub_name"],
-        test_config["plan_id"],
-        test_config["log_id"],
-    )
-    send_job_logs(log_api_call, "Test Log Message")
-
-    plan_api_call = get_plan_api_call(
-        test_api_call,
-        test_config["hub_name"],
-        test_config["plan_id"],
-    )
-    send_job_event(
-        plan_api_call,
-        test_config["active_task_id"],
-        test_config["job_id"],
-        "TaskCompleted",
-        "succeeded",
-    )
+    id: str
+    display_name: str = Field(alias="displayName")
 
 
-if __name__ == "__main__":
-    test()
+class PipelineApprovalStep(BaseModel):
+    """A single step within a pipeline approval."""
+
+    assigned_approver: _ApprovalIdentityRef = Field(alias="assignedApprover")
+    status: str
+    actual_approver: _ApprovalIdentityRef | None = Field(
+        alias="actualApprover", default=None
+    )
+    comment: str | None = None
+
+
+PipelineApprovalStatus: TypeAlias = Literal[
+    "approved",
+    "canceled",
+    "failed",
+    "pending",
+    "rejected",
+    "skipped",
+    "timedOut",
+    "undefined",
+]
+
+
+class PipelineApproval(BaseModel):
+    """A pipeline environment approval request."""
+
+    id: str
+    status: PipelineApprovalStatus
+    steps: list[PipelineApprovalStep] = []
+    instructions: str | None = None
+    blocked_approvers: list[_ApprovalIdentityRef] = Field(
+        alias="blockedApprovers", default=[]
+    )
+    min_required_approvers: int = Field(alias="minRequiredApprovers", default=1)
+
+
+class _PipelineApprovalResults(BaseModel):
+    """Internal: container for approval list results."""
+
+    value: list[PipelineApproval]
+
+
+def iter_pending_approvals(project_api_call: ApiCall) -> Iterator[PipelineApproval]:
+    """Iterate over pending pipeline approvals in the project.
+
+    Args:
+        project_api_call: Project-level ADO API call.
+
+    Yields:
+        PipelineApproval for each pending approval.
+    """
+    response = project_api_call.get(
+        "pipelines",
+        "approvals",
+        parameters={"state": "pending"},
+        version="7.1-preview.1",
+    )
+    yield from _PipelineApprovalResults.model_validate(response).value
+
+
+def approve_pipeline(
+    project_api_call: ApiCall,
+    approval_id: str,
+    *,
+    comment: str = "",
+) -> None:
+    """Approve a pending pipeline environment approval.
+
+    Args:
+        project_api_call: Project-level ADO API call.
+        approval_id: UUID string of the approval to approve.
+        comment: Optional comment to attach to the approval.
+    """
+    project_api_call.patch(
+        "pipelines",
+        "approvals",
+        version="7.1-preview.1",
+        json=[{"approvalId": approval_id, "status": "approved", "comment": comment}],
+    )

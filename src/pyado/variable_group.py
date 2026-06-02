@@ -1,52 +1,47 @@
-"""Module to interact with Azure DevOps repositories."""
+"""Module to interact with Azure DevOps variable groups."""
+# Copyright (c) 2023, Fred Stober
+# SPDX-License-Identifier: MIT
 
+from collections.abc import Iterator
 from datetime import datetime
-from typing import Any
-from typing import Iterator
-from typing import Literal
-from typing import Optional
-from typing import TypeAlias
+from typing import Any, Literal, TypeAlias
 from uuid import UUID
 
-from pydantic import BaseModel
-from pydantic import ConfigDict
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from pyado.api_call import ApiCall
-from pyado.api_call import get_test_api_call
-
 
 UserId: TypeAlias = UUID
 VariableGroupId: TypeAlias = int
 
 
-class VariableGroupUserInfo(BaseModel, extra="forbid"):
+class VariableGroupUserInfo(BaseModel):
     """Type to store variable group user information."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    display_name: Optional[str] = Field(default=None, alias="displayName")
+    display_name: str | None = Field(default=None, alias="displayName")
     id: UserId
-    unique_name: Optional[str] = Field(default=None, alias="uniqueName")
+    unique_name: str | None = Field(default=None, alias="uniqueName")
 
 
-class VariableInfo(BaseModel, extra="forbid"):
+class VariableInfo(BaseModel):
     """Type to store information about variables."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     is_secret: bool = Field(default=False, alias="isSecret")
-    value: Optional[str] = None
+    value: str | None = None
 
 
-class VariableGroupInfo(BaseModel, extra="forbid"):
+class VariableGroupInfo(BaseModel):
     """Type to store variable group details."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     created_by: VariableGroupUserInfo = Field(alias="createdBy")
     created_on: datetime = Field(alias="createdOn")
-    description: Optional[str] = None
+    description: str | None = None
     id: VariableGroupId
     is_shared: bool = Field(alias="isShared")
     modified_by: VariableGroupUserInfo = Field(alias="modifiedBy")
@@ -58,7 +53,7 @@ class VariableGroupInfo(BaseModel, extra="forbid"):
 
 
 class _VariableGroupInfoResults(BaseModel):
-    """Type to read repository details results."""
+    """Type to read variable group details results."""
 
     value: list[VariableGroupInfo]
 
@@ -66,7 +61,11 @@ class _VariableGroupInfoResults(BaseModel):
 def iter_variable_group_details(
     project_api_call: ApiCall,
 ) -> Iterator[VariableGroupInfo]:
-    """Iterate over the variable groups of the project."""
+    """Iterate over the variable groups of the project.
+
+    Yields:
+        VariableGroupInfo objects for each variable group in the project.
+    """
     response = project_api_call.get(
         "distributedtask",
         "variablegroups",
@@ -83,31 +82,39 @@ class _VariableGroupUpdateInfo(BaseModel):
     variables: dict[str, VariableInfo]
 
 
-def update_variable_group_entries(
+def get_variable_group_api_call(
     project_api_call: ApiCall,
     var_group_id: VariableGroupId,
+) -> ApiCall:
+    """Get variable group API call.
+
+    Returns:
+        An ApiCall pointing at the variable group resource for the given ID.
+    """
+    return project_api_call.build_call(
+        "distributedtask", "variablegroups", var_group_id
+    )
+
+
+def update_variable_group_entries(
+    variable_group_api_call: ApiCall,
     var_group_name: str,
     variables: dict[str, VariableInfo],
 ) -> VariableGroupInfo:
-    """Update variables in the variable group."""
+    """Update variables in the variable group.
+
+    Args:
+        variable_group_api_call: Variable-group-level ADO API call (from
+            get_variable_group_api_call).
+        var_group_name: Name of the variable group (required by the API).
+        variables: Mapping of variable names to updated VariableInfo values.
+
+    Returns:
+        Updated VariableGroupInfo parsed from the API response.
+    """
     update_info = _VariableGroupUpdateInfo(name=var_group_name, variables=variables)
-    response = project_api_call.put(
-        "distributedtask",
-        "variablegroups",
-        var_group_id,
+    response = variable_group_api_call.put(
         version="5.1-preview.1",
         json=update_info.model_dump(mode="json", by_alias=True),
     )
     return VariableGroupInfo.model_validate(response)
-
-
-def test() -> None:
-    """Function to test the functions."""
-    test_api_call, test_config = get_test_api_call()
-    del test_config
-    for var_group in iter_variable_group_details(test_api_call):
-        print(var_group)
-
-
-if __name__ == "__main__":
-    test()

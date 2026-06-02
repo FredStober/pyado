@@ -25,7 +25,7 @@ description = "Add your description here"
 name = "pyado"
 readme = "README.md"
 requires-python = ">=3.11"
-version = "0.1.18"
+version = "0.1.19"
 
 [tool.coverage.paths]
 source = ["src", "*/site-packages"]
@@ -37,7 +37,7 @@ exclude_lines = [
   "if __name__ == .__main__.:",
   "def test\\(\\) -> None:"
 ]
-fail_under = 0
+fail_under = 100
 show_missing = true
 
 [tool.coverage.run]
@@ -54,7 +54,7 @@ strict = true
 warn_unreachable = true
 
 [tool.pytest.ini_options]
-addopts = "-q --no-header"
+addopts = "--cov=pyado --cov=tests --cov-report=term-missing"
 
 [tool.ruff.lint]
 ignore = [
