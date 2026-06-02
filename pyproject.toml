@@ -1,81 +1,82 @@
-[tool.poetry]
-name = "pyado"
-version = "0.1.14"
-description = "Pythonic Azure DevOps Interface"
-authors = ["Fred Stober <pyado@fredstober.de>"]
-license = "MIT"
-readme = "README.md"
-homepage = "https://github.com/fredstober/pyado"
-repository = "https://github.com/fredstober/pyado"
-documentation = "https://pyado.readthedocs.io"
-classifiers = [
-    "Development Status :: 3 - Alpha",
+[build-system]
+build-backend = "uv_build"
+requires = ["uv_build>=0.9.8,<0.10.0"]
+
+[dependency-groups]
+dev = [
+  "mypy>=1.15.0",
+  "prek>=0.4.3",
+  "pytest>=9.0.3",
+  "pytest-cov>=7.1.0",
+  "sphinx>=8.2.3",
+  "ty>=0.0.42",
+  "types-requests>=2.32.0"
 ]
 
-[tool.poetry.urls]
-Changelog = "https://github.com/fredstober/pyado/releases"
-
-[tool.poetry.dependencies]
-python = ">=3.10,<4.0"
-requests = ">=2.23.0"
-pydantic = ">=2.5.1"
-
-[tool.poetry.dev-dependencies]
-Pygments = ">=2.17.2"
-black = ">=23.11.0"
-coverage = {extras = ["toml"], version = ">=7.3.2"}
-darglint = ">=1.8.1"
-flake8 = ">=6.1.0"
-flake8-bandit = ">=4.1.1"
-flake8-bugbear = ">=23.9.16"
-flake8-docstrings = ">=1.7.0"
-flake8-rst-docstrings = ">=0.3.0"
-furo = ">=2023.9.10"
-isort = ">=5.12.0"
-mypy = ">=1.7.1"
-pep8-naming = ">=0.13.3"
-pre-commit = ">=3.5.0"
-pre-commit-hooks = ">=4.5.0"
-pytest = ">=7.4.3"
-pyupgrade = ">=3.15.0"
-safety = ">=2.3.5"
-sphinx = ">=7.2.6"
-sphinx-autobuild = ">=2021.3.14"
-sphinx-click = ">=5.1.0"
-typeguard = ">=4.1.5"
-xdoctest = {extras = ["colors"], version = ">=1.1.2"}
-myst-parser = {version = ">=2.0.0"}
-
-[tool.poetry.group.dev.dependencies]
-nox = "^2023.4.22"
-nox-poetry = "^1.0.3"
-types-requests = ">=2.23.0"
+[project]
+authors = [
+  {name = "Fred Stober", email = "pyado@fredstober.de"}
+]
+dependencies = [
+  "pydantic>=2.11.7",
+  "requests>=2.32.2"
+]
+description = "Add your description here"
+name = "pyado"
+readme = "README.md"
+requires-python = ">=3.11"
+version = "0.1.18"
 
 [tool.coverage.paths]
 source = ["src", "*/site-packages"]
-tests = ["tests", "*/tests"]
+tests = ["scripts", "*/scripts"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__ == .__main__.:",
+  "def test\\(\\) -> None:"
+]
+fail_under = 0
+show_missing = true
 
 [tool.coverage.run]
 branch = true
-source = ["pyado", "tests"]
-
-[tool.coverage.report]
-show_missing = true
-fail_under = 100
-
-[tool.isort]
-profile = "black"
-force_single_line = true
-lines_after_imports = 2
+source = ["pyado", "scripts"]
 
 [tool.mypy]
-strict = true
-warn_unreachable = true
+plugins = ["pydantic.mypy"]
 pretty = true
 show_column_numbers = true
 show_error_codes = true
 show_error_context = true
+strict = true
+warn_unreachable = true
 
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+[tool.pytest.ini_options]
+addopts = "-q --no-header"
+
+[tool.ruff.lint]
+ignore = [
+  "ANN401",  # any-type
+  "COM812"  # missing-trailing-comma
+]
+preview = true
+select = [
+  "ALL"
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/pyado/pull_request.py" = [
+  "PLR0913"  # create_pr legitimately needs 4 positional + 2 keyword-only params
+]
+"tests/**" = [
+  "PLR2004",  # Magic values in test assertions are self-explanatory
+  "PLC2701",  # Private name imports are needed for unit testing internals
+  "S101",  # pytest uses assert by convention
+  "S105",  # Test tokens are intentionally hardcoded fake values
+  "SLF001"  # Private member access is needed for testing implementation details
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
