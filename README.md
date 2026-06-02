@@ -6,6 +6,7 @@
 [![License](https://img.shields.io/pypi/l/pyado)][license]
 [![Read the Docs](https://img.shields.io/readthedocs/pyado/latest.svg?label=Read%20the%20Docs)][read the docs]
 [![Tests](https://github.com/fredstober/pyado/workflows/Tests/badge.svg)][tests]
+[![Coverage](https://codecov.io/gh/fredstober/pyado/branch/main/graph/badge.svg)][coverage]
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)][ruff]
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)][uv]
 
@@ -14,6 +15,7 @@
 [python version]: https://pypi.org/project/pyado
 [read the docs]: https://pyado.readthedocs.io/
 [tests]: https://github.com/fredstober/pyado/actions?workflow=Tests
+[coverage]: https://codecov.io/gh/fredstober/pyado
 [ruff]: https://github.com/astral-sh/ruff
 [uv]: https://github.com/astral-sh/uv
 
