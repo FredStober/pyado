@@ -25,7 +25,7 @@ description = "Add your description here"
 name = "pyado"
 readme = "README.md"
 requires-python = ">=3.11"
-version = "0.2.1"
+version = "0.3.0"
 
 [tool.coverage.paths]
 source = ["src", "*/site-packages"]
@@ -77,8 +77,14 @@ select = [
 "src/pyado/high/variable_group.py" = [
   "PLR0913"  # update_variable_group passes through all VariableGroupUpdateRequest fields
 ]
+"src/pyado/oop/pull_request.py" = [
+  "PLR0913"  # set_status legitimately needs 2 positional + 4 keyword-only params
+]
 "tests/**" = [
+  "D101",  # Test classes don't need class-level docstrings
+  "D102",  # Test methods are self-documenting via their names
   "PLR2004",  # Magic values in test assertions are self-explanatory
+  "PLR6301",  # Test helper methods are instance methods by convention
   "PLC2701",  # Private name imports are needed for unit testing internals
   "S101",  # pytest uses assert by convention
   "S105",  # Test tokens are intentionally hardcoded fake values
