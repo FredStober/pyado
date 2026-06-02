@@ -2,37 +2,24 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-import json as jsonlib
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
 import requests
 
-from pyado.api_call import ApiCall
-from pyado.variable_group import (
+from pyado import (
+    ApiCall,
     VariableGroupInfo,
     VariableInfo,
     get_variable_group_api_call,
     iter_variable_group_details,
-    update_variable_group_entries,
+    update_variable_group,
 )
+from tests.conftest import NOW_ISO, _make_mock_response
 
-BASE_URL = "https://dev.azure.com/org/"
-ACCESS_TOKEN = "test_token"
-NOW_ISO = "2024-01-15T12:00:00+00:00"
 VAR_GROUP_ID = 1
-
-
-@pytest.fixture
-def api_call() -> ApiCall:
-    """Return a minimal ApiCall instance.
-
-    Returns:
-        A minimal ApiCall instance for testing.
-    """
-    return ApiCall(access_token=ACCESS_TOKEN, url=BASE_URL)
 
 
 @pytest.fixture
@@ -43,19 +30,6 @@ def var_group_api_call(api_call: ApiCall) -> ApiCall:
         A variable-group-level ApiCall for testing.
     """
     return get_variable_group_api_call(api_call, VAR_GROUP_ID)
-
-
-def _make_mock_response(json_data: Any) -> MagicMock:
-    """Create a minimal mock HTTP response.
-
-    Returns:
-        A MagicMock configured to behave as a requests.Response.
-    """
-    mock = MagicMock(spec=requests.Response)
-    mock.raise_for_status.return_value = None
-    mock.json.return_value = json_data
-    mock.content = jsonlib.dumps(json_data).encode()
-    return mock
 
 
 def make_variable_group_dict(**overrides: Any) -> dict[str, Any]:
@@ -126,7 +100,7 @@ class TestIterVariableGroupDetails:
 
 
 class TestUpdateVariableGroupEntries:
-    """Tests for update_variable_group_entries."""
+    """Tests for put_variable_group."""
 
     @staticmethod
     def test_returns_updated_variable_group_info(var_group_api_call: ApiCall) -> None:
@@ -135,7 +109,7 @@ class TestUpdateVariableGroupEntries:
         mock_response = _make_mock_response(vg)
         variables = {"NEW_VAR": VariableInfo(value="new_val")}
         with patch.object(requests.Session, "request", return_value=mock_response):
-            result = update_variable_group_entries(
+            result = update_variable_group(
                 var_group_api_call, "UpdatedGroup", variables
             )
         assert isinstance(result, VariableGroupInfo)
@@ -150,7 +124,7 @@ class TestUpdateVariableGroupEntries:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            update_variable_group_entries(var_group_api_call, "MyVarGroup", variables)
+            update_variable_group(var_group_api_call, "MyVarGroup", variables)
         mock_req.assert_called_once()
         assert mock_req.call_args.args[0] == "PUT"
 

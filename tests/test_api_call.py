@@ -11,14 +11,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from pyado.api_call import (
-    ApiCall,
-    HTMLTextFilter,
-    JsonPatchAdd,
-    _get_content_type,
-    _is_json_patch,
-    get_test_api_call,
-)
+from pyado import ApiCall, HTMLTextFilter, JsonPatchAdd, get_test_api_call
+from pyado.raw._core import _get_content_type, _is_json_patch
 
 BASE_URL = "https://dev.azure.com/org/"
 ACCESS_TOKEN = "test_token"

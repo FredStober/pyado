@@ -37,55 +37,53 @@ Request features on the [Issue Tracker].
 
 ## How to set up your development environment
 
-You need Python 3.7+ and the following tools:
-
-- [Poetry]
-- [Nox]
-- [nox-poetry]
+You need Python 3.11 and [uv].
 
 Install the package with development requirements:
 
 ```console
-$ poetry install
+$ uv sync
 ```
 
-You can now run an interactive Python session,
-or the command-line interface:
+You can now run an interactive Python session:
 
 ```console
-$ poetry run python
-$ poetry run pyado
+$ uv run python
 ```
 
-[poetry]: https://python-poetry.org/
-[nox]: https://nox.thea.codes/
-[nox-poetry]: https://nox-poetry.readthedocs.io/
+[uv]: https://docs.astral.sh/uv/
 
 ## How to test the project
 
 Run the full test suite:
 
 ```console
-$ nox
+$ uv run pytest
 ```
 
-List the available Nox sessions:
-
-```console
-$ nox --list-sessions
-```
-
-You can also run a specific Nox session.
-For example, invoke the unit test suite like this:
-
-```console
-$ nox --session=tests
-```
-
-Unit tests are located in the _tests_ directory,
-and are written using the [pytest] testing framework.
+Unit tests live in the `tests/` directory and are written using [pytest].
 
 [pytest]: https://pytest.readthedocs.io/
+
+## Linting and type checking
+
+```console
+$ uv run ruff check src/
+$ uv run ruff format --check src/
+$ uv run mypy src/
+```
+
+## Package architecture
+
+The library is split into two subpackages:
+
+| Subpackage | Purpose |
+|---|---|
+| `pyado.raw` | Thin wrappers around individual ADO REST endpoints. One function per endpoint; accepts a Pydantic request model; returns a Pydantic response model. |
+| `pyado.high` | Higher-level helpers that construct request models from primitive args, own pagination loops, and orchestrate multi-step operations. Delegates all HTTP to `pyado.raw`. |
+
+See the module docstrings in `src/pyado/raw/api.py` and `src/pyado/high/api.py` for
+the full set of rules governing each layer.
 
 ## How to submit changes
 
@@ -93,17 +91,9 @@ Open a [pull request] to submit changes to this project.
 
 Your pull request needs to meet the following guidelines for acceptance:
 
-- The Nox test suite must pass without errors and warnings.
-- Include unit tests. This project maintains 100% code coverage.
+- The test suite must pass without errors.
+- Include unit tests for new functionality.
 - If your changes add functionality, update the documentation accordingly.
-
-Feel free to submit early, though—we can always iterate on this.
-
-To run linting and code formatting checks before committing your change, you can install pre-commit as a Git hook by running the following command:
-
-```console
-$ nox --session=pre-commit -- install
-```
 
 It is recommended to open an issue before starting work on anything.
 This will allow a chance to talk it over with the owners and validate your approach.

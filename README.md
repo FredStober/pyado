@@ -7,8 +7,6 @@
 
 [![Read the documentation at https://pyado.readthedocs.io/](https://img.shields.io/readthedocs/pyado/latest.svg?label=Read%20the%20Docs)][read the docs]
 [![Tests](https://github.com/fredstober/pyado/workflows/Tests/badge.svg)][tests]
-[![Codecov](https://codecov.io/gh/fredstober/pyado/branch/main/graph/badge.svg)][codecov]
-
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)][ruff]
 
 [pypi_]: https://pypi.org/project/pyado/
@@ -16,7 +14,6 @@
 [python version]: https://pypi.org/project/pyado
 [read the docs]: https://pyado.readthedocs.io/
 [tests]: https://github.com/fredstober/pyado/actions?workflow=Tests
-[codecov]: https://app.codecov.io/gh/fredstober/pyado
 [ruff]: https://github.com/astral-sh/ruff
 
 Typed Python wrapper around the Azure DevOps REST API, built on [Pydantic] models.
@@ -50,22 +47,22 @@ Every function takes an `ApiCall` as its first argument. Construct one with your
 organisation/project base URL and a PAT:
 
 ```python
-from pyado.api_call import ApiCall
+import pyado
 
 # Project-level API call (most functions need this)
-api = ApiCall(
+api = pyado.ApiCall(
     access_token="<your-pat>",
     url="https://dev.azure.com/<organisation>/<project>/_apis/",
 )
 
 # Organisation-level API call (iter_projects, iter_open_prs across projects)
-org_api = ApiCall(
+org_api = pyado.ApiCall(
     access_token="<your-pat>",
     url="https://dev.azure.com/<organisation>/_apis/",
 )
 
 # Profile API call (get_my_profile)
-profile_api = ApiCall(
+profile_api = pyado.ApiCall(
     access_token="<your-pat>",
     url="https://app.vssps.visualstudio.com/_apis/",
 )
@@ -75,35 +72,25 @@ profile_api = ApiCall(
 is immutable. Use `build_call()` to derive a scoped call pointing at a specific
 resource.
 
+All public symbols are available directly from the `pyado` namespace.
+
 ---
 
-## Modules
-
-### `pyado.work_item`
+## Work items
 
 ```python
-from pyado.work_item import (
-    iter_work_item_details,
-    get_work_item,
-    create_work_item,
-    update_work_item,
-    WorkItemRelation,
-    iter_sprint_iterations,
-    run_wiql,
-    iter_work_item_comments,
-    add_work_item_comment,
-    add_work_item_attachment,
-)
+import pyado
 
 # Fetch multiple work items (batched automatically, 200 per request)
-for item in iter_work_item_details(api, [123, 456]):
+for item in pyado.iter_work_item_details(api, [123, 456]):
     print(item.id, item.fields["System.Title"])
 
 # Fetch a single work item with relations
-item = get_work_item(api, 123, expand_relations=True)
+work_item_api = pyado.get_work_item_api_call(api, 123)
+item = pyado.get_work_item(work_item_api, expand_relations=True)
 
 # Create a work item with a parent link
-new_item = create_work_item(
+new_item = pyado.create_work_item(
     api,
     fields={
         "System.WorkItemType": "Task",
@@ -111,7 +98,7 @@ new_item = create_work_item(
         "System.AreaPath": "MyProject\\Team",
     },
     relations=[
-        WorkItemRelation(
+        pyado.WorkItemRelation(
             rel="System.LinkTypes.Hierarchy-Reverse",
             url="https://dev.azure.com/org/project/_workitems/edit/100",
         )
@@ -119,82 +106,56 @@ new_item = create_work_item(
 )
 
 # Update fields (markdown description example)
-update_work_item(
-    api,
-    123,
+pyado.update_work_item(
+    work_item_api,
     fields={"System.Description": "## Summary\nSome details."},
     multiline_fields_format={"System.Description": "markdown"},
 )
 
 # WIQL query
-refs = run_wiql(api, "SELECT [System.Id] FROM WorkItems WHERE [System.State] = 'Active'")
+refs = pyado.post_wiql(api, "SELECT [System.Id] FROM WorkItems WHERE [System.State] = 'Active'")
 ids = [ref.id for ref in refs]
 
 # Comments
-for comment in iter_work_item_comments(api, 123):
+for comment in pyado.iter_work_item_comments(work_item_api):
     print(comment.text)
 
-add_work_item_comment(api, 123, "Reviewed and confirmed.", comment_format="markdown")
+pyado.post_work_item_comment(work_item_api, "Reviewed and confirmed.", comment_format="markdown")
 
 # Attach a file
-add_work_item_attachment(api, 123, "report.txt", b"file contents here")
+pyado.add_work_item_attachment(api, 123, "report.txt", b"file contents here")
 
 # Sprint iterations
-for sprint in iter_sprint_iterations(api):
+for sprint in pyado.iter_sprint_iterations(api):
     print(sprint.name, sprint.attributes.start_date)
 
-for sprint in iter_sprint_iterations(api, timeframe_filter="current"):
+for sprint in pyado.iter_sprint_iterations(api, timeframe_filter="current"):
     print(sprint.name)
 ```
 
 ---
 
-### `pyado.pull_request`
+## Pull requests
 
 ```python
-from pyado.pull_request import (
-    get_pr_api_call,
-    iter_open_prs,
-    iter_prs,
-    create_pr,
-    update_pr,
-    iter_pr_work_item_ids,
-    get_pr_labels,
-    add_pr_label,
-    delete_pr_label,
-    iter_pr_threads,
-    create_pr_thread,
-    reply_to_pr_thread,
-    iter_pr_iterations,
-    set_pr_reviewer_vote,
-    add_pr_reviewer,
-    remove_pr_reviewer,
-    create_pr_comments,
-    create_pr_status_flag,
-    PullRequestComment,
-    PullRequestCommentHolder,
-    PullRequestStatusInfo,
-    PullRequestStatusContext,
-    PullRequestVote,
-)
-from pyado.repository import RepositoryId
 import uuid
+import pyado
 
-repo_id: RepositoryId = uuid.UUID("<repository-uuid>")
-pr_api = get_pr_api_call(api, repo_id, pr_id=42)
+repo_id: pyado.RepositoryId = uuid.UUID("<repository-uuid>")
+repo_api = pyado.get_repository_api_call(api, repo_id)
+pr_api = pyado.get_pr_api_call(api, repo_id, pr_id=42)
 
 # List all active PRs in the project
-for pr in iter_open_prs(api):
+for pr in pyado.iter_open_prs(api):
     print(pr.pr_id, pr.repository.id)
 
 # List PRs matching criteria
-for pr in iter_prs(api, {"status": "active", "creatorId": "<identity-id>"}):
+for pr in pyado.iter_prs(api, {"status": "active", "creatorId": "<identity-id>"}):
     print(pr.pr_id)
 
 # Create a PR
-new_pr = create_pr(
-    api,
-    repo_id,
+new_pr = pyado.create_pr(
+    repo_api,
     title="My feature",
     source_branch="feature/my-branch",
     target_branch="main",
@@ -202,168 +163,132 @@ new_pr = create_pr(
 )
 
 # Update PR fields
-update_pr(pr_api, {"title": "Updated title", "description": "New description."})
+pyado.patch_pr(pr_api, pyado.PullRequestUpdateRequest(title="Updated title"))
 
 # Work items linked to the PR
-for work_item_id in iter_pr_work_item_ids(pr_api):
+for work_item_id in pyado.iter_pr_work_item_ids(pr_api):
     print(work_item_id)
 
 # Labels
-labels = get_pr_labels(pr_api)
-add_pr_label(pr_api, "ready-to-merge")
-delete_pr_label(pr_api, "needs-review")
+labels = pyado.get_pr_labels(pr_api)
+pyado.post_pr_label(pr_api, "ready-to-merge")
+pyado.delete_pr_label(pr_api, "needs-review")
 
 # Review threads
-for thread in iter_pr_threads(pr_api):
+for thread in pyado.iter_pr_threads(pr_api):
     for comment in thread.comments:
         print(comment.content)
 
-thread = create_pr_thread(
+thread = pyado.create_pr_thread(
     pr_api,
     "Please address this.",
     file_path="/src/foo.py",
     line=42,
 )
-reply_to_pr_thread(pr_api, thread.id, thread.comments[0].id, "Done, thanks.")
+pyado.reply_to_pr_thread(pr_api, thread.id, "Done, thanks.")
 
-# Iterations (commit pushes)
-for iteration in iter_pr_iterations(pr_api):
+# Iterations (commit pushes to the PR source branch)
+for iteration in pyado.iter_pr_iterations(pr_api):
     print(iteration.id, iteration.source_ref_commit)
 
-# Reviewer vote
-set_pr_reviewer_vote(pr_api, "<reviewer-identity-id>", PullRequestVote.APPROVED)
-add_pr_reviewer(pr_api, "<reviewer-identity-id>", is_required=True)
-remove_pr_reviewer(pr_api, "<reviewer-identity-id>")
+# Reviewer management
+pyado.set_pr_reviewer_vote(pr_api, "<reviewer-identity-id>", pyado.PullRequestVote.APPROVED)
+pyado.add_pr_reviewer(pr_api, "<reviewer-identity-id>", is_required=True)
+pyado.delete_pr_reviewer(pr_api, "<reviewer-identity-id>")
 
-# Status flags
-status = PullRequestStatusInfo(
-    context=PullRequestStatusContext(genre="ci", name="build"),
-    description="Build passed",
-    iteration_id=1,
-    state="succeeded",
+# Post a status flag (e.g. from a CI check)
+pyado.post_pr_status(
+    pr_api,
+    pyado.PullRequestStatusRequest(
+        context=pyado.PullRequestStatusContext(genre="ci", name="build"),
+        description="Build passed",
+        iteration_id=1,
+        state="succeeded",
+    ),
 )
-create_pr_status_flag(pr_api, status)
 ```
 
 ---
 
-### `pyado.repository`
+## Repository
 
 ```python
-from pyado.repository import (
-    iter_repository_details,
-    get_file_content_at_commit,
-    get_file_content_at_branch,
-    iter_commit_diff,
-    get_last_commit_touching_file,
-    iter_refs,
-    create_branch,
-    delete_branch,
-)
 import uuid
+import pyado
 
 repo_id = uuid.UUID("<repository-uuid>")
+repo_api = pyado.get_repository_api_call(api, repo_id)
 
 # List repositories
-for repo in iter_repository_details(api):
+for repo in pyado.iter_repository_details(api):
     print(repo.name, repo.id)
 
 # Read a file at a specific commit
-content = get_file_content_at_commit(api, repo_id, "/src/config.json", "abc123")
+content = pyado.get_file_content_at_commit(repo_api, "/src/config.json", "abc123")
 
 # Read a file at a branch tip
-content = get_file_content_at_branch(api, repo_id, "/src/config.json", "main")
+content = pyado.get_file_content_at_branch(repo_api, "/src/config.json", "main")
 
 # File changes between two commits (paginated)
-for change in iter_commit_diff(api, repo_id, base_commit="abc123", target_commit="def456"):
+for change in pyado.iter_commit_diff(repo_api, base_commit="abc123", target_commit="def456"):
     print(change.change_type, change.item.path)
 
 # Most recent commit touching a file
-commit_sha = get_last_commit_touching_file(api, repo_id, "/src/foo.py", before_commit="def456")
+commit_sha = pyado.get_last_commit_touching_file(repo_api, "/src/foo.py", before_commit="def456")
 
 # Refs (branches / tags)
-for ref in iter_refs(api, repo_id, name_filter="heads/main"):
+for ref in pyado.iter_refs(repo_api, name_filter="heads/main"):
     print(ref.name, ref.object_id)
 
 # Branch management
-create_branch(api, repo_id, "feature/new-branch", from_commit="abc123")
-delete_branch(api, repo_id, "feature/old-branch", current_commit="abc123")
+pyado.create_branch(repo_api, "feature/new-branch", from_commit="abc123")
+pyado.delete_branch(repo_api, "feature/old-branch", current_commit="abc123")
 ```
 
-### `pyado.git_push`
+---
+
+## Git push
 
 ```python
-from pyado.git_push import (
-    # High-level helpers
-    add_file, edit_file, delete_file, rename_file,
-    make_commit, make_ref_update, push,
-    # Low-level REST models (for custom payloads)
-    GitPushChange, GitPushChangeItem, GitPushNewContent,
-    GitPushCommit, GitPushRefUpdate, GitPushResult,
-)
-from pyado.repository import ZERO_SHA
+import pyado
 
-# Push one or more file changes in a single commit (high-level)
-result = push(
-    repo_api_call,
-    ref_updates=[make_ref_update("main", "abc123")],
+repo_api = pyado.get_repository_api_call(api, repo_id)
+
+# Push one or more file changes in a single commit
+result = pyado.push_commits(
+    repo_api,
+    ref_updates=[pyado.make_ref_update("main", "abc123")],
     commits=[
-        make_commit("Update settings", [
-            add_file("/config/new.json", '{"created": true}'),
-            edit_file("/config/settings.json", '{"key": "value"}'),
-            delete_file("/config/old.json"),
-            rename_file("/config/a.json", "/config/b.json"),
+        pyado.make_commit("Update settings", [
+            pyado.add_file("/config/new.json", '{"created": true}'),
+            pyado.edit_file("/config/settings.json", '{"key": "value"}'),
+            pyado.delete_file("/config/old.json"),
+            pyado.rename_file("/config/a.json", "/config/b.json"),
         ])
     ],
 )
 print(result.push_id, result.commits[0].commit_id)
-
-# Same push built from the low-level models directly
-result = push(
-    repo_api_call,
-    ref_updates=[GitPushRefUpdate(name="refs/heads/main", old_object_id="abc123")],
-    commits=[
-        GitPushCommit(
-            comment="Update settings",
-            changes=[
-                GitPushChange(
-                    change_type="edit",
-                    item=GitPushChangeItem(path="/config/settings.json"),
-                    new_content=GitPushNewContent(content='{"key": "value"}'),
-                ),
-            ],
-        )
-    ],
-)
 ```
 
 ---
 
-### `pyado.build`
+## Build
 
 ```python
-from pyado.build import (
-    get_build_api_call,
-    get_build_details,
-    iter_builds,
-    queue_build,
-    iter_timeline_records,
-    iter_build_work_item_ids,
-    iter_pipeline_definitions,
-)
+import pyado
 
-build_api = get_build_api_call(api, build_id=1234)
+build_api = pyado.get_build_api_call(api, build_id=1234)
 
 # Top-level build details
-details = get_build_details(build_api)
+details = pyado.get_build_details(build_api)
 print(details.status, details.result, details.source_branch)
 
 # List recent builds
-for build in iter_builds(api, definition_id=42, status_filter="inProgress"):
+for build in pyado.iter_builds(api, definition_id=42, status_filter="inProgress"):
     print(build.id, build.build_number)
 
 # Queue a new build
-queued = queue_build(
+queued = pyado.start_build(
     api,
     definition_id=42,
     source_branch="refs/heads/main",
@@ -371,115 +296,234 @@ queued = queue_build(
 )
 
 # Timeline records (stages, jobs, tasks)
-for record in iter_timeline_records(build_api):
+for record in pyado.iter_timeline_records(build_api):
     print(record.type_name, record.name, record.state, record.result)
 
 # Work items linked to a build
-for work_item_id in iter_build_work_item_ids(build_api):
+for work_item_id in pyado.iter_build_work_item_ids(build_api):
     print(work_item_id)
 
-# Pipeline definitions
-for defn in iter_pipeline_definitions(api, name_filter="deploy"):
+# Work items introduced between two build IDs
+for ref in pyado.iter_work_items_between_builds(api, from_build_id=100, to_build_id=200):
+    print(ref.id)
+
+# Build artifacts
+for artifact in pyado.iter_build_artifacts(build_api):
+    print(artifact.name, artifact.resource.download_url)
+
+# Build tags
+for tag in pyado.iter_build_tags(build_api):
+    print(tag)
+pyado.post_build_tag(build_api, "release-candidate")
+pyado.delete_build_tag(build_api, "release-candidate")
+
+# Pipeline definitions (classic / Build API)
+for defn in pyado.iter_pipeline_definitions(api, name_filter="deploy"):
     print(defn.id, defn.name)
 ```
 
 ---
 
-### `pyado.pipeline`
+## Pipeline (task callbacks)
 
 Used to interact with a running pipeline task from within a task script (e.g.
 an agent job calling back to ADO).
 
 ```python
-from pyado.pipeline import (
-    get_plan_api_call,
-    get_timeline_api_call,
-    get_job_api_call,
-    get_log_api_call,
-    send_job_feed,
-    send_job_logs,
-    send_job_event,
-    update_timeline_records,
-    iter_pending_approvals,
-    approve_pipeline,
-)
 import uuid
+import pyado
 
 plan_id = uuid.UUID("<plan-uuid>")
 timeline_id = uuid.UUID("<timeline-uuid>")
 job_id = uuid.UUID("<job-uuid>")
 log_id = 1
 
-plan_api = get_plan_api_call(api, hub_name="build", plan_id=plan_id)
-job_api = get_job_api_call(api, "build", plan_id, timeline_id, job_id)
-log_api = get_log_api_call(api, "build", plan_id, log_id)
+plan_api = pyado.get_plan_api_call(api, hub_name="build", plan_id=plan_id)
+job_api = pyado.get_job_api_call(api, "build", plan_id, timeline_id, job_id)
+log_api = pyado.get_log_api_call(api, "build", plan_id, log_id)
 
 # Send messages to the task feed (shown in the ADO UI)
-send_job_feed(job_api, ["Step 1 complete", "Step 2 starting…"])
+pyado.send_job_feed(job_api, ["Step 1 complete", "Step 2 starting..."])
 
 # Append content to the task log
-send_job_logs(log_api, "Detailed log output here.\n")
+pyado.post_job_logs(log_api, "Detailed log output here.\n")
 
 # Signal task completion
-send_job_event(plan_api, task_id=uuid.UUID("<task-uuid>"), job_id=job_id,
-               job_event_name="TaskCompleted", job_event_result="succeeded")
+pyado.send_job_event(
+    plan_api,
+    task_id=uuid.UUID("<task-uuid>"),
+    job_id=job_id,
+    job_event_name="TaskCompleted",
+    job_event_result="succeeded",
+)
 
 # Pending environment approvals
-for approval in iter_pending_approvals(api):
+for approval in pyado.iter_pending_approvals(api):
     print(approval.id, approval.status)
 
-approve_pipeline(api, approval_id="<approval-uuid>", comment="LGTM")
+pyado.approve_pipeline(api, approval_id="<approval-uuid>", comment="LGTM")
 ```
 
 ---
 
-### `pyado.project`
+## Pipeline runs (YAML pipelines)
+
+The `/pipelines` REST API covers YAML pipelines and their runs separately from
+the Build Definitions API.
 
 ```python
-from pyado.project import iter_projects
+import pyado
+
+# List all YAML pipelines in the project
+for pipeline in pyado.iter_pipelines(api):
+    print(pipeline.id, pipeline.name, pipeline.folder)
+
+# Fetch a single pipeline
+pipeline = pyado.get_pipeline(api, pipeline_id=42)
+
+# List runs for a pipeline (newest first)
+for run in pyado.iter_pipeline_runs(api, pipeline_id=42):
+    print(run.id, run.state, run.result)
+
+# Fetch a single run
+run = pyado.get_pipeline_run(api, pipeline_id=42, run_id=1)
+
+# Trigger a new run
+run = pyado.post_pipeline_run(
+    api,
+    pipeline_id=42,
+    request=pyado.PipelineRunRequest(
+        template_parameters={"env": "staging"},
+    ),
+)
+print(run.id, run.state)
+```
+
+---
+
+## Projects
+
+```python
+import pyado
 
 # Requires an organisation-level ApiCall
-for project in iter_projects(org_api):
+for project in pyado.iter_projects(org_api):
     print(project.id, project.name)
 ```
 
 ---
 
-### `pyado.variable_group`
+## Variable groups
 
 ```python
-from pyado.variable_group import (
-    iter_variable_group_details,
-    update_variable_group_entries,
-    VariableInfo,
-)
+import pyado
 
 # List all variable groups in the project
-for vg in iter_variable_group_details(api):
+for vg in pyado.iter_variable_group_details(api):
     print(vg.id, vg.name, vg.variables)
 
 # Update variables in a group
-update_variable_group_entries(
-    api,
-    var_group_id=42,
-    var_group_name="MyGroup",
+vg = next(vg for vg in pyado.iter_variable_group_details(api) if vg.id == 42)
+vg_api = pyado.get_variable_group_api_call(api, 42)
+pyado.update_variable_group(
+    vg_api,
+    name=vg.name,
     variables={
-        "MY_VAR": VariableInfo(value="new-value"),
-        "SECRET_VAR": VariableInfo(value="secret", is_secret=True),
+        "MY_VAR": pyado.VariableInfo(value="new-value"),
+        "SECRET_VAR": pyado.VariableInfo(value="secret", is_secret=True),
     },
+    variable_group_project_references=vg.variable_group_project_references,
 )
 ```
 
 ---
 
-### `pyado.profile`
+## Profile
 
 ```python
-from pyado.profile import get_my_profile
+import pyado
 
 # Requires the profile ApiCall (app.vssps.visualstudio.com)
-me = get_my_profile(profile_api)
+me = pyado.get_my_profile(profile_api)
 print(me.display_name, me.email_address)
+```
+
+---
+
+## Development
+
+### Package structure
+
+The library is split into two subpackages that are re-exported through the top-level
+`pyado` namespace:
+
+| Subpackage | Purpose |
+|---|---|
+| `pyado.raw` | Thin wrappers around individual ADO REST endpoints. Each function makes exactly one API call, accepts a typed Pydantic request model, and returns a typed Pydantic response model. No payload construction, no orchestration. |
+| `pyado.high` | Higher-level helpers. Responsible for constructing request models from primitive args, pagination loops, and multi-step operations. Delegates all HTTP calls to `pyado.raw`. |
+
+Both subpackages are split into domain modules:
+
+| Module | Covers |
+|---|---|
+| `raw/_core.py` | `ApiCall`, shared types |
+| `raw/build.py` | Builds, timeline records, artifacts, tags, pipeline definitions |
+| `raw/git.py` | Repositories, commits, refs, file content, git push |
+| `raw/pipeline.py` | YAML pipeline runs, distributed task plane (job feed, events, approvals) |
+| `raw/profile.py` | User profile |
+| `raw/project.py` | Projects |
+| `raw/pull_request.py` | Pull requests, threads, reviewers, labels, statuses |
+| `raw/variable_group.py` | Variable groups |
+| `raw/work_item.py` | Work items, comments, WIQL, sprint iterations |
+| `high/build.py` | `start_build`, `send_job_feed`, `send_job_event`, `approve_pipeline`, etc. |
+| `high/git.py` | `push_commits`, `iter_commit_diff`, `get_file_content_at_*`, branch helpers |
+| `high/pull_request.py` | `create_pr`, `create_pr_thread`, `reply_to_pr_thread`, reviewer helpers |
+| `high/variable_group.py` | `update_variable_group` |
+| `high/work_item.py` | `create_work_item`, `update_work_item`, `iter_work_item_details`, attachment |
+
+**Rules for `raw/`:**
+- One function per ADO REST endpoint; no multi-step logic.
+- Accept fully-built Pydantic request models — no model construction inside the function.
+- Return Pydantic response models; never raw `dict`.
+- Multi-field request models are named publicly so callers can reference them directly.
+
+**Rules for `high/`:**
+- Construct request models from plain Python values (strings, ints, enums).
+- Own pagination loops; yield individual items.
+- May use intent-expressing names that differ from the underlying raw function
+  (e.g. `push_commits` wraps `post_push`, `start_build` wraps `post_build`).
+- Never call `api_call.get / post / patch / ...` directly — always delegate to `raw/`.
+- Never re-export raw symbols; every public symbol in `high/` must be a function
+  defined in that module.
+
+**Adding new functionality:**
+
+1. Add the HTTP call (and any request/response models) to the appropriate domain
+   submodule in `raw/` (e.g. `raw/git.py`, `raw/build.py`, `raw/pull_request.py`).
+2. Export new public symbols from `raw/__init__.py` and `pyado/__init__.py`.
+3. If payload construction, pagination, or orchestration is needed, add a wrapper
+   in the matching domain submodule in `high/` (e.g. `high/git.py`), then export
+   it from `high/__init__.py` and `pyado/__init__.py`.
+
+### Setting up a development environment
+
+You need Python 3.11 and [uv]:
+
+```console
+$ uv sync
+```
+
+Run the test suite:
+
+```console
+$ uv run pytest
+```
+
+Run linting and type checks:
+
+```console
+$ uv run ruff check src/
+$ uv run mypy src/
 ```
 
 ---

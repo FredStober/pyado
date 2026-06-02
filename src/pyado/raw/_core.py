@@ -1,8 +1,8 @@
-"""Module with utilities to interact with Azure DevOps."""
+"""HTTP client infrastructure and shared primitive types for pyado.raw submodules."""
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-import json as jsonlib
+import json
 import pathlib
 from contextlib import suppress
 from functools import lru_cache
@@ -12,8 +12,17 @@ from uuid import UUID
 
 import requests
 import requests.auth
-from pydantic import BaseModel, PositiveInt, TypeAdapter
+from pydantic import BaseModel, Field, PositiveInt, TypeAdapter
 from pydantic.networks import HttpUrl, UrlConstraints
+
+__all__ = [
+    "ADOUrl",
+    "AccessToken",
+    "ApiCall",
+    "HTMLTextFilter",
+    "JsonPatchAdd",
+    "get_test_api_call",
+]
 
 
 class HTMLTextFilter(HTMLParser):
@@ -330,9 +339,17 @@ def get_test_api_call() -> tuple[ApiCall, Any]:
         A tuple of the configured ApiCall and the raw test config dict.
     """
     test_config_file = pathlib.Path(__file__).resolve().parent / "test.json"
-    test_config = jsonlib.load(test_config_file.open(encoding="utf-8"))
+    test_config = json.load(test_config_file.open(encoding="utf-8"))
     test_api_call = ApiCall(
         access_token=test_config["access_token"],
         url=test_config["url"],
     )
     return test_api_call, test_config
+
+
+class _IdentityRef(BaseModel):
+    """Minimal identity reference as returned across ADO REST responses."""
+
+    id: str
+    display_name: str = Field(alias="displayName")
+    unique_name: str | None = Field(alias="uniqueName", default=None)

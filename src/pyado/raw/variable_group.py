@@ -1,18 +1,30 @@
-"""Module to interact with Azure DevOps variable groups."""
+"""Azure DevOps distributed task variable group API wrappers."""
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
 from collections.abc import Iterator
 from datetime import datetime
-from typing import Any, Literal, TypeAlias
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from pyado.api_call import ApiCall
+from pyado.raw._core import ApiCall
 
-UserId: TypeAlias = UUID
-VariableGroupId: TypeAlias = int
+__all__ = [
+    "UserId",
+    "VariableGroupId",
+    "VariableGroupInfo",
+    "VariableGroupUpdateRequest",
+    "VariableGroupUserInfo",
+    "VariableInfo",
+    "get_variable_group_api_call",
+    "iter_variable_group_details",
+    "put_variable_group",
+]
+
+UserId = UUID
+VariableGroupId = int
 
 
 class VariableGroupUserInfo(BaseModel):
@@ -47,7 +59,7 @@ class VariableGroupInfo(BaseModel):
     modified_by: VariableGroupUserInfo = Field(alias="modifiedBy")
     modified_on: datetime = Field(alias="modifiedOn")
     name: str
-    type: Literal["Vsts"]
+    type: str
     variable_group_refs: Any = Field(alias="variableGroupProjectReferences")
     variables: dict[str, VariableInfo]
 
@@ -58,10 +70,26 @@ class _VariableGroupInfoResults(BaseModel):
     value: list[VariableGroupInfo]
 
 
+class VariableGroupUpdateRequest(BaseModel):
+    """Request body for updating a variable group."""
+
+    name: str
+    variables: dict[str, VariableInfo]
+    variable_group_project_references: Any = Field(
+        serialization_alias="variableGroupProjectReferences"
+    )
+    description: str | None = None
+    type: str | None = None
+    provider_data: Any = Field(default=None, serialization_alias="providerData")
+
+
 def iter_variable_group_details(
     project_api_call: ApiCall,
 ) -> Iterator[VariableGroupInfo]:
     """Iterate over the variable groups of the project.
+
+    Args:
+        project_api_call: Project-level ADO API call.
 
     Yields:
         VariableGroupInfo objects for each variable group in the project.
@@ -69,24 +97,21 @@ def iter_variable_group_details(
     response = project_api_call.get(
         "distributedtask",
         "variablegroups",
-        version="5.1-preview.1",
+        version="7.1",
     )
     results = _VariableGroupInfoResults.model_validate(response)
     yield from results.value
-
-
-class _VariableGroupUpdateInfo(BaseModel):
-    """Type to store updates for variable group values."""
-
-    name: str
-    variables: dict[str, VariableInfo]
 
 
 def get_variable_group_api_call(
     project_api_call: ApiCall,
     var_group_id: VariableGroupId,
 ) -> ApiCall:
-    """Get variable group API call.
+    """Get the API call for a specific variable group.
+
+    Args:
+        project_api_call: Project-level ADO API call.
+        var_group_id: Numeric ID of the variable group.
 
     Returns:
         An ApiCall pointing at the variable group resource for the given ID.
@@ -96,25 +121,23 @@ def get_variable_group_api_call(
     )
 
 
-def update_variable_group_entries(
+def put_variable_group(
     variable_group_api_call: ApiCall,
-    var_group_name: str,
-    variables: dict[str, VariableInfo],
+    request: VariableGroupUpdateRequest,
 ) -> VariableGroupInfo:
-    """Update variables in the variable group.
+    """Update a variable group.
 
     Args:
         variable_group_api_call: Variable-group-level ADO API call (from
             get_variable_group_api_call).
-        var_group_name: Name of the variable group (required by the API).
-        variables: Mapping of variable names to updated VariableInfo values.
+        request: Update request specifying the name, variables, and optional
+            metadata fields.
 
     Returns:
         Updated VariableGroupInfo parsed from the API response.
     """
-    update_info = _VariableGroupUpdateInfo(name=var_group_name, variables=variables)
     response = variable_group_api_call.put(
-        version="5.1-preview.1",
-        json=update_info.model_dump(mode="json", by_alias=True),
+        version="7.1",
+        json=request.model_dump(mode="json", by_alias=True),
     )
     return VariableGroupInfo.model_validate(response)

@@ -1,18 +1,25 @@
-"""Module to interact with Azure DevOps projects."""
+"""Azure DevOps project API wrappers."""
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
 from collections.abc import Iterator
 from datetime import datetime
-from typing import Literal, TypeAlias
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from pyado.api_call import ApiCall
+from pyado.raw._core import ApiCall
 
-ProjectName: TypeAlias = str
-ProjectId: TypeAlias = UUID
+__all__ = [
+    "ProjectId",
+    "ProjectInfo",
+    "ProjectName",
+    "iter_projects",
+]
+
+ProjectName = str
+ProjectId = UUID
 
 
 class ProjectInfo(BaseModel):
@@ -21,9 +28,17 @@ class ProjectInfo(BaseModel):
     id: ProjectId
     name: ProjectName
     description: str | None = None
-    state: Literal["wellFormed"]
+    state: Literal[
+        "all",
+        "createPending",
+        "deleted",
+        "deleting",
+        "new",
+        "unchanged",
+        "wellFormed",
+    ]
     revision: int
-    visibility: Literal["private"]
+    visibility: Literal["private", "public", "unchanged"]
     last_update_time: datetime = Field(alias="lastUpdateTime")
 
 

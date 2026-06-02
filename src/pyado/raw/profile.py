@@ -1,10 +1,18 @@
-"""Module to interact with Azure DevOps user profiles."""
+"""Azure DevOps user profile API wrappers."""
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
 from pydantic import BaseModel, Field
 
-from pyado.api_call import ApiCall
+from pyado.raw._core import _ADO_URL_ADAPTER, AccessToken, ApiCall
+
+__all__ = [
+    "UserProfile",
+    "get_my_profile",
+    "get_profile_api_call",
+]
+
+_PROFILE_API_URL = "https://app.vssps.visualstudio.com/_apis"
 
 
 class UserProfile(BaseModel):
@@ -14,6 +22,25 @@ class UserProfile(BaseModel):
     display_name: str = Field(alias="displayName")
     email_address: str = Field(alias="emailAddress")
     public_alias: str = Field(alias="publicAlias")
+
+
+def get_profile_api_call(access_token: AccessToken) -> ApiCall:
+    """Construct the API call for the user profile endpoint.
+
+    The profile API lives on a different host from the rest of ADO
+    (``app.vssps.visualstudio.com``), so it cannot be built from a
+    project-level ApiCall.
+
+    Args:
+        access_token: ADO personal access token or OAuth token.
+
+    Returns:
+        ApiCall targeting ``https://app.vssps.visualstudio.com/_apis``.
+    """
+    return ApiCall(
+        access_token=access_token,
+        url=_ADO_URL_ADAPTER.validate_python(_PROFILE_API_URL),
+    )
 
 
 def get_my_profile(profile_api_call: ApiCall) -> UserProfile:

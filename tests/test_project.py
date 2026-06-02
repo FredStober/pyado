@@ -2,42 +2,14 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-import json as jsonlib
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
-import pytest
 import requests
 
-from pyado.api_call import ApiCall
-from pyado.project import ProjectInfo, iter_projects
-
-BASE_URL = "https://dev.azure.com/org/"
-ACCESS_TOKEN = "test_token"
-
-
-@pytest.fixture
-def api_call() -> ApiCall:
-    """Return a minimal ApiCall instance.
-
-    Returns:
-        A minimal ApiCall instance for testing.
-    """
-    return ApiCall(access_token=ACCESS_TOKEN, url=BASE_URL)
-
-
-def _make_mock_response(json_data: Any) -> MagicMock:
-    """Create a minimal mock HTTP response.
-
-    Returns:
-        A MagicMock configured to behave as a requests.Response.
-    """
-    mock = MagicMock(spec=requests.Response)
-    mock.raise_for_status.return_value = None
-    mock.json.return_value = json_data
-    mock.content = jsonlib.dumps(json_data).encode()
-    return mock
+from pyado import ApiCall, ProjectInfo, iter_projects
+from tests.conftest import _make_mock_response
 
 
 def make_project_dict(**overrides: Any) -> dict[str, Any]:

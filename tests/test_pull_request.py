@@ -2,63 +2,55 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-import json as jsonlib
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
 import requests
 from pydantic.networks import AnyUrl
 
-from pyado.api_call import ApiCall
-from pyado.pull_request import (
-    PullRequestComment,
-    PullRequestCommentHolder,
-    PullRequestCommentType,
+from pyado import (
+    ApiCall,
     PullRequestCreated,
     PullRequestIterationRecord,
     PullRequestStatusContext,
-    PullRequestStatusInfo,
-    PullRequestThread,
-    PullRequestThreadComment,
-    PullRequestUpdate,
+    PullRequestStatusRequest,
+    PullRequestThreadCommentRequest,
+    PullRequestThreadCommentResponse,
+    PullRequestThreadCommentType,
+    PullRequestThreadRequest,
+    PullRequestThreadResponse,
+    PullRequestUpdateRequest,
     PullRequestVote,
-    add_pr_label,
     add_pr_reviewer,
     create_pr,
-    create_pr_comments,
-    create_pr_status_flag,
     create_pr_thread,
     delete_pr_label,
+    delete_pr_reviewer,
     get_pr_api_call,
+    get_pr_details,
     get_pr_labels,
+    get_pr_reviewers,
+    get_repository_api_call,
     iter_open_prs,
+    iter_pr_commits,
     iter_pr_iterations,
     iter_pr_threads,
     iter_pr_work_item_ids,
     iter_prs,
-    remove_pr_reviewer,
+    patch_pr,
+    post_pr_label,
+    post_pr_new_thread,
+    post_pr_status,
+    post_pr_thread_comment,
     reply_to_pr_thread,
     set_pr_reviewer_vote,
-    update_pr,
 )
-from pyado.repository import get_repository_api_call
+from tests.conftest import _make_mock_response
 
-BASE_URL = "https://dev.azure.com/org/"
-ACCESS_TOKEN = "test_token"
 REPO_ID = uuid4()
 PR_ID = 7
-
-
-@pytest.fixture
-def api_call() -> ApiCall:
-    """Return a minimal ApiCall instance.
-
-    Returns:
-        A minimal ApiCall instance for testing.
-    """
-    return ApiCall(access_token=ACCESS_TOKEN, url=BASE_URL)
 
 
 @pytest.fixture
@@ -69,23 +61,6 @@ def repo_api_call(api_call: ApiCall) -> ApiCall:
         A repository-level ApiCall for testing.
     """
     return get_repository_api_call(api_call, REPO_ID)
-
-
-def _make_mock_response(json_data: Any = None) -> MagicMock:
-    """Create a minimal mock HTTP response.
-
-    Returns:
-        A MagicMock configured to behave as a requests.Response.
-    """
-    mock = MagicMock(spec=requests.Response)
-    mock.raise_for_status.return_value = None
-    if json_data is not None:
-        mock.json.return_value = json_data
-        mock.content = jsonlib.dumps(json_data).encode()
-    else:
-        mock.content = b""
-        mock.json.side_effect = ValueError("empty")
-    return mock
 
 
 class TestGetPrApiCall:
@@ -121,22 +96,22 @@ class TestIterPrWorkItemIds:
 
 
 class TestCreatePrComments:
-    """Tests for create_pr_comments."""
+    """Tests for post_pr_thread."""
 
     @staticmethod
     def test_posts_comments_to_threads_endpoint(api_call: ApiCall) -> None:
         """Sends a POST to the threads endpoint with the comment payload."""
-        comment = PullRequestComment(
-            comment_type=PullRequestCommentType.TEXT,
+        comment = PullRequestThreadCommentRequest(
+            comment_type=PullRequestThreadCommentType.TEXT,
             parent_comment_id=0,
             content="Review comment",
         )
-        holder = PullRequestCommentHolder(status="active", comments=[comment])
-        mock_response = _make_mock_response()
+        holder = PullRequestThreadRequest(status="active", comments=[comment])
+        mock_response = _make_mock_response({})
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            create_pr_comments(api_call, holder)
+            post_pr_new_thread(api_call, holder)
         call = mock_req.call_args
         assert call.args[0] == "POST"
         sent_json = call.kwargs.get("json") or {}
@@ -145,12 +120,12 @@ class TestCreatePrComments:
 
 
 class TestCreatePrStatusFlag:
-    """Tests for create_pr_status_flag."""
+    """Tests for post_pr_status."""
 
     @staticmethod
     def test_posts_status_to_statuses_endpoint(api_call: ApiCall) -> None:
         """Sends a POST to the statuses endpoint with the status payload."""
-        status = PullRequestStatusInfo(
+        status = PullRequestStatusRequest(
             context=PullRequestStatusContext(name="my-check", genre="ci"),
             description="Build passed",
             iteration_id=2,
@@ -160,7 +135,7 @@ class TestCreatePrStatusFlag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            create_pr_status_flag(api_call, status)
+            post_pr_status(api_call, status)
         call = mock_req.call_args
         assert call.args[0] == "POST"
         sent_json = call.kwargs.get("json") or {}
@@ -170,7 +145,7 @@ class TestCreatePrStatusFlag:
     @staticmethod
     def test_excludes_none_fields_from_payload(api_call: ApiCall) -> None:
         """None fields (like targetUrl) are omitted from the posted payload."""
-        status = PullRequestStatusInfo(
+        status = PullRequestStatusRequest(
             context=PullRequestStatusContext(name="check", genre="test"),
             iteration_id=1,
             state="pending",
@@ -179,14 +154,14 @@ class TestCreatePrStatusFlag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            create_pr_status_flag(api_call, status)
+            post_pr_status(api_call, status)
         sent_json = mock_req.call_args.kwargs.get("json") or {}
         assert "targetUrl" not in sent_json
 
     @staticmethod
     def test_includes_target_url_when_provided(api_call: ApiCall) -> None:
         """TargetUrl is included in the payload when not None."""
-        status = PullRequestStatusInfo(
+        status = PullRequestStatusRequest(
             context=PullRequestStatusContext(name="check", genre="test"),
             iteration_id=1,
             state="succeeded",
@@ -196,18 +171,18 @@ class TestCreatePrStatusFlag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            create_pr_status_flag(api_call, status)
+            post_pr_status(api_call, status)
         sent_json = mock_req.call_args.kwargs.get("json") or {}
         assert "targetUrl" in sent_json
 
 
-class TestPullRequestComment:
-    """Tests for PullRequestComment model."""
+class TestPullRequestThreadCommentRequest:
+    """Tests for PullRequestThreadCommentRequest model."""
 
     @staticmethod
     def test_instantiation_with_aliases() -> None:
         """Model can be instantiated using camelCase alias names."""
-        comment = PullRequestComment(
+        comment = PullRequestThreadCommentRequest(
             comment_type=2, parent_comment_id=0, content="Hello"
         )
         assert comment.comment_type == 2
@@ -320,7 +295,7 @@ class TestGetPrLabels:
 
 
 class TestAddPrLabel:
-    """Tests for add_pr_label."""
+    """Tests for post_pr_label."""
 
     @staticmethod
     def test_posts_label_name(api_call: ApiCall) -> None:
@@ -329,7 +304,7 @@ class TestAddPrLabel:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            add_pr_label(api_call, "my-label")
+            post_pr_label(api_call, "my-label")
         call = mock_req.call_args
         assert call.args[0] == "POST"
         assert call.kwargs.get("json") == {"name": "my-label"}
@@ -354,7 +329,7 @@ class TestIterPrThreads:
 
     @staticmethod
     def test_yields_thread_objects(api_call: ApiCall) -> None:
-        """Yields PullRequestThread objects from the API response."""
+        """Yields PullRequestThreadResponse objects from the API response."""
         thread_data = {
             "id": 1,
             "status": "active",
@@ -371,7 +346,7 @@ class TestIterPrThreads:
         with patch.object(requests.Session, "request", return_value=mock_response):
             result = list(iter_pr_threads(api_call))
         assert len(result) == 1
-        assert isinstance(result[0], PullRequestThread)
+        assert isinstance(result[0], PullRequestThreadResponse)
         assert result[0].id == 1
 
     @staticmethod
@@ -395,7 +370,7 @@ class TestCreatePrThread:
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
             result = create_pr_thread(api_call, "PR-level comment")
-        assert isinstance(result, PullRequestThread)
+        assert isinstance(result, PullRequestThreadResponse)
         sent_json = mock_req.call_args.kwargs.get("json") or {}
         assert "threadContext" not in sent_json
 
@@ -410,7 +385,7 @@ class TestCreatePrThread:
             result = create_pr_thread(
                 api_call, "Inline comment", file_path="/src/foo.py", line=10
             )
-        assert isinstance(result, PullRequestThread)
+        assert isinstance(result, PullRequestThreadResponse)
         sent_json = mock_req.call_args.kwargs.get("json") or {}
         assert "threadContext" in sent_json
         assert sent_json["threadContext"]["filePath"] == "/src/foo.py"
@@ -424,7 +399,7 @@ class TestCreatePrThread:
 
 
 class TestReplyToPrThread:
-    """Tests for reply_to_pr_thread."""
+    """Tests for post_pr_thread_reply."""
 
     @staticmethod
     def test_posts_reply_to_thread(api_call: ApiCall) -> None:
@@ -439,17 +414,46 @@ class TestReplyToPrThread:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            result = reply_to_pr_thread(
-                api_call, thread_id=7, parent_comment_id=1, content="Reply text"
+            result = post_pr_thread_comment(
+                api_call,
+                7,
+                PullRequestThreadCommentRequest(
+                    comment_type=PullRequestThreadCommentType.TEXT,
+                    parent_comment_id=1,
+                    content="Reply text",
+                ),
             )
-        assert isinstance(result, PullRequestThreadComment)
+        assert isinstance(result, PullRequestThreadCommentResponse)
         assert result.content == "Reply text"
         sent_json = mock_req.call_args.kwargs.get("json") or {}
         assert sent_json["parentCommentId"] == 1
 
 
+class TestReplyToPrThreadHighLevel:
+    """Tests for reply_to_pr_thread."""
+
+    @staticmethod
+    def test_posts_plain_text_reply(api_call: ApiCall) -> None:
+        """Sends a text reply to the specified thread."""
+        comment_data = {
+            "id": 3,
+            "content": "High-level reply",
+            "commentType": "text",
+            "parentCommentId": 1,
+        }
+        mock_response = _make_mock_response(comment_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            result = reply_to_pr_thread(api_call, 5, "High-level reply")
+        assert isinstance(result, PullRequestThreadCommentResponse)
+        assert result.content == "High-level reply"
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json["parentCommentId"] == 1
+
+
 class TestUpdatePr:
-    """Tests for update_pr."""
+    """Tests for patch_pr."""
 
     @staticmethod
     def test_patches_pr_fields(api_call: ApiCall) -> None:
@@ -458,7 +462,7 @@ class TestUpdatePr:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            update_pr(api_call, PullRequestUpdate(title="Updated title"))
+            patch_pr(api_call, PullRequestUpdateRequest(title="Updated title"))
         assert mock_req.call_args.args[0] == "PATCH"
         sent_json = mock_req.call_args.kwargs.get("json") or {}
         assert sent_json["title"] == "Updated title"
@@ -494,7 +498,7 @@ class TestIterPrIterations:
 
 
 class TestSetPrReviewerVote:
-    """Tests for set_pr_reviewer_vote."""
+    """Tests for put_pr_reviewer_vote."""
 
     @staticmethod
     def test_puts_vote_for_reviewer(api_call: ApiCall) -> None:
@@ -512,7 +516,7 @@ class TestSetPrReviewerVote:
 
 
 class TestAddPrReviewer:
-    """Tests for add_pr_reviewer."""
+    """Tests for put_pr_reviewer."""
 
     @staticmethod
     def test_adds_optional_reviewer(api_call: ApiCall) -> None:
@@ -540,7 +544,7 @@ class TestAddPrReviewer:
 
 
 class TestRemovePrReviewer:
-    """Tests for remove_pr_reviewer."""
+    """Tests for delete_pr_reviewer."""
 
     @staticmethod
     def test_sends_delete_request(api_call: ApiCall) -> None:
@@ -549,7 +553,7 @@ class TestRemovePrReviewer:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            remove_pr_reviewer(api_call, "reviewer-uuid")
+            delete_pr_reviewer(api_call, "reviewer-uuid")
         assert mock_req.call_args.args[0] == "DELETE"
         called_url: str = mock_req.call_args.kwargs.get("url") or ""
         assert "reviewer-uuid" in called_url
@@ -644,3 +648,55 @@ class TestCreatePr:
         body = mock_req.call_args.kwargs.get("json") or {}
         assert body["sourceRefName"] == "refs/heads/feature/full"
         assert body["targetRefName"] == "refs/heads/main"
+
+
+class TestGetPrReviewers:
+    """Tests for get_pr_reviewers."""
+
+    @staticmethod
+    def test_returns_reviewer_list(api_call: ApiCall) -> None:
+        """Returns a list of PullRequestReviewer objects."""
+        response_json = {"value": [{"id": "rev-1", "displayName": "Alice", "vote": 10}]}
+        mock_response = _make_mock_response(response_json)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_pr_reviewers(api_call)
+        assert len(result) == 1
+        assert result[0].display_name == "Alice"
+
+
+class TestIterPrCommits:
+    """Tests for iter_pr_commits."""
+
+    @staticmethod
+    def test_yields_commit_refs(api_call: ApiCall) -> None:
+        """Yields GitCommitRef objects from the API response."""
+        commit_id = str(uuid4())
+        response_json = {"value": [{"commitId": commit_id}]}
+        mock_response = _make_mock_response(response_json)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = list(iter_pr_commits(api_call))
+        assert len(result) == 1
+        assert str(result[0].commit_id) == commit_id
+
+
+class TestGetPrDetails:
+    """Tests for get_pr_details."""
+
+    @staticmethod
+    def test_returns_pull_request_created(api_call: ApiCall) -> None:
+        """Returns a PullRequestCreated from the API response."""
+        pr_data = {
+            "pullRequestId": 77,
+            "repository": {"id": str(uuid4())},
+            "status": "active",
+            "url": "https://dev.azure.com/org/proj/_apis/git/pullRequests/77",
+            "title": "Fix bug",
+            "sourceRefName": "refs/heads/feature/fix",
+            "targetRefName": "refs/heads/main",
+        }
+        mock_response = _make_mock_response(pr_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_pr_details(api_call)
+        assert isinstance(result, PullRequestCreated)
+        assert result.pr_id == 77
+        assert result.title == "Fix bug"

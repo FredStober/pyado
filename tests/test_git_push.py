@@ -2,16 +2,16 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-import json as jsonlib
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
 import requests
 
-from pyado.api_call import ApiCall
-from pyado.git_push import (
+from pyado import (
+    ZERO_SHA,
+    ApiCall,
     GitPushChange,
     GitPushChangeItem,
     GitPushCommit,
@@ -21,27 +21,15 @@ from pyado.git_push import (
     add_file,
     delete_file,
     edit_file,
+    get_repository_api_call,
     make_commit,
     make_ref_update,
-    push,
+    push_commits,
     rename_file,
 )
-from pyado.repository import ZERO_SHA, get_repository_api_call
+from tests.conftest import _make_mock_response
 
 REPO_ID = uuid4()
-
-
-def _make_mock_response(json_data: Any) -> MagicMock:
-    """Create a minimal mock HTTP response.
-
-    Returns:
-        A MagicMock configured to behave as a requests.Response.
-    """
-    mock = MagicMock(spec=requests.Response)
-    mock.raise_for_status.return_value = None
-    mock.json.return_value = json_data
-    mock.content = jsonlib.dumps(json_data).encode()
-    return mock
 
 
 @pytest.fixture
@@ -55,7 +43,7 @@ def repo_api_call(api_call: ApiCall) -> ApiCall:
 
 
 class TestPush:
-    """Tests for push."""
+    """Tests for post_push."""
 
     @staticmethod
     def _make_push_response() -> dict[str, Any]:
@@ -69,7 +57,7 @@ class TestPush:
         """Returns a GitPushResult with pushId and commits."""
         mock_response = _make_mock_response(self._make_push_response())
         with patch.object(requests.Session, "request", return_value=mock_response):
-            result = push(
+            result = push_commits(
                 repo_api_call,
                 [make_ref_update("main", "oldsha")],
                 [
@@ -89,7 +77,7 @@ class TestPush:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            push(
+            push_commits(
                 repo_api_call,
                 [make_ref_update("refs/heads/main", "oldsha")],
                 [make_commit("msg", [edit_file("/f.txt", "x")])],
@@ -104,7 +92,7 @@ class TestPush:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            push(
+            push_commits(
                 repo_api_call,
                 [make_ref_update("main", "oldsha")],
                 [make_commit("Delete file", [delete_file("/f.txt")])],
@@ -119,7 +107,7 @@ class TestPush:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            push(
+            push_commits(
                 repo_api_call,
                 [make_ref_update("main", "oldsha")],
                 [

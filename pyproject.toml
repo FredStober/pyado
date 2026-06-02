@@ -25,7 +25,7 @@ description = "Add your description here"
 name = "pyado"
 readme = "README.md"
 requires-python = ">=3.11"
-version = "0.2.0"
+version = "0.2.1"
 
 [tool.coverage.paths]
 source = ["src", "*/site-packages"]
@@ -42,6 +42,10 @@ show_missing = true
 
 [tool.coverage.run]
 branch = true
+omit = [
+  "*/pyado/raw/coverage.py",
+  "*/pyado/high/coverage.py"
+]
 source = ["pyado", "scripts"]
 
 [tool.mypy]
@@ -67,8 +71,11 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/pyado/pull_request.py" = [
+"src/pyado/high/pull_request.py" = [
   "PLR0913"  # create_pr legitimately needs 4 positional + 2 keyword-only params
+]
+"src/pyado/high/variable_group.py" = [
+  "PLR0913"  # update_variable_group passes through all VariableGroupUpdateRequest fields
 ]
 "tests/**" = [
   "PLR2004",  # Magic values in test assertions are self-explanatory

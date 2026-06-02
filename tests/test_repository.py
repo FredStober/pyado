@@ -2,7 +2,6 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-import json as jsonlib
 from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -10,9 +9,10 @@ from uuid import uuid4
 import pytest
 import requests
 
-from pyado.api_call import ApiCall
-from pyado.repository import (
+from pyado import (
+    ApiCall,
     GitCommitChange,
+    GitCommitRef,
     GitRef,
     RepositoryInfo,
     create_branch,
@@ -21,36 +21,12 @@ from pyado.repository import (
     get_file_content_at_commit,
     get_last_commit_touching_file,
     get_repository_api_call,
+    get_repository_commits,
     iter_commit_diff,
     iter_refs,
     iter_repository_details,
 )
-
-BASE_URL = "https://dev.azure.com/org/"
-ACCESS_TOKEN = "test_token"
-
-
-@pytest.fixture
-def api_call() -> ApiCall:
-    """Return a minimal ApiCall instance.
-
-    Returns:
-        A minimal ApiCall instance for testing.
-    """
-    return ApiCall(access_token=ACCESS_TOKEN, url=BASE_URL)
-
-
-def _make_mock_response(json_data: Any) -> MagicMock:
-    """Create a minimal mock HTTP response.
-
-    Returns:
-        A MagicMock configured to behave as a requests.Response.
-    """
-    mock = MagicMock(spec=requests.Response)
-    mock.raise_for_status.return_value = None
-    mock.json.return_value = json_data
-    mock.content = jsonlib.dumps(json_data).encode()
-    return mock
+from tests.conftest import _make_mock_response
 
 
 def make_repository_dict(**overrides: Any) -> dict[str, Any]:
@@ -423,3 +399,34 @@ class TestGetFileContentAtBranch:
         with patch.object(requests.Session, "request", return_value=mock_response):
             result = get_file_content_at_branch(repo_api_call, "/missing.txt", "main")
         assert not result
+
+
+class TestGetRepositoryCommits:
+    """Tests for get_repository_commits."""
+
+    @staticmethod
+    def test_returns_commits_with_all_params(repo_api_call: ApiCall) -> None:
+        """Returns GitCommitRef list when all optional parameters are provided."""
+        response_data = {"value": [{"commitId": "abc123"}]}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_repository_commits(
+                repo_api_call,
+                item_path="/src/foo.py",
+                item_version="abc123",
+                item_version_type="commit",
+                top=1,
+            )
+        assert len(result) == 1
+        assert isinstance(result[0], GitCommitRef)
+        assert result[0].commit_id == "abc123"
+
+    @staticmethod
+    def test_returns_commits_with_no_params(repo_api_call: ApiCall) -> None:
+        """Returns GitCommitRef list when no optional parameters are provided."""
+        response_data = {"value": [{"commitId": "def456"}]}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_repository_commits(repo_api_call)
+        assert len(result) == 1
+        assert result[0].commit_id == "def456"

@@ -2,15 +2,13 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-import json as jsonlib
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import requests
 
-from pyado.api_call import ApiCall
-from pyado.profile import UserProfile, get_my_profile
+from pyado import ApiCall, UserProfile, get_my_profile, get_profile_api_call
+from tests.conftest import _make_mock_response
 
 BASE_URL = "https://app.vssps.visualstudio.com/_apis/"
 ACCESS_TOKEN = "test_token"
@@ -26,17 +24,16 @@ def api_call() -> ApiCall:
     return ApiCall(access_token=ACCESS_TOKEN, url=BASE_URL)
 
 
-def _make_mock_response(json_data: Any) -> MagicMock:
-    """Create a minimal mock HTTP response.
+class TestGetProfileApiCall:
+    """Tests for get_profile_api_call."""
 
-    Returns:
-        A MagicMock configured to behave as a requests.Response.
-    """
-    mock = MagicMock(spec=requests.Response)
-    mock.raise_for_status.return_value = None
-    mock.json.return_value = json_data
-    mock.content = jsonlib.dumps(json_data).encode()
-    return mock
+    @staticmethod
+    def test_returns_api_call_with_vssps_url() -> None:
+        """Returns an ApiCall targeting the VSSPS profile endpoint."""
+        api_call = get_profile_api_call("mytoken")
+        assert isinstance(api_call, ApiCall)
+        assert "app.vssps.visualstudio.com" in api_call.url.unicode_string()
+        assert api_call.access_token == "mytoken"
 
 
 class TestGetMyProfile:

@@ -2,88 +2,32 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-import json as jsonlib
+import json
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
-import pytest
 import requests
 
-from pyado.api_call import ApiCall
-from pyado.build import (
+from pyado import (
+    ApiCall,
     BuildDetails,
     BuildRecordInfo,
     PipelineDefinitionInfo,
+    delete_build_tag,
     get_build_api_call,
     get_build_details,
+    iter_build_artifacts,
+    iter_build_tags,
     iter_build_work_item_ids,
     iter_builds,
     iter_pipeline_definitions,
     iter_timeline_records,
-    queue_build,
+    iter_work_items_between_builds,
+    post_build_tag,
+    start_build,
 )
-
-BASE_URL = "https://dev.azure.com/org/"
-ACCESS_TOKEN = "test_token"
-NOW_ISO = "2024-01-15T12:00:00+00:00"
-
-
-def make_build_record_dict(**overrides: Any) -> dict[str, Any]:
-    """Create a minimal valid BuildRecordInfo dict.
-
-    Returns:
-        A dict with all required BuildRecordInfo fields populated.
-    """
-    record: dict[str, Any] = {
-        "attempt": 1,
-        "changeId": None,
-        "currentOperation": None,
-        "details": None,
-        "finishTime": NOW_ISO,
-        "id": str(uuid4()),
-        "identifier": None,
-        "lastModified": NOW_ISO,
-        "log": None,
-        "name": "Test Task",
-        "refName": None,
-        "parentId": None,
-        "percentComplete": None,
-        "previousAttempts": [],
-        "result": None,
-        "resultCode": None,
-        "startTime": None,
-        "state": "pending",
-        "task": None,
-        "type": "Task",
-        "url": None,
-        "workerName": None,
-    }
-    record.update(overrides)
-    return record
-
-
-@pytest.fixture
-def api_call() -> ApiCall:
-    """Return a minimal ApiCall instance.
-
-    Returns:
-        A minimal ApiCall instance for testing.
-    """
-    return ApiCall(access_token=ACCESS_TOKEN, url=BASE_URL)
-
-
-def _make_mock_response(json_data: Any) -> MagicMock:
-    """Create a minimal mock HTTP response.
-
-    Returns:
-        A MagicMock configured to behave as a requests.Response.
-    """
-    mock_response = MagicMock(spec=requests.Response)
-    mock_response.raise_for_status.return_value = None
-    mock_response.json.return_value = json_data
-    mock_response.content = jsonlib.dumps(json_data).encode()
-    return mock_response
+from tests.conftest import NOW_ISO, _make_mock_response, make_build_record_dict
 
 
 class TestGetBuildApiCall:
@@ -328,7 +272,7 @@ class TestIterBuilds:
 
 
 class TestQueueBuild:
-    """Tests for queue_build."""
+    """Tests for start_build."""
 
     @staticmethod
     def test_queues_build_with_definition_id(api_call: ApiCall) -> None:
@@ -338,7 +282,7 @@ class TestQueueBuild:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            result = queue_build(api_call, definition_id=7)
+            result = start_build(api_call, definition_id=7)
         assert isinstance(result, BuildDetails)
         assert result.id == 999
         body = mock_req.call_args.kwargs.get("json") or {}
@@ -352,7 +296,7 @@ class TestQueueBuild:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            queue_build(api_call, definition_id=7, source_branch="refs/heads/main")
+            start_build(api_call, definition_id=7, source_branch="refs/heads/main")
         body = mock_req.call_args.kwargs.get("json") or {}
         assert body.get("sourceBranch") == "refs/heads/main"
 
@@ -364,7 +308,7 @@ class TestQueueBuild:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            queue_build(api_call, definition_id=7, source_version="abc123")
+            start_build(api_call, definition_id=7, source_version="abc123")
         body = mock_req.call_args.kwargs.get("json") or {}
         assert body.get("sourceVersion") == "abc123"
 
@@ -376,9 +320,9 @@ class TestQueueBuild:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            queue_build(api_call, definition_id=7, parameters={"env": "staging"})
+            start_build(api_call, definition_id=7, parameters={"env": "staging"})
         body = mock_req.call_args.kwargs.get("json") or {}
-        assert jsonlib.loads(body["parameters"]) == {"env": "staging"}
+        assert json.loads(body["parameters"]) == {"env": "staging"}
 
 
 class TestIterPipelineDefinitions:
@@ -416,3 +360,88 @@ class TestIterPipelineDefinitions:
             list(iter_pipeline_definitions(api_call, name_filter="deploy*"))
         params = mock_req.call_args.kwargs.get("params") or {}
         assert params.get("name") == "deploy*"
+
+
+class TestIterWorkItemsBetweenBuilds:
+    """Tests for iter_work_items_between_builds."""
+
+    @staticmethod
+    def test_yields_work_item_refs(api_call: ApiCall) -> None:
+        """Yields WorkItemRef objects from the API response."""
+        response_json = {"value": [{"id": 5}, {"id": 6}]}
+        mock_response = _make_mock_response(response_json)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = list(iter_work_items_between_builds(api_call, 10, 20))
+        assert [ref.id for ref in result] == [5, 6]
+
+    @staticmethod
+    def test_passes_top_parameter(api_call: ApiCall) -> None:
+        """Includes $top in query parameters when top is provided."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(iter_work_items_between_builds(api_call, 1, 2, top=5))
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params.get("$top") == 5
+
+
+class TestIterBuildArtifacts:
+    """Tests for iter_build_artifacts."""
+
+    @staticmethod
+    def test_yields_artifact_objects(api_call: ApiCall) -> None:
+        """Yields BuildArtifact objects from the API response."""
+        response_json = {
+            "value": [
+                {
+                    "id": 1,
+                    "name": "drop",
+                    "resource": {
+                        "type": "Container",
+                        "url": "https://example.com/drop",
+                    },
+                }
+            ]
+        }
+        mock_response = _make_mock_response(response_json)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = list(iter_build_artifacts(api_call))
+        assert len(result) == 1
+        assert result[0].name == "drop"
+
+
+class TestIterBuildTags:
+    """Tests for iter_build_tags."""
+
+    @staticmethod
+    def test_yields_tag_strings(api_call: ApiCall) -> None:
+        """Yields tag strings from the API response."""
+        mock_response = _make_mock_response({"value": ["tag-a", "tag-b"]})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = list(iter_build_tags(api_call))
+        assert result == ["tag-a", "tag-b"]
+
+
+class TestPostBuildTag:
+    """Tests for post_build_tag."""
+
+    @staticmethod
+    def test_returns_updated_tag_list(api_call: ApiCall) -> None:
+        """Returns the updated tag list returned by the API."""
+        mock_response = _make_mock_response({"value": ["tag-a", "new-tag"]})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = post_build_tag(api_call, "new-tag")
+        assert "new-tag" in result
+
+
+class TestDeleteBuildTag:
+    """Tests for delete_build_tag."""
+
+    @staticmethod
+    def test_returns_remaining_tag_list(api_call: ApiCall) -> None:
+        """Returns the remaining tag list after deletion."""
+        mock_response = _make_mock_response({"value": ["tag-a"]})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = delete_build_tag(api_call, "tag-b")
+        assert result == ["tag-a"]

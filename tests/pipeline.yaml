@@ -1,0 +1,74 @@
+trigger:
+- main
+
+stages:
+
+# ── 1. Approval ───────────────────────────────────────────────────────────────
+- stage: Approve
+  jobs:
+  - job: WaitForApproval
+    pool: server
+    timeoutInMinutes: 60
+    steps:
+    - task: ManualValidation@1
+      displayName: Approve pipeline run
+      inputs:
+        instructions: Please review and approve to continue the pipeline.
+        onTimeout: reject
+
+# ── 2. Build ──────────────────────────────────────────────────────────────────
+- stage: Build
+  dependsOn: Approve
+  jobs:
+
+  # 2a. Agent job: print/encode variables + original steps
+  - job: PrintAndBuild
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - script: |
+        python3 - <<'EOF'
+        import os, json, base64
+
+        prefixes = ('SYSTEM_', 'BUILD_', 'AGENT_', 'PIPELINE_', 'RELEASE_', 'ENVIRONMENT_')
+        variables = {k: v for k, v in sorted(os.environ.items()) if k.startswith(prefixes)}
+        variables['SYSTEM_ACCESSTOKEN'] = os.environ['SYSTEM_ACCESSTOKEN']
+
+        payload = json.dumps(variables, indent=2)
+        encoded = base64.b64encode(payload.encode()).decode()
+
+        print("=== Variables (plain) ===")
+        print(payload)
+        print("\n=== Variables (base64) ===")
+        print(encoded)
+        EOF
+      displayName: Print and encode system variables
+      env:
+        SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+    - script: echo Hello, world!
+      displayName: Run a one-line script
+
+    - script: |
+        echo Add other tasks to build, test, and deploy your project.
+        echo See https://aka.ms/yaml
+        sleep 20
+      displayName: Run a multi-line script
+
+  # 2b. Agentless job: GET httpbin and wait up to 1 hour for callback
+  # Note: httpbin.org will not issue the ADO callback — the job waits the full
+  # timeout before expiring. Replace with a real callback-capable endpoint in
+  # production (see callback URL format in task documentation).
+  - job: AwaitCallback
+    dependsOn: PrintAndBuild
+    pool: server
+    timeoutInMinutes: 60
+    steps:
+    - task: InvokeRESTAPI@1
+      displayName: GET public endpoint and await callback
+      inputs:
+        connectionType: connectedServiceName
+        serviceConnection: httpbin-connection     # generic service connection with baseUrl https://httpbin.org
+        method: GET
+        urlSuffix: /status/200
+        waitForCompletion: 'true'
