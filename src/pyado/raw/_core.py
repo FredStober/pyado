@@ -21,6 +21,7 @@ __all__ = [
     "ApiCall",
     "HTMLTextFilter",
     "JsonPatchAdd",
+    "get_session",
     "get_test_api_call",
 ]
 
@@ -58,6 +59,7 @@ class HTMLTextFilter(HTMLParser):
 
 AccessToken: TypeAlias = str
 
+#: Validated HTTPS URL accepted by ADO API calls (max 256 characters).
 ADOUrl: TypeAlias = Annotated[
     HttpUrl,
     UrlConstraints(
@@ -94,6 +96,19 @@ def _is_json_patch(value: Any | list[Any] | list[dict[str, str]]) -> bool:
         if "path" not in item:
             return False
     return True
+
+
+@lru_cache(maxsize=8)
+def _get_session(access_token: str) -> requests.Session:
+    """Get or create a cached session for the given access token.
+
+    Returns:
+        A requests Session configured with basic auth for the token.
+    """
+    session = requests.Session()
+    session.trust_env = False
+    session.auth = requests.auth.HTTPBasicAuth("", access_token)
+    return session
 
 
 def _get_content_type(*, has_data: bool, json_value: Any) -> str:
@@ -185,19 +200,6 @@ class ApiCall(BaseModel):
             raise ValueError(error_message) from ex
 
     @staticmethod
-    @lru_cache(maxsize=8)
-    def _get_session(access_token: str) -> requests.Session:
-        """Get or create a cached session for the given access token.
-
-        Returns:
-            A requests Session configured with basic auth for the token.
-        """
-        session = requests.Session()
-        session.trust_env = False
-        session.auth = requests.auth.HTTPBasicAuth("", access_token)
-        return session
-
-    @staticmethod
     def _request(
         method: str,
         api_call: "ApiCall",
@@ -224,7 +226,7 @@ class ApiCall(BaseModel):
             kwargs = {"json": json}
         if data is not None:
             kwargs = {"data": data}
-        session = ApiCall._get_session(api_call.access_token)
+        session = _get_session(api_call.access_token)
         max_retries = 3
         for retry in range(max_retries, 0, -1):  # max_retries, ..., 1
             try:
@@ -330,6 +332,21 @@ class ApiCall(BaseModel):
         """
         api_call = self.build_call(*args, parameters=parameters, version=version)
         return ApiCall._request("DELETE", api_call)
+
+
+def get_session(access_token: AccessToken) -> requests.Session:
+    """Return the cached session for the given access token.
+
+    Callers may use this to inject a custom SSL adapter (e.g. a truststore
+    adapter) into the session before the first API call is made.
+
+    Args:
+        access_token: ADO personal access token or OAuth token.
+
+    Returns:
+        The requests.Session that pyado uses for all calls with this token.
+    """
+    return _get_session(access_token)
 
 
 def get_test_api_call() -> tuple[ApiCall, Any]:

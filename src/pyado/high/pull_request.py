@@ -7,12 +7,15 @@ from collections.abc import Iterator
 from pyado.high.git import _full_ref
 from pyado.raw import (
     ApiCall,
+    CommitId,
     PullRequestCompletionOptions,
     PullRequestCreated,
     PullRequestCreateRequest,
     PullRequestListItem,
     PullRequestReviewerRequest,
     PullRequestReviewerVoteRequest,
+    PullRequestSearchCriteria,
+    PullRequestStatus,
     PullRequestThreadCommentRequest,
     PullRequestThreadCommentResponse,
     PullRequestThreadCommentType,
@@ -21,10 +24,18 @@ from pyado.raw import (
     PullRequestThreadRequest,
     PullRequestThreadResponse,
     PullRequestThreadStatus,
+    PullRequestUpdateRequest,
     PullRequestVote,
+    WorkItemArtifactUrlPrefix,
     WorkItemId,
+    WorkItemInfo,
+    WorkItemRelationType,
+    get_pr_details,
     get_pr_labels_details,
+    get_work_item_api_call,
     iter_prs,
+    patch_pr,
+    patch_work_item,
     post_pr_new_thread,
     post_pr_thread_comment,
     post_pull_request,
@@ -36,27 +47,41 @@ from pyado.raw import (
 )
 
 __all__ = [
+    "abandon_pr",
     "add_pr_reviewer",
+    "complete_pr",
     "create_pr",
     "create_pr_thread",
     "get_pr_labels",
-    "iter_open_prs",
+    "iter_active_prs",
     "iter_pr_work_item_ids",
+    "link_pr_work_item",
     "reply_to_pr_thread",
     "set_pr_reviewer_vote",
+    "update_pr_work_item_refs",
 ]
 
 
-def iter_open_prs(project_api_call: ApiCall) -> Iterator[PullRequestListItem]:
+def iter_active_prs(
+    project_api_call: ApiCall,
+    *,
+    expand: str | None = None,
+) -> Iterator[PullRequestListItem]:
     """Iterate over all active pull requests in the project.
 
     Args:
         project_api_call: Project-level ADO API call.
+        expand: Optional ``$expand`` value (e.g. ``"labels"``,
+            ``"reviewers"``).
 
     Yields:
         PullRequestListItem for each active pull request.
     """
-    yield from iter_prs(project_api_call, {"status": "active"})
+    yield from iter_prs(
+        project_api_call,
+        PullRequestSearchCriteria(status=PullRequestStatus.ACTIVE),
+        expand=expand,
+    )
 
 
 def get_pr_labels(pr_api_call: ApiCall) -> list[str]:
@@ -84,13 +109,90 @@ def iter_pr_work_item_ids(pr_api_call: ApiCall) -> Iterator[WorkItemId]:
         yield ref.id
 
 
+def _project_from_api_call(api_call: ApiCall) -> str:
+    """Extract the project name or ID from a project-level API call URL.
+
+    ADO does not expose a project-info endpoint reachable from a project-level
+    URL, so the project identifier is read directly from the URL path.  The
+    ADO URL convention is stable across hosted and on-premises instances:
+
+    * Hosted:    ``https://dev.azure.com/{org}/{project}/_apis/...``
+    * On-prem:   ``https://{server}/{collection}/{project}/_apis/...``
+
+    In both cases the project occupies the second path segment (index 1 after
+    stripping the leading slash).  ADO accepts either a project name or a
+    project UUID in artifact URLs, so whichever form is present in the URL
+    will work.
+
+    Returns:
+        The project name or UUID string embedded in the URL.
+    """
+    parts = (api_call.url.path or "").strip("/").split("/")
+    return parts[1]
+
+
+def link_pr_work_item(
+    pr_api_call: ApiCall,
+    project_api_call: ApiCall,
+    work_item_id: WorkItemId,
+    *,
+    comment: str | None = None,
+) -> WorkItemInfo:
+    """Link a work item to a pull request.
+
+    Reads the repository ID and PR ID from the PR itself and derives the
+    project identifier from the ``project_api_call`` URL path (see
+    :func:`_project_from_api_call`), then adds an ``ArtifactLink`` relation on
+    the work item.  After this call the work item appears in the PR's linked
+    work items list (``iter_pr_work_item_ids``).
+
+    Args:
+        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        project_api_call: Project-level ADO API call.  Used both to build
+            the work item API call and to derive the project identifier for
+            the artifact URL.  The project name or UUID is read from the
+            second path segment of the URL
+            (``/{org}/{project}/_apis/...``); no separate REST call is made
+            to resolve it.
+        work_item_id: Numeric ID of the work item to link.
+        comment: Optional comment to attach to the relation.
+
+    Returns:
+        Updated WorkItemInfo parsed from the API response.
+    """
+    pr = get_pr_details(pr_api_call)
+    project = _project_from_api_call(project_api_call)
+    artifact_url = (
+        f"{WorkItemArtifactUrlPrefix.PULL_REQUEST}/{project}"
+        f"%2F{pr.repository.id}%2F{pr.pr_id}"
+    )
+    attributes: dict[str, str] = {"name": "Pull Request"}
+    if comment is not None:
+        attributes["comment"] = comment
+    work_item_api_call = get_work_item_api_call(project_api_call, work_item_id)
+    return patch_work_item(
+        work_item_api_call,
+        [
+            {
+                "op": "add",
+                "path": "/relations/-",
+                "value": {
+                    "rel": WorkItemRelationType.ARTIFACT_LINK,
+                    "url": artifact_url,
+                    "attributes": attributes,
+                },
+            }
+        ],
+    )
+
+
 def create_pr_thread(
     pr_api_call: ApiCall,
     content: str,
     *,
     file_path: str | None = None,
     line: int | None = None,
-    status: PullRequestThreadStatus = "active",
+    status: PullRequestThreadStatus = PullRequestThreadStatus.ACTIVE,
 ) -> PullRequestThreadResponse:
     """Create a new review thread on a pull request.
 
@@ -241,6 +343,55 @@ def set_pr_reviewer_vote(
     )
 
 
+def complete_pr(
+    pr_api_call: ApiCall,
+    last_merge_source_commit: CommitId,
+    *,
+    completion_options: PullRequestCompletionOptions | None = None,
+) -> PullRequestCreated:
+    """Complete (merge) a pull request.
+
+    Args:
+        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        last_merge_source_commit: Current HEAD SHA of the source branch.
+            ADO uses this as an optimistic-concurrency guard; obtain it from
+            ``get_pr_details(pr_api_call).last_merge_source_commit.commit_id``.
+        completion_options: Merge strategy and post-completion options.
+            Defaults to squash merge with source-branch deletion.
+
+    Returns:
+        PullRequestCreated populated with the PR state after completion.
+    """
+    opts = (
+        completion_options
+        if completion_options is not None
+        else PullRequestCompletionOptions()
+    )
+    return patch_pr(
+        pr_api_call,
+        PullRequestUpdateRequest(
+            status=PullRequestStatus.COMPLETED,
+            last_merge_source_commit={"commitId": last_merge_source_commit},
+            completion_options=opts,
+        ),
+    )
+
+
+def abandon_pr(pr_api_call: ApiCall) -> PullRequestCreated:
+    """Abandon a pull request.
+
+    Args:
+        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+
+    Returns:
+        PullRequestCreated populated with the PR state after abandonment.
+    """
+    return patch_pr(
+        pr_api_call,
+        PullRequestUpdateRequest(status=PullRequestStatus.ABANDONED),
+    )
+
+
 def add_pr_reviewer(
     pr_api_call: ApiCall,
     reviewer_id: str,
@@ -261,4 +412,26 @@ def add_pr_reviewer(
         pr_api_call,
         reviewer_id,
         PullRequestReviewerRequest(is_required=is_required, is_reapprove=is_reapprove),
+    )
+
+
+def update_pr_work_item_refs(
+    pr_api_call: ApiCall,
+    work_item_ids: list[WorkItemId],
+) -> None:
+    """Set the work items linked to a pull request (visible on the PR page).
+
+    Replaces the PR's ``workItemRefs`` list so the given work items appear
+    in the ADO pull request UI.  To also add the reverse link on the work
+    item side, call :func:`link_pr_work_item` for each item.
+
+    Args:
+        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        work_item_ids: Numeric IDs of the work items to associate.
+    """
+    patch_pr(
+        pr_api_call,
+        PullRequestUpdateRequest(
+            work_item_refs=[{"id": str(wi_id)} for wi_id in work_item_ids],
+        ),
     )

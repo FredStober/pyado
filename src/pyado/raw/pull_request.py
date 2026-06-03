@@ -4,8 +4,8 @@
 
 from collections.abc import Iterator
 from datetime import datetime
-from enum import IntEnum
-from typing import Any, Literal
+from enum import IntEnum, StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.networks import AnyUrl
@@ -22,6 +22,8 @@ from pyado.raw.work_item import WorkItemRef, _WorkItemRefResults
 __all__ = [
     "GitForkRef",
     "GitPullRequestMergeStrategy",
+    "PrIterationChange",
+    "PrIterationChangeItem",
     "PullRequestCompletionOptions",
     "PullRequestCreateRequest",
     "PullRequestCreated",
@@ -36,6 +38,7 @@ __all__ = [
     "PullRequestReviewer",
     "PullRequestReviewerRequest",
     "PullRequestReviewerVoteRequest",
+    "PullRequestSearchCriteria",
     "PullRequestStatus",
     "PullRequestStatusRequest",
     "PullRequestStatusState",
@@ -55,6 +58,7 @@ __all__ = [
     "delete_pr_reviewer",
     "get_pr_api_call",
     "get_pr_details",
+    "get_pr_iteration_changes",
     "get_pr_labels_details",
     "get_pr_reviewers",
     "iter_pr_commits",
@@ -74,35 +78,66 @@ __all__ = [
 
 PullRequestId = int
 PullRequestIteration = int
-PullRequestStatusState = Literal[
-    "error",
-    "failed",
-    "notApplicable",
-    "notSet",
-    "pending",
-    "succeeded",
-]
-PullRequestMergeStatus = Literal[
-    "notSet",
-    "queued",
-    "conflicts",
-    "succeeded",
-    "rejectedByPolicy",
-    "failure",
-]
-PullRequestThreadStatus = Literal[
-    "active", "byDesign", "closed", "fixed", "pending", "unknown", "wontFix"
-]
-PullRequestMergeFailureType = Literal[
-    "none", "unknown", "caseSensitive", "objectTooLarge"
-]
-PullRequestStatus = Literal["active", "abandoned", "completed"]
-GitPullRequestMergeStrategy = Literal[
-    "noFastForward",
-    "squash",
-    "rebase",
-    "rebaseMerge",
-]
+
+
+class PullRequestStatusState(StrEnum):
+    """Possible state values for a PR status check."""
+
+    ERROR = "error"
+    FAILED = "failed"
+    NOT_APPLICABLE = "notApplicable"
+    NOT_SET = "notSet"
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+
+
+class PullRequestMergeStatus(StrEnum):
+    """Current merge status of a pull request."""
+
+    NOT_SET = "notSet"
+    QUEUED = "queued"
+    CONFLICTS = "conflicts"
+    SUCCEEDED = "succeeded"
+    REJECTED_BY_POLICY = "rejectedByPolicy"
+    FAILURE = "failure"
+
+
+class PullRequestThreadStatus(StrEnum):
+    """Possible status values for a PR review thread."""
+
+    ACTIVE = "active"
+    BY_DESIGN = "byDesign"
+    CLOSED = "closed"
+    FIXED = "fixed"
+    PENDING = "pending"
+    UNKNOWN = "unknown"
+    WONT_FIX = "wontFix"
+
+
+class PullRequestMergeFailureType(StrEnum):
+    """Reason a pull request merge failed."""
+
+    NONE = "none"
+    UNKNOWN = "unknown"
+    CASE_SENSITIVE = "caseSensitive"
+    OBJECT_TOO_LARGE = "objectTooLarge"
+
+
+class PullRequestStatus(StrEnum):
+    """Lifecycle state of a pull request."""
+
+    ACTIVE = "active"
+    ABANDONED = "abandoned"
+    COMPLETED = "completed"
+
+
+class GitPullRequestMergeStrategy(StrEnum):
+    """Merge strategies available when completing a pull request."""
+
+    NO_FAST_FORWARD = "noFastForward"
+    SQUASH = "squash"
+    REBASE = "rebase"
+    REBASE_MERGE = "rebaseMerge"
 
 
 class PullRequestThreadCommentType(IntEnum):
@@ -128,6 +163,7 @@ class RepositoryRef(BaseModel):
     """Minimal repository reference as returned in PR list responses."""
 
     id: RepositoryId
+    name: str | None = None
 
 
 class PullRequestThreadCommentRequest(BaseModel):
@@ -215,6 +251,38 @@ class PullRequestListItem(BaseModel):
         alias="lastMergeCommit", default=None
     )
     supports_iterations: bool = Field(alias="supportsIterations", default=False)
+
+
+class PullRequestSearchCriteria(BaseModel):
+    """Search criteria for listing pull requests.
+
+    All fields are optional; only non-None values are forwarded as
+    ``searchCriteria.*`` query parameters.
+
+    Attributes:
+        status: Filter by PR lifecycle state.
+        creator_id: Filter by the identity UUID of the PR creator.
+        reviewer_id: Filter by the identity UUID of a reviewer.
+        source_ref_name: Filter by source branch ref name.
+        target_ref_name: Filter by target branch ref name.
+        repository_id: Filter by repository UUID.
+    """
+
+    status: PullRequestStatus | None = None
+    creator_id: str | None = Field(default=None, serialization_alias="creatorId")
+    reviewer_id: str | None = Field(default=None, serialization_alias="reviewerId")
+    source_ref_name: str | None = Field(
+        default=None, serialization_alias="sourceRefName"
+    )
+    target_ref_name: str | None = Field(
+        default=None, serialization_alias="targetRefName"
+    )
+    repository_id: str | None = Field(default=None, serialization_alias="repositoryId")
+    pull_request_id: int | None = Field(
+        default=None, serialization_alias="pullRequestId"
+    )
+    min_time: datetime | None = Field(default=None, serialization_alias="minTime")
+    max_time: datetime | None = Field(default=None, serialization_alias="maxTime")
 
 
 class _PullRequestListResults(BaseModel):
@@ -368,12 +436,16 @@ class PullRequestUpdateRequest(BaseModel):
     last_merge_source_commit: dict[str, str] | None = Field(
         default=None, serialization_alias="lastMergeSourceCommit"
     )
+    work_item_refs: list[dict[str, str]] | None = Field(
+        default=None, serialization_alias="workItemRefs"
+    )
 
 
 class PullRequestIterationRecord(BaseModel):
     """A single iteration (push) of a pull request."""
 
     id: int
+    created_date: datetime | None = Field(default=None, alias="createdDate")
     source_ref_commit: GitCommitRef | None = Field(
         default=None, alias="sourceRefCommit"
     )
@@ -486,6 +558,20 @@ class PullRequestCreateRequest(BaseModel):
     )
 
 
+class PrIterationChangeItem(BaseModel):
+    """A file-level item in a PR iteration change entry."""
+
+    path: str | None = None
+    url: AnyUrl | None = None
+
+
+class PrIterationChange(BaseModel):
+    """A single file change entry from a PR iteration changes response."""
+
+    change_type: str = Field(alias="changeType")
+    item: PrIterationChangeItem
+
+
 # ---------------------------------------------------------------------------
 # Functions
 # ---------------------------------------------------------------------------
@@ -542,24 +628,34 @@ def post_pr_status(
 
 def iter_prs(
     project_api_call: ApiCall,
-    search_criteria: dict[str, int | str | bool] | None = None,
+    search_criteria: PullRequestSearchCriteria | None = None,
+    *,
+    expand: str | None = None,
 ) -> Iterator[PullRequestListItem]:
     """Iterate over pull requests in the project matching the given criteria.
 
     Args:
         project_api_call: Project-level ADO API call.
-        search_criteria: Optional mapping of ``searchCriteria.*`` query
-            parameters (without the ``searchCriteria.`` prefix), e.g.
-            ``{"status": "active", "creatorId": "…"}``.
+        search_criteria: Optional search criteria model; only non-None
+            fields are forwarded as ``searchCriteria.*`` query parameters.
+        expand: Optional ``$expand`` value (e.g. ``"labels"``,
+            ``"reviewers"``).  Multiple values can be combined with a comma.
 
     Yields:
         PullRequestListItem for each matching pull request.
     """
     page_size = 100
+    criteria_dict = (
+        search_criteria.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if search_criteria
+        else {}
+    )
     parameters: dict[str, int | str | bool] = {
-        f"searchCriteria.{key}": value for key, value in (search_criteria or {}).items()
+        f"searchCriteria.{key}": value for key, value in criteria_dict.items()
     }
     parameters["$top"] = page_size
+    if expand is not None:
+        parameters["$expand"] = expand
     skip = 0
     while True:
         parameters["$skip"] = skip
@@ -638,17 +734,23 @@ def post_pr_thread_comment(
     return PullRequestThreadCommentResponse.model_validate(response)
 
 
-def patch_pr(pr_api_call: ApiCall, update: PullRequestUpdateRequest) -> None:
+def patch_pr(
+    pr_api_call: ApiCall, update: PullRequestUpdateRequest
+) -> PullRequestCreated:
     """Update fields on a pull request.
 
     Args:
         pr_api_call: PR-level ADO API call.
         update: Fields to update; None values are omitted from the request.
+
+    Returns:
+        PullRequestCreated populated with the PR state after the update.
     """
-    pr_api_call.patch(
+    response = pr_api_call.patch(
         version="7.1-preview.1",
         json=update.model_dump(mode="json", by_alias=True, exclude_none=True),
     )
+    return PullRequestCreated.model_validate(response)
 
 
 def iter_pr_iterations(
@@ -664,6 +766,31 @@ def iter_pr_iterations(
     """
     response = pr_api_call.get("iterations", version="7.1-preview.1")
     yield from _PullRequestIterationResults.model_validate(response).value
+
+
+def get_pr_iteration_changes(
+    pr_api_call: ApiCall,
+    iteration_id: PullRequestIteration,
+) -> list[PrIterationChange]:
+    """Return the file changes introduced by a specific PR iteration.
+
+    Args:
+        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        iteration_id: The iteration number to query.
+
+    Returns:
+        List of PrIterationChange from the ``changeEntries`` key of the
+        API response.
+    """
+    response = pr_api_call.get(
+        "iterations",
+        iteration_id,
+        "changes",
+        version="7.1-preview.1",
+    )
+    return [
+        PrIterationChange.model_validate(e) for e in response.get("changeEntries", [])
+    ]
 
 
 def put_pr_reviewer_vote(

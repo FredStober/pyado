@@ -12,8 +12,11 @@ from pydantic.networks import AnyUrl
 
 from pyado import (
     ApiCall,
+    PrIterationChange,
     PullRequestCreated,
     PullRequestIterationRecord,
+    PullRequestSearchCriteria,
+    PullRequestStatus,
     PullRequestStatusContext,
     PullRequestStatusRequest,
     PullRequestThreadCommentRequest,
@@ -23,22 +26,28 @@ from pyado import (
     PullRequestThreadResponse,
     PullRequestUpdateRequest,
     PullRequestVote,
+    WorkItemInfo,
+    WorkItemRelationType,
+    abandon_pr,
     add_pr_reviewer,
+    complete_pr,
     create_pr,
     create_pr_thread,
     delete_pr_label,
     delete_pr_reviewer,
     get_pr_api_call,
     get_pr_details,
+    get_pr_iteration_changes,
     get_pr_labels,
     get_pr_reviewers,
     get_repository_api_call,
-    iter_open_prs,
+    iter_active_prs,
     iter_pr_commits,
     iter_pr_iterations,
     iter_pr_threads,
     iter_pr_work_item_ids,
     iter_prs,
+    link_pr_work_item,
     patch_pr,
     post_pr_label,
     post_pr_new_thread,
@@ -46,8 +55,9 @@ from pyado import (
     post_pr_thread_comment,
     reply_to_pr_thread,
     set_pr_reviewer_vote,
+    update_pr_work_item_refs,
 )
-from tests.conftest import _make_mock_response
+from tests.conftest import ACCESS_TOKEN, _make_mock_response
 
 REPO_ID = uuid4()
 PR_ID = 7
@@ -235,10 +245,28 @@ class TestIterPrs:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            list(iter_prs(api_call, search_criteria={"status": "active"}))
+            list(
+                iter_prs(
+                    api_call,
+                    search_criteria=PullRequestSearchCriteria(
+                        status=PullRequestStatus.ACTIVE
+                    ),
+                )
+            )
         params = mock_req.call_args.kwargs.get("params") or {}
         assert "searchCriteria.status" in params
         assert params["searchCriteria.status"] == "active"
+
+    @staticmethod
+    def test_expand_parameter_forwarded_as_dollar_expand(api_call: ApiCall) -> None:
+        """When expand is given, $expand query parameter is included."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(iter_prs(api_call, expand="labels"))
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params.get("$expand") == "labels"
 
     @staticmethod
     def test_paginates_when_first_page_is_full(api_call: ApiCall) -> None:
@@ -257,8 +285,8 @@ class TestIterPrs:
         assert len(result) == 101
 
 
-class TestIterOpenPrs:
-    """Tests for iter_open_prs."""
+class TestIterActivePrs:
+    """Tests for iter_active_prs."""
 
     @staticmethod
     def test_passes_active_status_criteria(api_call: ApiCall) -> None:
@@ -267,7 +295,7 @@ class TestIterOpenPrs:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            list(iter_open_prs(api_call))
+            list(iter_active_prs(api_call))
         params = mock_req.call_args.kwargs.get("params") or {}
         assert params.get("searchCriteria.status") == "active"
 
@@ -452,20 +480,33 @@ class TestReplyToPrThreadHighLevel:
         assert sent_json["parentCommentId"] == 1
 
 
+_PATCH_PR_RESPONSE: dict[str, Any] = {
+    "pullRequestId": PR_ID,
+    "repository": {"id": str(REPO_ID)},
+    "status": "active",
+    "url": "https://example.com",
+    "title": "Updated title",
+    "sourceRefName": "refs/heads/feature",
+    "targetRefName": "refs/heads/main",
+}
+
+
 class TestUpdatePr:
     """Tests for patch_pr."""
 
     @staticmethod
     def test_patches_pr_fields(api_call: ApiCall) -> None:
-        """Sends a PATCH request with the given fields."""
-        mock_response = _make_mock_response(None)
+        """Sends PATCH request with given fields, returns PullRequestCreated."""
+        mock_response = _make_mock_response(_PATCH_PR_RESPONSE)
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            patch_pr(api_call, PullRequestUpdateRequest(title="Updated title"))
+            result = patch_pr(api_call, PullRequestUpdateRequest(title="Updated title"))
         assert mock_req.call_args.args[0] == "PATCH"
         sent_json = mock_req.call_args.kwargs.get("json") or {}
         assert sent_json["title"] == "Updated title"
+        assert isinstance(result, PullRequestCreated)
+        assert result.pr_id == PR_ID
 
 
 class TestIterPrIterations:
@@ -700,3 +741,191 @@ class TestGetPrDetails:
         assert isinstance(result, PullRequestCreated)
         assert result.pr_id == 77
         assert result.title == "Fix bug"
+
+
+class TestCompletePr:
+    """Tests for complete_pr."""
+
+    @staticmethod
+    def test_patches_pr_with_completed_status(api_call: ApiCall) -> None:
+        """Sends PATCH with status=completed and the merge source commit ID."""
+        response_data = {**_PATCH_PR_RESPONSE, "status": "completed"}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            result = complete_pr(api_call, "abc123sha")
+        assert isinstance(result, PullRequestCreated)
+        assert mock_req.call_args.args[0] == "PATCH"
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json.get("status") == "completed"
+        assert sent_json.get("lastMergeSourceCommit") == {"commitId": "abc123sha"}
+
+
+class TestAbandonPr:
+    """Tests for abandon_pr."""
+
+    @staticmethod
+    def test_patches_pr_with_abandoned_status(api_call: ApiCall) -> None:
+        """Sends PATCH with status=abandoned and returns updated PullRequestCreated."""
+        response_data = {**_PATCH_PR_RESPONSE, "status": "abandoned"}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            result = abandon_pr(api_call)
+        assert isinstance(result, PullRequestCreated)
+        assert mock_req.call_args.args[0] == "PATCH"
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json.get("status") == "abandoned"
+
+
+class TestLinkPrWorkItem:
+    """Tests for link_pr_work_item."""
+
+    @staticmethod
+    def test_adds_pr_artifact_link_to_work_item() -> None:
+        """Fetches PR details then patches the work item with an ArtifactLink."""
+        repo_id = uuid4()
+        pr_data = {
+            "pullRequestId": 7,
+            "repository": {"id": str(repo_id)},
+            "status": "active",
+            "url": "https://dev.azure.com/org/myproject/_apis/git/pullRequests/7",
+            "title": "My PR",
+            "sourceRefName": "refs/heads/feature",
+            "targetRefName": "refs/heads/main",
+        }
+        wi_data: dict[str, Any] = {"id": 42, "fields": {"System.Title": "Task"}}
+        project_api_call = ApiCall(
+            access_token=ACCESS_TOKEN,
+            url="https://dev.azure.com/org/myproject/",
+        )
+        pr_api_call = get_pr_api_call(project_api_call, repo_id, 7)
+        pr_response = _make_mock_response(pr_data)
+        wi_response = _make_mock_response(wi_data)
+        with patch.object(
+            requests.Session,
+            "request",
+            side_effect=[pr_response, wi_response],
+        ) as mock_req:
+            result = link_pr_work_item(pr_api_call, project_api_call, 42)
+        assert isinstance(result, WorkItemInfo)
+        patch_call = mock_req.call_args_list[1]
+        assert patch_call.args[0] == "PATCH"
+        patch_body = patch_call.kwargs.get("json") or []
+        assert patch_body[0]["value"]["rel"] == WorkItemRelationType.ARTIFACT_LINK
+        assert "myproject" in patch_body[0]["value"]["url"]
+
+    @staticmethod
+    def test_includes_comment_in_link_attributes() -> None:
+        """Optional comment is included in the artifact link attributes."""
+        repo_id = uuid4()
+        pr_data = {
+            "pullRequestId": 3,
+            "repository": {"id": str(repo_id)},
+            "status": "active",
+            "url": "https://dev.azure.com/org/myproject/_apis/git/pullRequests/3",
+            "title": "PR",
+            "sourceRefName": "refs/heads/feature",
+            "targetRefName": "refs/heads/main",
+        }
+        wi_data: dict[str, Any] = {"id": 1, "fields": {}}
+        project_api_call = ApiCall(
+            access_token=ACCESS_TOKEN,
+            url="https://dev.azure.com/org/myproject/",
+        )
+        pr_api_call = get_pr_api_call(project_api_call, repo_id, 3)
+        with patch.object(
+            requests.Session,
+            "request",
+            side_effect=[_make_mock_response(pr_data), _make_mock_response(wi_data)],
+        ) as mock_req:
+            link_pr_work_item(pr_api_call, project_api_call, 1, comment="reviewed")
+        patch_body = mock_req.call_args_list[1].kwargs.get("json") or []
+        assert patch_body[0]["value"]["attributes"]["comment"] == "reviewed"
+
+
+class TestGetPrIterationChanges:
+    """Tests for get_pr_iteration_changes."""
+
+    @staticmethod
+    def test_returns_change_entries_list(api_call: ApiCall) -> None:
+        """Returns a list of PrIterationChange from the changeEntries response."""
+        entries = [{"changeType": "add", "item": {"path": "/src/foo.py"}}]
+        mock_response = _make_mock_response({"changeEntries": entries})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_pr_iteration_changes(api_call, 2)
+        assert len(result) == 1
+        assert isinstance(result[0], PrIterationChange)
+        assert result[0].change_type == "add"
+        assert result[0].item.path == "/src/foo.py"
+
+    @staticmethod
+    def test_returns_empty_list_when_no_change_entries(api_call: ApiCall) -> None:
+        """Returns an empty list when the response has no changeEntries key."""
+        mock_response = _make_mock_response({})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_pr_iteration_changes(api_call, 1)
+        assert result == []
+
+    @staticmethod
+    def test_sends_get_to_iteration_changes_endpoint(api_call: ApiCall) -> None:
+        """Sends a GET to the iterations/{id}/changes endpoint."""
+        mock_response = _make_mock_response({"changeEntries": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_pr_iteration_changes(api_call, 3)
+        call = mock_req.call_args
+        assert call.args[0] == "GET"
+        url = call.kwargs.get("url", "")
+        assert "iterations/3/changes" in url
+
+
+class TestUpdatePrWorkItemRefs:
+    """Tests for update_pr_work_item_refs."""
+
+    @staticmethod
+    def test_sends_patch_with_work_item_refs(api_call: ApiCall) -> None:
+        """Sends a PATCH request whose body includes workItemRefs."""
+        pr_response = {
+            "pullRequestId": PR_ID,
+            "repository": {"id": str(REPO_ID)},
+            "status": "active",
+            "url": "https://dev.azure.com/org/proj/_apis/git/pullRequests/7",
+            "title": "My PR",
+            "sourceRefName": "refs/heads/feat",
+            "targetRefName": "refs/heads/main",
+        }
+        mock_response = _make_mock_response(pr_response)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            update_pr_work_item_refs(api_call, [101, 202])
+        call = mock_req.call_args
+        assert call.args[0] == "PATCH"
+        sent_json = call.kwargs.get("json") or {}
+        assert "workItemRefs" in sent_json
+        assert {"id": "101"} in sent_json["workItemRefs"]
+        assert {"id": "202"} in sent_json["workItemRefs"]
+
+    @staticmethod
+    def test_empty_work_item_ids_sends_empty_refs(api_call: ApiCall) -> None:
+        """Passing an empty list sends workItemRefs as an empty list."""
+        pr_response = {
+            "pullRequestId": PR_ID,
+            "repository": {"id": str(REPO_ID)},
+            "status": "active",
+            "url": "https://dev.azure.com/org/proj/_apis/git/pullRequests/7",
+            "title": "My PR",
+            "sourceRefName": "refs/heads/feat",
+            "targetRefName": "refs/heads/main",
+        }
+        mock_response = _make_mock_response(pr_response)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            update_pr_work_item_refs(api_call, [])
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json.get("workItemRefs") == []

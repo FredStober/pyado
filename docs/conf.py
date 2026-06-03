@@ -9,8 +9,8 @@ copyright = "2023, Fred Stober"  # noqa:A001
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
-    "sphinx_click",
     "myst_parser",
 ]
 autodoc_typehints = "description"
+myst_heading_anchors = 3
 html_theme = "furo"

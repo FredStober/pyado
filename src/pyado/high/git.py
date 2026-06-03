@@ -11,17 +11,21 @@ from pyado.raw import (
     CommitDiffPage,
     CommitId,
     GitCommitChange,
+    GitCommitSearchCriteria,
     GitPushChange,
     GitPushChangeItem,
+    GitPushChangeType,
     GitPushCommit,
     GitPushNewContent,
     GitPushRefUpdate,
     GitPushRequest,
     GitPushResult,
+    GitRefFilter,
     GitRefUpdate,
     get_commit_diff_page,
     get_repository_commits,
     get_repository_item_bytes,
+    iter_refs,
     post_push,
     post_repository_refs,
 )
@@ -29,6 +33,7 @@ from pyado.raw import (
 __all__ = [
     "add_file",
     "create_branch",
+    "create_ref_update",
     "delete_branch",
     "delete_file",
     "edit_file",
@@ -54,7 +59,7 @@ def add_file(path: str, content: str) -> GitPushChange:
         content: UTF-8 text content for the new file.
     """
     return GitPushChange(
-        change_type="add",
+        change_type=GitPushChangeType.ADD,
         item=GitPushChangeItem(path=path),
         new_content=GitPushNewContent(content=content),
     )
@@ -68,7 +73,7 @@ def edit_file(path: str, content: str) -> GitPushChange:
         content: New UTF-8 text content.
     """
     return GitPushChange(
-        change_type="edit",
+        change_type=GitPushChangeType.EDIT,
         item=GitPushChangeItem(path=path),
         new_content=GitPushNewContent(content=content),
     )
@@ -81,7 +86,7 @@ def delete_file(path: str) -> GitPushChange:
         path: Repository-root-relative path of the file to delete.
     """
     return GitPushChange(
-        change_type="delete",
+        change_type=GitPushChangeType.DELETE,
         item=GitPushChangeItem(path=path),
     )
 
@@ -94,7 +99,7 @@ def rename_file(old_path: str, new_path: str) -> GitPushChange:
         new_path: Desired repository-root-relative path after the rename.
     """
     return GitPushChange(
-        change_type="rename",
+        change_type=GitPushChangeType.RENAME,
         item=GitPushChangeItem(path=new_path),
         source_server_item=old_path,
     )
@@ -110,6 +115,33 @@ def make_commit(message: str, changes: list[GitPushChange]) -> GitPushCommit:
     return GitPushCommit(comment=message, changes=changes)
 
 
+def create_ref_update(
+    repository_api_call: ApiCall,
+    branch: BranchName,
+) -> GitPushRefUpdate:
+    """Return a ref-update entry for a branch, fetching its current SHA.
+
+    Looks up the current HEAD commit of *branch* via the refs endpoint and
+    returns a :class:`~pyado.raw.GitPushRefUpdate` ready to pass to
+    :func:`push_commits`.
+
+    Args:
+        repository_api_call: Repository-level ADO API call (from
+            :func:`~pyado.raw.get_repository_api_call`).
+        branch: Short branch name (e.g. ``"main"``).  A ``refs/heads/``
+            prefix is added automatically if absent.
+
+    Returns:
+        GitPushRefUpdate with the branch's current commit SHA as
+        ``old_object_id``.  Raises ``StopIteration`` if no ref
+        matching *branch* is found.
+    """
+    full_name = _full_ref(branch)
+    name_filter = full_name.removeprefix("refs/")
+    ref = next(iter_refs(repository_api_call, GitRefFilter(name_filter=name_filter)))
+    return GitPushRefUpdate(name=full_name, old_object_id=ref.object_id)
+
+
 def push_commits(
     repository_api_call: ApiCall,
     ref_updates: list[GitPushRefUpdate],
@@ -117,15 +149,35 @@ def push_commits(
 ) -> GitPushResult:
     """Push one or more commits to a repository.
 
+    A push is a single atomic operation that advances one or more refs
+    (branches or tags) and records the associated commit objects.  Multiple
+    ref updates in one call mirror native Git push semantics — all refs land
+    in the same push event, and ADO shows them as a single push in the UI.
+
+    The typical workflow is::
+
+        ref_update = create_ref_update(repo_api_call, "main")
+        change = make_edit_change("/path/to/file.txt", "new content")
+        commit = make_commit("My commit message", [change])
+        result = push_commits(repo_api_call, [ref_update], [commit])
+
+    To push to multiple branches simultaneously, supply more than one
+    :class:`~pyado.raw.GitPushRefUpdate` in *ref_updates*; the same commits
+    are applied to every listed ref.
+
+    To create a new branch, pass a :class:`~pyado.raw.GitPushRefUpdate` with
+    ``old_object_id`` set to :data:`~pyado.raw.ZERO_SHA`.
+
     Args:
         repository_api_call: Repository-level ADO API call (from
-            get_repository_api_call).
-        ref_updates: One entry per branch being updated. Use
-            :data:`ZERO_SHA` as ``old_object_id`` when creating a new branch.
-            Branch names must be full refs (e.g. ``"refs/heads/main"``); use
-            ``make_ref_update`` to build them from short names.
-        commits: Commits to include in the push, each carrying one or more
-            ``GitPushChange`` entries.
+            :func:`~pyado.raw.get_repository_api_call`).
+        ref_updates: One entry per ref being updated.  Build entries with
+            :func:`create_ref_update` (fetches the current SHA automatically)
+            or :func:`~pyado.raw.make_ref_update` (when you already have the
+            SHA).  Full ref names are required
+            (e.g. ``"refs/heads/main"``).
+        commits: Commits to include in the push, each built with
+            :func:`make_commit` and carrying one or more file changes.
 
     Returns:
         GitPushResult containing the new push ID and commit references.
@@ -234,10 +286,12 @@ def get_last_commit_touching_file(
     try:
         commits = get_repository_commits(
             repository_api_call,
-            item_path=path,
-            item_version=before_commit,
-            item_version_type="commit",
-            top=1,
+            GitCommitSearchCriteria(
+                item_path=path,
+                item_version=before_commit,
+                item_version_type="commit",
+                top=1,
+            ),
         )
     except RuntimeError:
         return before_commit

@@ -29,15 +29,23 @@ Design rules for this package
 # SPDX-License-Identifier: MIT
 
 __all__ = [
-    "add_artifact_link",
+    "CustomWorkItemBase",
+    "WorkItemFieldMap",
+    "WorkItemLink",
+    "abandon_pr",
     "add_file",
     "add_pr_reviewer",
     "add_work_item_attachment",
+    "add_work_item_link",
     "add_work_item_tag",
     "approve_pipeline",
+    "cancel_build",
+    "cancel_pipeline_run",
+    "complete_pr",
     "create_branch",
     "create_pr",
     "create_pr_thread",
+    "create_ref_update",
     "create_work_item",
     "delete_branch",
     "delete_file",
@@ -47,14 +55,16 @@ __all__ = [
     "get_last_commit_touching_file",
     "get_pr_labels",
     "get_work_item_tags",
+    "iter_active_prs",
     "iter_build_work_item_ids",
     "iter_commit_diff",
-    "iter_open_prs",
     "iter_pending_approvals",
     "iter_pr_work_item_ids",
     "iter_work_item_details",
+    "link_pr_work_item",
     "make_commit",
     "push_commits",
+    "query_work_items",
     "remove_work_item_tag",
     "rename_file",
     "reply_to_pr_thread",
@@ -62,6 +72,7 @@ __all__ = [
     "send_job_feed",
     "set_pr_reviewer_vote",
     "start_build",
+    "update_pr_work_item_refs",
     "update_timeline_records",
     "update_variable_group",
     "update_work_item",
@@ -69,6 +80,12 @@ __all__ = [
 
 from pyado.high.build import (
     approve_pipeline as approve_pipeline,
+)
+from pyado.high.build import (
+    cancel_build as cancel_build,
+)
+from pyado.high.build import (
+    cancel_pipeline_run as cancel_pipeline_run,
 )
 from pyado.high.build import (
     iter_build_work_item_ids as iter_build_work_item_ids,
@@ -93,6 +110,9 @@ from pyado.high.git import (
 )
 from pyado.high.git import (
     create_branch as create_branch,
+)
+from pyado.high.git import (
+    create_ref_update as create_ref_update,
 )
 from pyado.high.git import (
     delete_branch as delete_branch,
@@ -125,7 +145,13 @@ from pyado.high.git import (
     rename_file as rename_file,
 )
 from pyado.high.pull_request import (
+    abandon_pr as abandon_pr,
+)
+from pyado.high.pull_request import (
     add_pr_reviewer as add_pr_reviewer,
+)
+from pyado.high.pull_request import (
+    complete_pr as complete_pr,
 )
 from pyado.high.pull_request import (
     create_pr as create_pr,
@@ -137,10 +163,13 @@ from pyado.high.pull_request import (
     get_pr_labels as get_pr_labels,
 )
 from pyado.high.pull_request import (
-    iter_open_prs as iter_open_prs,
+    iter_active_prs as iter_active_prs,
 )
 from pyado.high.pull_request import (
     iter_pr_work_item_ids as iter_pr_work_item_ids,
+)
+from pyado.high.pull_request import (
+    link_pr_work_item as link_pr_work_item,
 )
 from pyado.high.pull_request import (
     reply_to_pr_thread as reply_to_pr_thread,
@@ -148,14 +177,26 @@ from pyado.high.pull_request import (
 from pyado.high.pull_request import (
     set_pr_reviewer_vote as set_pr_reviewer_vote,
 )
+from pyado.high.pull_request import (
+    update_pr_work_item_refs as update_pr_work_item_refs,
+)
 from pyado.high.variable_group import (
     update_variable_group as update_variable_group,
 )
 from pyado.high.work_item import (
-    add_artifact_link as add_artifact_link,
+    CustomWorkItemBase as CustomWorkItemBase,
+)
+from pyado.high.work_item import (
+    WorkItemFieldMap as WorkItemFieldMap,
+)
+from pyado.high.work_item import (
+    WorkItemLink as WorkItemLink,
 )
 from pyado.high.work_item import (
     add_work_item_attachment as add_work_item_attachment,
+)
+from pyado.high.work_item import (
+    add_work_item_link as add_work_item_link,
 )
 from pyado.high.work_item import (
     add_work_item_tag as add_work_item_tag,
@@ -168,6 +209,9 @@ from pyado.high.work_item import (
 )
 from pyado.high.work_item import (
     iter_work_item_details as iter_work_item_details,
+)
+from pyado.high.work_item import (
+    query_work_items as query_work_items,
 )
 from pyado.high.work_item import (
     remove_work_item_tag as remove_work_item_tag,

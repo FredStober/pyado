@@ -7,7 +7,14 @@ from unittest.mock import patch
 import pytest
 import requests
 
-from pyado import ApiCall, UserProfile, get_my_profile, get_profile_api_call
+from pyado import (
+    ApiCall,
+    ConnectionData,
+    UserProfile,
+    get_connection_data,
+    get_my_profile,
+    get_profile_api_call,
+)
 from tests.conftest import _make_mock_response
 
 BASE_URL = "https://app.vssps.visualstudio.com/_apis/"
@@ -56,3 +63,38 @@ class TestGetMyProfile:
         assert result.email_address == "alice@example.com"
         assert result.public_alias == "alice"
         assert result.id == "user-id-123"
+
+
+class TestGetConnectionData:
+    """Tests for get_connection_data."""
+
+    @staticmethod
+    def test_returns_connection_data_with_authenticated_user(api_call: ApiCall) -> None:
+        """Returns a ConnectionData with the authenticatedUser populated."""
+        response_data = {
+            "authenticatedUser": {
+                "id": "user-guid-456",
+                "providerDisplayName": "Bob Example",
+            }
+        }
+        mock_response = _make_mock_response(response_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_connection_data(api_call)
+        assert isinstance(result, ConnectionData)
+        assert result.authenticated_user.id == "user-guid-456"
+        assert result.authenticated_user.provider_display_name == "Bob Example"
+
+    @staticmethod
+    def test_sends_get_request_to_connection_data_endpoint(
+        api_call: ApiCall,
+    ) -> None:
+        """Sends a GET request to the _apis/connectionData endpoint."""
+        response_data = {"authenticatedUser": {"id": "x", "providerDisplayName": "Y"}}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_connection_data(api_call)
+        call = mock_req.call_args
+        assert call.args[0] == "GET"
+        assert "connectionData" in call.kwargs.get("url", "")

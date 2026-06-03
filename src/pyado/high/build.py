@@ -9,13 +9,17 @@ from pyado.raw import (
     BuildDetails,
     BuildQueueRequest,
     BuildRecordInfo,
+    BuildStatus,
     JobEventName,
     JobEventPayload,
     JobEventResult,
     JobFeedPayload,
     JobId,
     PipelineApproval,
+    PipelineApprovalStatus,
     PipelineApprovalUpdateRequest,
+    PipelineRunInfo,
+    PipelineRunState,
     TaskId,
     TimelineRecordsUpdatePayload,
     WorkItemId,
@@ -29,9 +33,17 @@ from pyado.raw import (
 from pyado.raw import (
     iter_build_work_item_ids as _iter_build_work_item_ids,
 )
+from pyado.raw import (
+    patch_build as _patch_build,
+)
+from pyado.raw import (
+    patch_pipeline_run as _patch_pipeline_run,
+)
 
 __all__ = [
     "approve_pipeline",
+    "cancel_build",
+    "cancel_pipeline_run",
     "iter_build_work_item_ids",
     "iter_pending_approvals",
     "send_job_event",
@@ -39,6 +51,43 @@ __all__ = [
     "start_build",
     "update_timeline_records",
 ]
+
+
+def cancel_build(build_api_call: ApiCall) -> BuildDetails:
+    """Request cancellation of a running build.
+
+    Args:
+        build_api_call: Build-level ADO API call (from
+            raw.get_build_api_call).
+
+    Returns:
+        BuildDetails reflecting the updated build state (status will be
+        ``"cancelling"`` immediately; it transitions to ``"completed"`` with
+        result ``"canceled"`` once the agent acknowledges the request).
+    """
+    return _patch_build(build_api_call, BuildStatus.CANCELLING)
+
+
+def cancel_pipeline_run(
+    project_api_call: ApiCall,
+    pipeline_id: int,
+    run_id: int,
+) -> PipelineRunInfo:
+    """Request cancellation of an in-progress pipeline run.
+
+    Args:
+        project_api_call: Project-level ADO API call.
+        pipeline_id: The numeric pipeline ID.
+        run_id: The numeric run (build) ID.
+
+    Returns:
+        PipelineRunInfo reflecting the updated run state (state will be
+        ``"canceling"`` immediately; it transitions to ``"completed"`` with
+        result ``"canceled"`` once the agent acknowledges the request).
+    """
+    return _patch_pipeline_run(
+        project_api_call, pipeline_id, run_id, PipelineRunState.CANCELING
+    )
 
 
 def iter_build_work_item_ids(build_api_call: ApiCall) -> Iterator[WorkItemId]:
@@ -158,7 +207,9 @@ def approve_pipeline(
         project_api_call,
         [
             PipelineApprovalUpdateRequest(
-                approval_id=approval_id, status="approved", comment=comment
+                approval_id=approval_id,
+                status=PipelineApprovalStatus.APPROVED,
+                comment=comment,
             )
         ],
     )
@@ -173,4 +224,4 @@ def iter_pending_approvals(project_api_call: ApiCall) -> Iterator[PipelineApprov
     Yields:
         PipelineApproval for each pending approval.
     """
-    yield from iter_approvals(project_api_call, state="pending")
+    yield from iter_approvals(project_api_call, state=PipelineApprovalStatus.PENDING)

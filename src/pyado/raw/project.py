@@ -4,7 +4,7 @@
 
 from collections.abc import Iterator
 from datetime import datetime
-from typing import Literal
+from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -15,11 +15,33 @@ __all__ = [
     "ProjectId",
     "ProjectInfo",
     "ProjectName",
+    "ProjectState",
+    "ProjectVisibility",
     "iter_projects",
 ]
 
 ProjectName = str
 ProjectId = UUID
+
+
+class ProjectState(StrEnum):
+    """Possible lifecycle states of an ADO project."""
+
+    ALL = "all"
+    CREATE_PENDING = "createPending"
+    DELETED = "deleted"
+    DELETING = "deleting"
+    NEW = "new"
+    UNCHANGED = "unchanged"
+    WELL_FORMED = "wellFormed"
+
+
+class ProjectVisibility(StrEnum):
+    """Visibility settings for an ADO project."""
+
+    PRIVATE = "private"
+    PUBLIC = "public"
+    UNCHANGED = "unchanged"
 
 
 class ProjectInfo(BaseModel):
@@ -28,17 +50,9 @@ class ProjectInfo(BaseModel):
     id: ProjectId
     name: ProjectName
     description: str | None = None
-    state: Literal[
-        "all",
-        "createPending",
-        "deleted",
-        "deleting",
-        "new",
-        "unchanged",
-        "wellFormed",
-    ]
+    state: ProjectState
     revision: int
-    visibility: Literal["private", "public", "unchanged"]
+    visibility: ProjectVisibility
     last_update_time: datetime = Field(alias="lastUpdateTime")
 
 

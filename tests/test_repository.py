@@ -13,7 +13,9 @@ from pyado import (
     ApiCall,
     GitCommitChange,
     GitCommitRef,
+    GitCommitSearchCriteria,
     GitRef,
+    GitRefFilter,
     RepositoryInfo,
     create_branch,
     delete_branch,
@@ -305,7 +307,7 @@ class TestIterRefs:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            list(iter_refs(repo_api_call, name_filter="heads/main"))
+            list(iter_refs(repo_api_call, GitRefFilter(name_filter="heads/main")))
         called_params = mock_req.call_args.kwargs["params"]
         assert called_params.get("filter") == "heads/main"
 
@@ -317,7 +319,7 @@ class TestIterRefs:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            list(iter_refs(repo_api_call, name_contains="feature"))
+            list(iter_refs(repo_api_call, GitRefFilter(name_contains="feature")))
         called_params = mock_req.call_args.kwargs["params"]
         assert called_params.get("filterContains") == "feature"
 
@@ -412,10 +414,12 @@ class TestGetRepositoryCommits:
         with patch.object(requests.Session, "request", return_value=mock_response):
             result = get_repository_commits(
                 repo_api_call,
-                item_path="/src/foo.py",
-                item_version="abc123",
-                item_version_type="commit",
-                top=1,
+                GitCommitSearchCriteria(
+                    item_path="/src/foo.py",
+                    item_version="abc123",
+                    item_version_type="commit",
+                    top=1,
+                ),
             )
         assert len(result) == 1
         assert isinstance(result[0], GitCommitRef)

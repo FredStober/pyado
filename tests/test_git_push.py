@@ -19,6 +19,7 @@ from pyado import (
     GitPushRefUpdate,
     GitPushResult,
     add_file,
+    create_ref_update,
     delete_file,
     edit_file,
     get_repository_api_call,
@@ -119,6 +120,38 @@ class TestPush:
             )
         body = mock_req.call_args.kwargs["json"]
         assert len(body["commits"][0]["changes"]) == 2
+
+
+class TestCreateRefUpdate:
+    """Tests for create_ref_update."""
+
+    @staticmethod
+    def _make_refs_response(sha: str) -> dict[str, Any]:
+        return {"value": [{"name": "refs/heads/main", "objectId": sha}]}
+
+    def test_returns_ref_update_with_fetched_sha(self, repo_api_call: ApiCall) -> None:
+        """Returns a GitPushRefUpdate with the SHA returned by the refs endpoint."""
+        mock_response = _make_mock_response(self._make_refs_response("abc123"))
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            ref = create_ref_update(repo_api_call, "main")
+        assert ref.name == "refs/heads/main"
+        assert ref.old_object_id == "abc123"
+
+    def test_adds_refs_heads_prefix(self, repo_api_call: ApiCall) -> None:
+        """A bare branch name is normalised to a full ref."""
+        mock_response = _make_mock_response(self._make_refs_response("sha999"))
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            ref = create_ref_update(repo_api_call, "feature/my-branch")
+        assert ref.name == "refs/heads/feature/my-branch"
+
+    def test_passes_name_filter_to_refs_endpoint(self, repo_api_call: ApiCall) -> None:
+        """The refs endpoint is called with the correct name_filter."""
+        mock_response = _make_mock_response(self._make_refs_response("sha999"))
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            create_ref_update(repo_api_call, "main")
+        assert "heads/main" in mock_req.call_args.kwargs["params"]["filter"]
 
 
 class TestLowLevelModels:
