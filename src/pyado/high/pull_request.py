@@ -58,14 +58,21 @@ __all__ = [
     "link_pr_work_item",
     "reply_to_pr_thread",
     "set_pr_reviewer_vote",
+    "update_pr_work_item_refs",
 ]
 
 
-def iter_open_prs(project_api_call: ApiCall) -> Iterator[PullRequestListItem]:
+def iter_open_prs(
+    project_api_call: ApiCall,
+    *,
+    expand: str | None = None,
+) -> Iterator[PullRequestListItem]:
     """Iterate over all active pull requests in the project.
 
     Args:
         project_api_call: Project-level ADO API call.
+        expand: Optional ``$expand`` value (e.g. ``"labels"``,
+            ``"reviewers"``).
 
     Yields:
         PullRequestListItem for each active pull request.
@@ -73,6 +80,7 @@ def iter_open_prs(project_api_call: ApiCall) -> Iterator[PullRequestListItem]:
     yield from iter_prs(
         project_api_call,
         PullRequestSearchCriteria(status=PullRequestStatus.ACTIVE),
+        expand=expand,
     )
 
 
@@ -404,4 +412,26 @@ def add_pr_reviewer(
         pr_api_call,
         reviewer_id,
         PullRequestReviewerRequest(is_required=is_required, is_reapprove=is_reapprove),
+    )
+
+
+def update_pr_work_item_refs(
+    pr_api_call: ApiCall,
+    work_item_ids: list[WorkItemId],
+) -> None:
+    """Set the work items linked to a pull request (visible on the PR page).
+
+    Replaces the PR's ``workItemRefs`` list so the given work items appear
+    in the ADO pull request UI.  To also add the reverse link on the work
+    item side, call :func:`link_pr_work_item` for each item.
+
+    Args:
+        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        work_item_ids: Numeric IDs of the work items to associate.
+    """
+    patch_pr(
+        pr_api_call,
+        PullRequestUpdateRequest(
+            work_item_refs=[{"id": str(wi_id)} for wi_id in work_item_ids],
+        ),
     )

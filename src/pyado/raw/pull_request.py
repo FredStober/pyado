@@ -22,6 +22,8 @@ from pyado.raw.work_item import WorkItemRef, _WorkItemRefResults
 __all__ = [
     "GitForkRef",
     "GitPullRequestMergeStrategy",
+    "PrIterationChange",
+    "PrIterationChangeItem",
     "PullRequestCompletionOptions",
     "PullRequestCreateRequest",
     "PullRequestCreated",
@@ -56,6 +58,7 @@ __all__ = [
     "delete_pr_reviewer",
     "get_pr_api_call",
     "get_pr_details",
+    "get_pr_iteration_changes",
     "get_pr_labels_details",
     "get_pr_reviewers",
     "iter_pr_commits",
@@ -160,6 +163,7 @@ class RepositoryRef(BaseModel):
     """Minimal repository reference as returned in PR list responses."""
 
     id: RepositoryId
+    name: str | None = None
 
 
 class PullRequestThreadCommentRequest(BaseModel):
@@ -274,6 +278,11 @@ class PullRequestSearchCriteria(BaseModel):
         default=None, serialization_alias="targetRefName"
     )
     repository_id: str | None = Field(default=None, serialization_alias="repositoryId")
+    pull_request_id: int | None = Field(
+        default=None, serialization_alias="pullRequestId"
+    )
+    min_time: datetime | None = Field(default=None, serialization_alias="minTime")
+    max_time: datetime | None = Field(default=None, serialization_alias="maxTime")
 
 
 class _PullRequestListResults(BaseModel):
@@ -427,12 +436,16 @@ class PullRequestUpdateRequest(BaseModel):
     last_merge_source_commit: dict[str, str] | None = Field(
         default=None, serialization_alias="lastMergeSourceCommit"
     )
+    work_item_refs: list[dict[str, str]] | None = Field(
+        default=None, serialization_alias="workItemRefs"
+    )
 
 
 class PullRequestIterationRecord(BaseModel):
     """A single iteration (push) of a pull request."""
 
     id: int
+    created_date: datetime | None = Field(default=None, alias="createdDate")
     source_ref_commit: GitCommitRef | None = Field(
         default=None, alias="sourceRefCommit"
     )
@@ -545,6 +558,20 @@ class PullRequestCreateRequest(BaseModel):
     )
 
 
+class PrIterationChangeItem(BaseModel):
+    """A file-level item in a PR iteration change entry."""
+
+    path: str | None = None
+    url: AnyUrl | None = None
+
+
+class PrIterationChange(BaseModel):
+    """A single file change entry from a PR iteration changes response."""
+
+    change_type: str = Field(alias="changeType")
+    item: PrIterationChangeItem
+
+
 # ---------------------------------------------------------------------------
 # Functions
 # ---------------------------------------------------------------------------
@@ -602,6 +629,8 @@ def post_pr_status(
 def iter_prs(
     project_api_call: ApiCall,
     search_criteria: PullRequestSearchCriteria | None = None,
+    *,
+    expand: str | None = None,
 ) -> Iterator[PullRequestListItem]:
     """Iterate over pull requests in the project matching the given criteria.
 
@@ -609,6 +638,8 @@ def iter_prs(
         project_api_call: Project-level ADO API call.
         search_criteria: Optional search criteria model; only non-None
             fields are forwarded as ``searchCriteria.*`` query parameters.
+        expand: Optional ``$expand`` value (e.g. ``"labels"``,
+            ``"reviewers"``).  Multiple values can be combined with a comma.
 
     Yields:
         PullRequestListItem for each matching pull request.
@@ -623,6 +654,8 @@ def iter_prs(
         f"searchCriteria.{key}": value for key, value in criteria_dict.items()
     }
     parameters["$top"] = page_size
+    if expand is not None:
+        parameters["$expand"] = expand
     skip = 0
     while True:
         parameters["$skip"] = skip
@@ -733,6 +766,31 @@ def iter_pr_iterations(
     """
     response = pr_api_call.get("iterations", version="7.1-preview.1")
     yield from _PullRequestIterationResults.model_validate(response).value
+
+
+def get_pr_iteration_changes(
+    pr_api_call: ApiCall,
+    iteration_id: PullRequestIteration,
+) -> list[PrIterationChange]:
+    """Return the file changes introduced by a specific PR iteration.
+
+    Args:
+        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        iteration_id: The iteration number to query.
+
+    Returns:
+        List of PrIterationChange from the ``changeEntries`` key of the
+        API response.
+    """
+    response = pr_api_call.get(
+        "iterations",
+        iteration_id,
+        "changes",
+        version="7.1-preview.1",
+    )
+    return [
+        PrIterationChange.model_validate(e) for e in response.get("changeEntries", [])
+    ]
 
 
 def put_pr_reviewer_vote(

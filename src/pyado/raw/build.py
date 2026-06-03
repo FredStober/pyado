@@ -366,6 +366,12 @@ class BuildSearchCriteria(BaseModel):
     top: int | None = Field(default=None, serialization_alias="$top")
 
 
+class _BuildStatusRequest(BaseModel):
+    """Internal: request body for updating a build status."""
+
+    status: str
+
+
 # ---------------------------------------------------------------------------
 # Functions
 # ---------------------------------------------------------------------------
@@ -596,7 +602,7 @@ def patch_build(build_api_call: ApiCall, status: BuildStatus) -> BuildDetails:
     """
     response = build_api_call.patch(
         version="7.1",
-        json={"status": status},
+        json=_BuildStatusRequest(status=status).model_dump(mode="json"),
     )
     return BuildDetails.model_validate(response)
 

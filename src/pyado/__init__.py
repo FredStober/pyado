@@ -27,8 +27,12 @@ __all__ = [
     "BuildResult",
     "BuildSearchCriteria",
     "BuildStatus",
+    "ClassificationNode",
+    "ClassificationNodeAttributes",
     "CommitDiffPage",
     "CommitId",
+    "ConnectionData",
+    "ConnectionDataIdentity",
     "CustomWorkItemBase",
     "GitCommitChange",
     "GitCommitChangeItem",
@@ -67,6 +71,8 @@ __all__ = [
     "PipelineRunResult",
     "PipelineRunState",
     "PlanId",
+    "PrIterationChange",
+    "PrIterationChangeItem",
     "ProjectId",
     "ProjectInfo",
     "ProjectName",
@@ -113,6 +119,7 @@ __all__ = [
     "SprintIterationTimeframe",
     "SshUrl",
     "TaskId",
+    "TeamFieldValue",
     "TimelineId",
     "TimelineRecordsUpdatePayload",
     "UserId",
@@ -139,6 +146,7 @@ __all__ = [
     "abandon_pr",
     "add_file",
     "add_pr_reviewer",
+    "add_team_iteration",
     "add_work_item_attachment",
     "add_work_item_link",
     "add_work_item_tag",
@@ -147,6 +155,7 @@ __all__ = [
     "cancel_pipeline_run",
     "complete_pr",
     "create_branch",
+    "create_classification_node",
     "create_pr",
     "create_pr_thread",
     "create_ref_update",
@@ -159,7 +168,9 @@ __all__ = [
     "edit_file",
     "get_build_api_call",
     "get_build_details",
+    "get_classification_node",
     "get_commit_diff_page",
+    "get_connection_data",
     "get_file_content_at_branch",
     "get_file_content_at_commit",
     "get_job_api_call",
@@ -171,6 +182,7 @@ __all__ = [
     "get_plan_api_call",
     "get_pr_api_call",
     "get_pr_details",
+    "get_pr_iteration_changes",
     "get_pr_labels",
     "get_pr_labels_details",
     "get_pr_reviewers",
@@ -178,6 +190,8 @@ __all__ = [
     "get_repository_api_call",
     "get_repository_commits",
     "get_repository_item_bytes",
+    "get_session",
+    "get_team_field_values",
     "get_test_api_call",
     "get_timeline_api_call",
     "get_variable_group_api_call",
@@ -214,6 +228,7 @@ __all__ = [
     "make_ref_update",
     "patch_approvals",
     "patch_build",
+    "patch_classification_node",
     "patch_pipeline_run",
     "patch_pr",
     "patch_timeline_records",
@@ -248,6 +263,7 @@ __all__ = [
     "send_job_feed",
     "set_pr_reviewer_vote",
     "start_build",
+    "update_pr_work_item_refs",
     "update_timeline_records",
     "update_variable_group",
     "update_work_item",
@@ -383,6 +399,9 @@ from pyado.high import (
     start_build as start_build,
 )
 from pyado.high import (
+    update_pr_work_item_refs as update_pr_work_item_refs,
+)
+from pyado.high import (
     update_timeline_records as update_timeline_records,
 )
 from pyado.high import (
@@ -464,10 +483,22 @@ from pyado.raw import (
     BuildStatus as BuildStatus,
 )
 from pyado.raw import (
+    ClassificationNode as ClassificationNode,
+)
+from pyado.raw import (
+    ClassificationNodeAttributes as ClassificationNodeAttributes,
+)
+from pyado.raw import (
     CommitDiffPage as CommitDiffPage,
 )
 from pyado.raw import (
     CommitId as CommitId,
+)
+from pyado.raw import (
+    ConnectionData as ConnectionData,
+)
+from pyado.raw import (
+    ConnectionDataIdentity as ConnectionDataIdentity,
 )
 from pyado.raw import (
     GitCommitChange as GitCommitChange,
@@ -579,6 +610,12 @@ from pyado.raw import (
 )
 from pyado.raw import (
     PlanId as PlanId,
+)
+from pyado.raw import (
+    PrIterationChange as PrIterationChange,
+)
+from pyado.raw import (
+    PrIterationChangeItem as PrIterationChangeItem,
 )
 from pyado.raw import (
     ProjectId as ProjectId,
@@ -719,6 +756,9 @@ from pyado.raw import (
     TaskId as TaskId,
 )
 from pyado.raw import (
+    TeamFieldValue as TeamFieldValue,
+)
+from pyado.raw import (
     TimelineId as TimelineId,
 )
 from pyado.raw import (
@@ -782,6 +822,12 @@ from pyado.raw import (
     WorkItemsBatchRequest as WorkItemsBatchRequest,
 )
 from pyado.raw import (
+    add_team_iteration as add_team_iteration,
+)
+from pyado.raw import (
+    create_classification_node as create_classification_node,
+)
+from pyado.raw import (
     delete_build_tag as delete_build_tag,
 )
 from pyado.raw import (
@@ -797,7 +843,13 @@ from pyado.raw import (
     get_build_details as get_build_details,
 )
 from pyado.raw import (
+    get_classification_node as get_classification_node,
+)
+from pyado.raw import (
     get_commit_diff_page as get_commit_diff_page,
+)
+from pyado.raw import (
+    get_connection_data as get_connection_data,
 )
 from pyado.raw import (
     get_job_api_call as get_job_api_call,
@@ -824,6 +876,9 @@ from pyado.raw import (
     get_pr_details as get_pr_details,
 )
 from pyado.raw import (
+    get_pr_iteration_changes as get_pr_iteration_changes,
+)
+from pyado.raw import (
     get_pr_labels_details as get_pr_labels_details,
 )
 from pyado.raw import (
@@ -840,6 +895,12 @@ from pyado.raw import (
 )
 from pyado.raw import (
     get_repository_item_bytes as get_repository_item_bytes,
+)
+from pyado.raw import (
+    get_session as get_session,
+)
+from pyado.raw import (
+    get_team_field_values as get_team_field_values,
 )
 from pyado.raw import (
     get_test_api_call as get_test_api_call,
@@ -921,6 +982,9 @@ from pyado.raw import (
 )
 from pyado.raw import (
     patch_build as patch_build,
+)
+from pyado.raw import (
+    patch_classification_node as patch_classification_node,
 )
 from pyado.raw import (
     patch_pipeline_run as patch_pipeline_run,

@@ -221,6 +221,12 @@ class PipelineApprovalUpdateRequest(BaseModel):
     comment: str = ""
 
 
+class _PipelineStateRequest(BaseModel):
+    """Internal: request body for updating a pipeline run state."""
+
+    state: str
+
+
 # ---------------------------------------------------------------------------
 # Pipeline REST API functions
 # ---------------------------------------------------------------------------
@@ -354,7 +360,7 @@ def patch_pipeline_run(
         "runs",
         str(run_id),
         version="7.1",
-        json={"state": state},
+        json=_PipelineStateRequest(state=state).model_dump(mode="json"),
     )
     return PipelineRunInfo.model_validate(response)
 
@@ -375,15 +381,14 @@ def post_pipeline_run(
     Returns:
         PipelineRunInfo describing the newly queued run.
     """
-    body: dict[str, Any] = {}
-    if request is not None:
-        body = request.model_dump(mode="json", by_alias=True, exclude_none=True)
     response = project_api_call.post(
         "pipelines",
         str(pipeline_id),
         "runs",
         version="7.1",
-        json=body,
+        json=(request or PipelineRunRequest()).model_dump(
+            mode="json", by_alias=True, exclude_none=True
+        ),
     )
     return PipelineRunInfo.model_validate(response)
 

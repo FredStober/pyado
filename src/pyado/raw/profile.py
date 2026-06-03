@@ -7,12 +7,28 @@ from pydantic import BaseModel, Field
 from pyado.raw._core import _ADO_URL_ADAPTER, AccessToken, ApiCall
 
 __all__ = [
+    "ConnectionData",
+    "ConnectionDataIdentity",
     "UserProfile",
+    "get_connection_data",
     "get_my_profile",
     "get_profile_api_call",
 ]
 
 _PROFILE_API_URL = "https://app.vssps.visualstudio.com/_apis"
+
+
+class ConnectionDataIdentity(BaseModel):
+    """Minimal identity record returned inside the connectionData response."""
+
+    id: str
+    provider_display_name: str = Field(alias="providerDisplayName")
+
+
+class ConnectionData(BaseModel):
+    """Response from ``GET /_apis/connectionData``."""
+
+    authenticated_user: ConnectionDataIdentity = Field(alias="authenticatedUser")
 
 
 class UserProfile(BaseModel):
@@ -41,6 +57,24 @@ def get_profile_api_call(access_token: AccessToken) -> ApiCall:
         access_token=access_token,
         url=_ADO_URL_ADAPTER.validate_python(_PROFILE_API_URL),
     )
+
+
+def get_connection_data(org_api_call: ApiCall) -> ConnectionData:
+    """Return connection data for the organisation including the authenticated user.
+
+    The result's ``authenticated_user`` field contains the current user's identity
+    GUID and display name.
+
+    Args:
+        org_api_call: Organisation-level ADO API call
+            (e.g. ``ApiCall(access_token=…, url="https://dev.azure.com/myorg")``).
+            Must not include a project path segment.
+
+    Returns:
+        ConnectionData for the organisation and authenticated user.
+    """
+    response = org_api_call.get("_apis", "connectionData", version="5.1")
+    return ConnectionData.model_validate(response)
 
 
 def get_my_profile(profile_api_call: ApiCall) -> UserProfile:

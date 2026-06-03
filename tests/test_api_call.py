@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from pyado import ApiCall, HTMLTextFilter, JsonPatchAdd, get_test_api_call
-from pyado.raw._core import _get_content_type, _is_json_patch
+from pyado import ApiCall, HTMLTextFilter, JsonPatchAdd, get_session, get_test_api_call
+from pyado.raw._core import _get_content_type, _get_session, _is_json_patch
 
 BASE_URL = "https://dev.azure.com/org/"
 ACCESS_TOKEN = "test_token"
@@ -279,29 +279,45 @@ class TestApiCallParseResponse:
             ApiCall._parse_response(mock_response)
 
 
-class TestApiCallGetSession:
-    """Tests for ApiCall._get_session."""
+class TestGetSessionPrivate:
+    """Tests for _get_session module-level helper."""
 
     @staticmethod
     def test_creates_session_with_auth() -> None:
         """Session is created with basic auth using the access token."""
-        session = ApiCall._get_session("mytoken")
+        session = _get_session("mytoken")
         assert isinstance(session, requests.Session)
         assert session.auth is not None
 
     @staticmethod
     def test_same_token_returns_cached_session() -> None:
         """The same token always returns the same session object."""
-        session_1 = ApiCall._get_session("token_a")
-        session_2 = ApiCall._get_session("token_a")
+        session_1 = _get_session("token_a")
+        session_2 = _get_session("token_a")
         assert session_1 is session_2
 
     @staticmethod
     def test_different_tokens_return_different_sessions() -> None:
         """Different tokens produce distinct session objects."""
-        session_1 = ApiCall._get_session("token_a")
-        session_2 = ApiCall._get_session("token_b")
+        session_1 = _get_session("token_a")
+        session_2 = _get_session("token_b")
         assert session_1 is not session_2
+
+
+class TestGetSession:
+    """Tests for get_session."""
+
+    @staticmethod
+    def test_returns_requests_session() -> None:
+        """Returns a requests.Session object."""
+        session = get_session("mytoken")
+        assert isinstance(session, requests.Session)
+
+    @staticmethod
+    def test_returns_same_instance_as_private_helper() -> None:
+        """Returns the same session object as the internal _get_session helper."""
+        session = get_session("mytoken")
+        assert session is _get_session("mytoken")
 
 
 class TestApiCallRequest:

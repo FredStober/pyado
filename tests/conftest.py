@@ -12,6 +12,7 @@ import pytest
 import requests
 
 from pyado import ApiCall
+from pyado.raw._core import _get_session
 
 BASE_URL = "https://dev.azure.com/org/"
 ACCESS_TOKEN = "test_token"
@@ -25,9 +26,9 @@ def clear_session_cache() -> Generator[None, None, None]:
     Yields:
         None.
     """
-    ApiCall._get_session.cache_clear()
+    _get_session.cache_clear()
     yield
-    ApiCall._get_session.cache_clear()
+    _get_session.cache_clear()
 
 
 @pytest.fixture

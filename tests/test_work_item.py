@@ -2,6 +2,7 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
+from datetime import date
 from typing import Annotated, Any
 from unittest.mock import patch
 from uuid import uuid4
@@ -11,9 +12,11 @@ import requests
 
 from pyado import (
     ApiCall,
+    ClassificationNode,
     CustomWorkItemBase,
     SprintIterationInfo,
     SprintIterationTimeframe,
+    TeamFieldValue,
     WorkItemAttachmentRef,
     WorkItemComment,
     WorkItemExpand,
@@ -23,16 +26,21 @@ from pyado import (
     WorkItemRef,
     WorkItemRelation,
     WorkItemRelationType,
+    add_team_iteration,
     add_work_item_attachment,
     add_work_item_link,
     add_work_item_tag,
+    create_classification_node,
     create_work_item,
+    get_classification_node,
+    get_team_field_values,
     get_work_item,
     get_work_item_api_call,
     get_work_item_tags,
     iter_sprint_iterations,
     iter_work_item_comments,
     iter_work_item_details,
+    patch_classification_node,
     post_wiql,
     post_work_item_comment,
     query_work_items,
@@ -899,3 +907,235 @@ class TestAddWorkItemLink:
         sent_json = mock_req.call_args.kwargs.get("json") or []
         assert sent_json[0]["path"] == "/relations/-"
         assert sent_json[0]["value"]["rel"] == WorkItemRelationType.RELATED
+
+
+class TestGetClassificationNode:
+    """Tests for get_classification_node."""
+
+    @staticmethod
+    def test_returns_classification_node(api_call: ApiCall) -> None:
+        """Returns a ClassificationNode with fields populated from the response."""
+        node_data = {"id": 1, "name": "Iterations", "children": []}
+        mock_response = _make_mock_response(node_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_classification_node(api_call)
+        assert isinstance(result, ClassificationNode)
+        assert result.id == 1
+        assert result.name == "Iterations"
+        assert result.children == []
+
+    @staticmethod
+    def test_without_path_targets_root(api_call: ApiCall) -> None:
+        """Without a path, requests the iteration tree root."""
+        mock_response = _make_mock_response({"id": 1, "name": "root"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_classification_node(api_call)
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "classificationnodes/iterations" in url
+        assert url.endswith("classificationnodes/iterations")
+
+    @staticmethod
+    def test_with_path_appends_path_to_url(api_call: ApiCall) -> None:
+        """With a path, the path is appended to the URL (spaces percent-encoded)."""
+        mock_response = _make_mock_response({"id": 2, "name": "Sprint 42"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_classification_node(api_call, "Sprint 42")
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "Sprint%2042" in url
+
+    @staticmethod
+    def test_depth_passed_as_parameter(api_call: ApiCall) -> None:
+        """The depth argument is forwarded as a query parameter."""
+        mock_response = _make_mock_response({"id": 1, "name": "root"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_classification_node(api_call, depth=5)
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params.get("$depth") == 5
+
+
+class TestCreateClassificationNode:
+    """Tests for create_classification_node."""
+
+    @staticmethod
+    def test_returns_identifier_guid(api_call: ApiCall) -> None:
+        """Returns the 'identifier' value from the response."""
+        guid = "aaaabbbb-cccc-dddd-eeee-ffffffffffff"
+        mock_response = _make_mock_response({"identifier": guid, "name": "Sprint 1"})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = create_classification_node(api_call, "Sprint 1")
+        assert result == guid
+
+    @staticmethod
+    def test_posts_name_in_body(api_call: ApiCall) -> None:
+        """The request body contains the 'name' field."""
+        mock_response = _make_mock_response({"identifier": "abc", "name": "Sprint 2"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            create_classification_node(api_call, "Sprint 2")
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json["name"] == "Sprint 2"
+
+    @staticmethod
+    def test_with_dates_includes_attributes(api_call: ApiCall) -> None:
+        """When dates are given, the body includes an attributes dict."""
+        mock_response = _make_mock_response({"identifier": "abc", "name": "Sprint 3"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            create_classification_node(
+                api_call,
+                "Sprint 3",
+                start_date=date(2024, 1, 1),
+                finish_date=date(2024, 1, 14),
+            )
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert "attributes" in sent_json
+        assert sent_json["attributes"]["startDate"] == "2024-01-01T00:00:00Z"
+        assert sent_json["attributes"]["finishDate"] == "2024-01-14T00:00:00Z"
+
+    @staticmethod
+    def test_without_dates_omits_attributes(api_call: ApiCall) -> None:
+        """When no dates are given, attributes are not included in the body."""
+        mock_response = _make_mock_response({"identifier": "abc", "name": "Sprint 4"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            create_classification_node(api_call, "Sprint 4")
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert "attributes" not in sent_json
+
+    @staticmethod
+    def test_with_parent_path_appends_to_url(api_call: ApiCall) -> None:
+        """When parent_path is given, it appears in the request URL (spaces encoded)."""
+        mock_response = _make_mock_response({"identifier": "abc", "name": "Child"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            create_classification_node(api_call, "Child", "Release 1")
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "Release%201" in url
+
+
+class TestPatchClassificationNode:
+    """Tests for patch_classification_node."""
+
+    @staticmethod
+    def test_returns_classification_node(api_call: ApiCall) -> None:
+        """Returns a ClassificationNode with fields from the patch response."""
+        node_data = {"id": 1, "name": "Sprint 42", "attributes": {}}
+        mock_response = _make_mock_response(node_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = patch_classification_node(api_call, "Sprint 42")
+        assert isinstance(result, ClassificationNode)
+        assert result.id == 1
+        assert result.name == "Sprint 42"
+
+    @staticmethod
+    def test_sends_patch_request(api_call: ApiCall) -> None:
+        """Sends a PATCH request to the classification node endpoint."""
+        mock_response = _make_mock_response({"id": 1, "name": "Sprint 42"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            patch_classification_node(api_call, "Sprint 42")
+        assert mock_req.call_args.args[0] == "PATCH"
+
+    @staticmethod
+    def test_path_appears_in_url(api_call: ApiCall) -> None:
+        """The node path is included in the request URL (spaces percent-encoded)."""
+        mock_response = _make_mock_response({"id": 1, "name": "Sprint 42"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            patch_classification_node(api_call, "Sprint 42")
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "Sprint%2042" in url
+
+    @staticmethod
+    def test_start_and_finish_dates_in_attributes(api_call: ApiCall) -> None:
+        """start_date and finish_date are serialised into the attributes body."""
+        mock_response = _make_mock_response({"id": 1, "name": "Sprint 42"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            patch_classification_node(
+                api_call,
+                "Sprint 42",
+                start_date=date(2024, 3, 1),
+                finish_date=date(2024, 3, 14),
+            )
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json["attributes"]["startDate"] == "2024-03-01T00:00:00Z"
+        assert sent_json["attributes"]["finishDate"] == "2024-03-14T00:00:00Z"
+
+
+class TestGetTeamFieldValues:
+    """Tests for get_team_field_values."""
+
+    @staticmethod
+    def test_returns_values_list(api_call: ApiCall) -> None:
+        """Returns a list of TeamFieldValue from the 'values' key of the response."""
+        values = [{"value": "MyProject\\TeamA", "includeChildren": False}]
+        mock_response = _make_mock_response({"values": values})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_team_field_values(api_call)
+        assert len(result) == 1
+        assert isinstance(result[0], TeamFieldValue)
+        assert result[0].value == "MyProject\\TeamA"
+        assert result[0].include_children is False
+
+    @staticmethod
+    def test_returns_empty_list_when_values_missing(api_call: ApiCall) -> None:
+        """Returns an empty list when the response has no 'values' key."""
+        mock_response = _make_mock_response({})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_team_field_values(api_call)
+        assert result == []
+
+    @staticmethod
+    def test_sends_get_to_teamfieldvalues_endpoint(api_call: ApiCall) -> None:
+        """Sends a GET request to the teamfieldvalues endpoint."""
+        mock_response = _make_mock_response({"values": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_team_field_values(api_call)
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert mock_req.call_args.args[0] == "GET"
+        assert "teamfieldvalues" in url
+
+
+class TestAddTeamIteration:
+    """Tests for add_team_iteration."""
+
+    @staticmethod
+    def test_posts_iteration_id_to_endpoint(api_call: ApiCall) -> None:
+        """Posts the iteration ID to the teamsettings/iterations endpoint."""
+        iteration_id = uuid4()
+        mock_response = _make_mock_response(None)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            add_team_iteration(api_call, iteration_id)
+        call = mock_req.call_args
+        assert call.args[0] == "POST"
+        sent_json = call.kwargs.get("json") or {}
+        assert sent_json["id"] == str(iteration_id)
+
+    @staticmethod
+    def test_targets_iterations_endpoint(api_call: ApiCall) -> None:
+        """The request targets the teamsettings/iterations endpoint."""
+        mock_response = _make_mock_response(None)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            add_team_iteration(api_call, uuid4())
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "teamsettings/iterations" in url

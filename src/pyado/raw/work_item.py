@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: MIT
 
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -14,11 +14,14 @@ from pydantic.networks import AnyUrl
 from pyado.raw._core import ApiCall, _IdentityRef
 
 __all__ = [
+    "ClassificationNode",
+    "ClassificationNodeAttributes",
     "SprintIterationAttributes",
     "SprintIterationId",
     "SprintIterationInfo",
     "SprintIterationPath",
     "SprintIterationTimeframe",
+    "TeamFieldValue",
     "WorkItemArtifactUrlPrefix",
     "WorkItemAttachmentRef",
     "WorkItemComment",
@@ -31,10 +34,15 @@ __all__ = [
     "WorkItemRelation",
     "WorkItemRelationType",
     "WorkItemsBatchRequest",
+    "add_team_iteration",
+    "create_classification_node",
+    "get_classification_node",
+    "get_team_field_values",
     "get_work_item",
     "get_work_item_api_call",
     "iter_sprint_iterations",
     "iter_work_item_comments",
+    "patch_classification_node",
     "patch_work_item",
     "post_wiql",
     "post_work_item",
@@ -295,10 +303,67 @@ class WorkItemsBatchRequest(BaseModel):
     expand: WorkItemExpand | None = Field(default=None, serialization_alias="$expand")
 
 
+class ClassificationNodeAttributes(BaseModel):
+    """Date attributes of a classification node (sprint iteration)."""
+
+    start_date: str | None = Field(alias="startDate", default=None)
+    finish_date: str | None = Field(alias="finishDate", default=None)
+
+
+class ClassificationNode(BaseModel):
+    """A classification node (iteration or area) as returned by the ADO API."""
+
+    id: int
+    identifier: str | None = None
+    name: str
+    path: str | None = None
+    structure_type: str | None = Field(alias="structureType", default=None)
+    has_children: bool | None = Field(alias="hasChildren", default=None)
+    attributes: ClassificationNodeAttributes | None = None
+    children: list["ClassificationNode"] | None = None
+    url: AnyUrl | None = None
+
+
+ClassificationNode.model_rebuild()
+
+
+class TeamFieldValue(BaseModel):
+    """A single team area-path field value."""
+
+    value: str
+    include_children: bool = Field(alias="includeChildren")
+
+
 class _WorkItemCommentRequest(BaseModel):
     """Internal: request body for adding a work item comment."""
 
     text: str
+
+
+class _ClassificationNodeAttributes(BaseModel):
+    """Internal: date attributes for a classification node request."""
+
+    start_date: str | None = Field(default=None, serialization_alias="startDate")
+    finish_date: str | None = Field(default=None, serialization_alias="finishDate")
+
+
+class _ClassificationNodeRequest(BaseModel):
+    """Internal: request body for creating a classification node."""
+
+    name: str
+    attributes: _ClassificationNodeAttributes | None = None
+
+
+class _ClassificationNodePatchRequest(BaseModel):
+    """Internal: request body for patching a classification node."""
+
+    attributes: _ClassificationNodeAttributes
+
+
+class _TeamIterationRef(BaseModel):
+    """Internal: request body for assigning an iteration to a team."""
+
+    id: str
 
 
 def iter_sprint_iterations(
@@ -509,6 +574,142 @@ def post_work_item_attachment_upload(
         data=content,
     )
     return WorkItemAttachmentRef.model_validate(response)
+
+
+def get_classification_node(
+    project_call: ApiCall,
+    path: str | None = None,
+    *,
+    depth: int = 1,
+) -> ClassificationNode:
+    """Return the classification node tree for a project's iterations.
+
+    Args:
+        project_call: Project-level ADO API call.
+        path: Path within the iteration tree (e.g. ``"Sprint 42"``), or None
+            for the root.
+        depth: Number of levels to fetch below the requested node (default: 1).
+
+    Returns:
+        ClassificationNode for the requested path.
+    """
+    args: list[str] = ["wit", "classificationnodes", "iterations"]
+    if path:
+        args.append(path)
+    response = project_call.get(*args, parameters={"$depth": depth}, version="7.0")
+    return ClassificationNode.model_validate(response)
+
+
+def create_classification_node(
+    project_call: ApiCall,
+    name: str,
+    parent_path: str | None = None,
+    *,
+    start_date: date | None = None,
+    finish_date: date | None = None,
+) -> str:
+    """Create a classification node (sprint iteration) under a parent path.
+
+    Args:
+        project_call: Project-level ADO API call.
+        name: Name of the new iteration node.
+        parent_path: Path of the parent node within the iteration tree, or
+            None to create at the root.
+        start_date: Optional start date for the iteration.
+        finish_date: Optional end date for the iteration.
+
+    Returns:
+        The GUID identifier string of the created node.
+    """
+    args: list[str] = ["wit", "classificationnodes", "iterations"]
+    if parent_path:
+        args.append(parent_path)
+    node_attrs = _ClassificationNodeAttributes(
+        start_date=start_date.isoformat() + "T00:00:00Z" if start_date else None,
+        finish_date=finish_date.isoformat() + "T00:00:00Z" if finish_date else None,
+    )
+    body = _ClassificationNodeRequest(
+        name=name,
+        attributes=node_attrs if (start_date or finish_date) else None,
+    )
+    response = project_call.post(
+        *args,
+        version="7.0",
+        json=body.model_dump(mode="json", by_alias=True, exclude_none=True),
+    )
+    return cast("str", response["identifier"])
+
+
+def patch_classification_node(
+    project_call: ApiCall,
+    path: str,
+    *,
+    start_date: date | None = None,
+    finish_date: date | None = None,
+) -> ClassificationNode:
+    """Update the dates of a classification node (sprint iteration).
+
+    Args:
+        project_call: Project-level ADO API call.
+        path: Path of the iteration node to update (e.g. ``"Sprint 42"``).
+        start_date: New start date, or None to leave unchanged.
+        finish_date: New end date, or None to leave unchanged.
+
+    Returns:
+        Updated ClassificationNode from the ADO API.
+    """
+    patch = _ClassificationNodePatchRequest(
+        attributes=_ClassificationNodeAttributes(
+            start_date=start_date.isoformat() + "T00:00:00Z" if start_date else None,
+            finish_date=finish_date.isoformat() + "T00:00:00Z" if finish_date else None,
+        )
+    )
+    response = project_call.patch(
+        "wit",
+        "classificationnodes",
+        "iterations",
+        path,
+        version="7.0",
+        json=patch.model_dump(mode="json", by_alias=True, exclude_none=True),
+    )
+    return ClassificationNode.model_validate(response)
+
+
+def get_team_field_values(team_call: ApiCall) -> list[TeamFieldValue]:
+    """Return the team area-path field values configuration.
+
+    Args:
+        team_call: Team-level ADO API call (URL includes the team segment).
+
+    Returns:
+        List of TeamFieldValue from the ``values`` key of the API response.
+    """
+    response = team_call.get(
+        "work",
+        "teamsettings",
+        "teamfieldvalues",
+        version="7.0",
+    )
+    return [TeamFieldValue.model_validate(v) for v in response.get("values", [])]
+
+
+def add_team_iteration(
+    team_call: ApiCall,
+    iteration_id: SprintIterationId,
+) -> None:
+    """Assign an existing iteration to a team.
+
+    Args:
+        team_call: Team-level ADO API call (URL includes the team segment).
+        iteration_id: UUID of the iteration to assign.
+    """
+    team_call.post(
+        "work",
+        "teamsettings",
+        "iterations",
+        version="7.1",
+        json=_TeamIterationRef(id=str(iteration_id)).model_dump(mode="json"),
+    )
 
 
 def post_work_item_comment(

@@ -72,6 +72,7 @@ __all__ = [
     "send_job_feed",
     "set_pr_reviewer_vote",
     "start_build",
+    "update_pr_work_item_refs",
     "update_timeline_records",
     "update_variable_group",
     "update_work_item",
@@ -175,6 +176,9 @@ from pyado.high.pull_request import (
 )
 from pyado.high.pull_request import (
     set_pr_reviewer_vote as set_pr_reviewer_vote,
+)
+from pyado.high.pull_request import (
+    update_pr_work_item_refs as update_pr_work_item_refs,
 )
 from pyado.high.variable_group import (
     update_variable_group as update_variable_group,
