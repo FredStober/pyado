@@ -139,6 +139,8 @@ __all__ = [
     "WorkItemRef",
     "WorkItemRelation",
     "WorkItemRelationType",
+    "WorkItemState",
+    "WorkItemType",
     "WorkItemsBatchRequest",
     "add_team_iteration",
     "create_classification_node",
@@ -835,6 +837,12 @@ from pyado.raw.work_item import (
 )
 from pyado.raw.work_item import (
     WorkItemsBatchRequest as WorkItemsBatchRequest,
+)
+from pyado.raw.work_item import (
+    WorkItemState as WorkItemState,
+)
+from pyado.raw.work_item import (
+    WorkItemType as WorkItemType,
 )
 from pyado.raw.work_item import (
     add_team_iteration as add_team_iteration,

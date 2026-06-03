@@ -53,7 +53,7 @@ __all__ = [
     "create_pr",
     "create_pr_thread",
     "get_pr_labels",
-    "iter_open_prs",
+    "iter_active_prs",
     "iter_pr_work_item_ids",
     "link_pr_work_item",
     "reply_to_pr_thread",
@@ -62,7 +62,7 @@ __all__ = [
 ]
 
 
-def iter_open_prs(
+def iter_active_prs(
     project_api_call: ApiCall,
     *,
     expand: str | None = None,

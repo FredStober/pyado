@@ -772,103 +772,94 @@ class TestWorkItemLink:
     # --- work-item links ---
 
     @staticmethod
-    def test_related_returns_related_link_without_comment() -> None:
-        """related() produces a RELATED link with no attributes when no comment."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/5"
-        result = WorkItemLink.related(url)
+    def test_related_returns_related_link_without_comment(
+        api_call: ApiCall,
+    ) -> None:
+        """related() produces a RELATED link whose URL encodes the WI ID."""
+        result = WorkItemLink.related(api_call, 5)
         assert result.rel == WorkItemRelationType.RELATED
-        assert result.url == url
+        assert result.url is not None
+        assert result.url.endswith("/5")
         assert result.attributes is None
 
     @staticmethod
-    def test_related_with_comment_includes_attributes() -> None:
+    def test_related_with_comment_includes_attributes(api_call: ApiCall) -> None:
         """related() with comment sets attributes dict."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/5"
-        result = WorkItemLink.related(url, comment="related to")
+        result = WorkItemLink.related(api_call, 5, comment="related to")
         assert result.attributes == {"comment": "related to"}
 
     @staticmethod
-    def test_parent_returns_parent_link() -> None:
+    def test_parent_returns_parent_link(api_call: ApiCall) -> None:
         """parent() produces a PARENT (Hierarchy-Reverse) link."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/1"
-        result = WorkItemLink.parent(url)
+        result = WorkItemLink.parent(api_call, 1)
         assert result.rel == WorkItemRelationType.PARENT
 
     @staticmethod
-    def test_child_returns_child_link() -> None:
+    def test_child_returns_child_link(api_call: ApiCall) -> None:
         """child() produces a CHILD (Hierarchy-Forward) link."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/2"
-        result = WorkItemLink.child(url)
+        result = WorkItemLink.child(api_call, 2)
         assert result.rel == WorkItemRelationType.CHILD
 
     @staticmethod
-    def test_duplicate_returns_duplicate_link() -> None:
+    def test_duplicate_returns_duplicate_link(api_call: ApiCall) -> None:
         """duplicate() produces a DUPLICATE (Duplicate-Forward) link."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/3"
-        result = WorkItemLink.duplicate(url)
+        result = WorkItemLink.duplicate(api_call, 3)
         assert result.rel == WorkItemRelationType.DUPLICATE
 
     @staticmethod
-    def test_duplicate_of_returns_duplicate_of_link() -> None:
+    def test_duplicate_of_returns_duplicate_of_link(api_call: ApiCall) -> None:
         """duplicate_of() produces a DUPLICATE_OF (Duplicate-Reverse) link."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/3"
-        result = WorkItemLink.duplicate_of(url)
+        result = WorkItemLink.duplicate_of(api_call, 3)
         assert result.rel == WorkItemRelationType.DUPLICATE_OF
 
     @staticmethod
-    def test_successor_returns_successor_link() -> None:
+    def test_successor_returns_successor_link(api_call: ApiCall) -> None:
         """successor() produces a SUCCESSOR (Dependency-Forward) link."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/4"
-        result = WorkItemLink.successor(url)
+        result = WorkItemLink.successor(api_call, 4)
         assert result.rel == WorkItemRelationType.SUCCESSOR
 
     @staticmethod
-    def test_predecessor_returns_predecessor_link() -> None:
+    def test_predecessor_returns_predecessor_link(api_call: ApiCall) -> None:
         """predecessor() produces a PREDECESSOR (Dependency-Reverse) link."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/4"
-        result = WorkItemLink.predecessor(url)
+        result = WorkItemLink.predecessor(api_call, 4)
         assert result.rel == WorkItemRelationType.PREDECESSOR
 
     @staticmethod
-    def test_tested_by_returns_tested_by_link() -> None:
+    def test_tested_by_returns_tested_by_link(api_call: ApiCall) -> None:
         """tested_by() produces a TESTED_BY (TestedBy-Forward) link."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/10"
-        result = WorkItemLink.tested_by(url)
+        result = WorkItemLink.tested_by(api_call, 10)
         assert result.rel == WorkItemRelationType.TESTED_BY
 
     @staticmethod
-    def test_tests_returns_tests_link() -> None:
+    def test_tests_returns_tests_link(api_call: ApiCall) -> None:
         """tests() produces a TESTS (TestedBy-Reverse) link."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/10"
-        result = WorkItemLink.tests(url)
+        result = WorkItemLink.tests(api_call, 10)
         assert result.rel == WorkItemRelationType.TESTS
 
     @staticmethod
-    def test_test_case_returns_test_case_link() -> None:
-        """test_case() produces a TEST_CASE (SharedParam-Forward) link."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/10"
-        result = WorkItemLink.test_case(url)
+    def test_test_case_returns_test_case_link(api_call: ApiCall) -> None:
+        """test_case() produces a TEST_CASE link."""
+        result = WorkItemLink.test_case(api_call, 10)
         assert result.rel == WorkItemRelationType.TEST_CASE
 
     @staticmethod
-    def test_shared_parameter_referenced_by_returns_correct_link() -> None:
+    def test_shared_parameter_referenced_by_returns_correct_link(
+        api_call: ApiCall,
+    ) -> None:
         """shared_parameter_referenced_by() returns SHARED_PARAMETER_REFERENCED_BY."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/10"
-        result = WorkItemLink.shared_parameter_referenced_by(url)
+        result = WorkItemLink.shared_parameter_referenced_by(api_call, 10)
         assert result.rel == WorkItemRelationType.SHARED_PARAMETER_REFERENCED_BY
 
     @staticmethod
-    def test_affects_returns_affects_link() -> None:
+    def test_affects_returns_affects_link(api_call: ApiCall) -> None:
         """affects() produces an AFFECTS (Affects-Forward) link."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/11"
-        result = WorkItemLink.affects(url)
+        result = WorkItemLink.affects(api_call, 11)
         assert result.rel == WorkItemRelationType.AFFECTS
 
     @staticmethod
-    def test_affected_by_returns_affected_by_link() -> None:
+    def test_affected_by_returns_affected_by_link(api_call: ApiCall) -> None:
         """affected_by() produces an AFFECTED_BY (Affects-Reverse) link."""
-        url = "https://dev.azure.com/org/proj/_apis/wit/workItems/11"
-        result = WorkItemLink.affected_by(url)
+        result = WorkItemLink.affected_by(api_call, 11)
         assert result.rel == WorkItemRelationType.AFFECTED_BY
 
     # --- hyperlink ---
@@ -892,11 +883,11 @@ class TestAddWorkItemLink:
     """Tests for add_work_item_link."""
 
     @staticmethod
-    def test_patches_work_item_with_relation(work_item_api_call: ApiCall) -> None:
+    def test_patches_work_item_with_relation(
+        api_call: ApiCall, work_item_api_call: ApiCall
+    ) -> None:
         """Sends a PATCH with the relation serialised at /relations/-."""
-        link = WorkItemLink.related(
-            "https://dev.azure.com/org/proj/_apis/wit/workItems/5"
-        )
+        link = WorkItemLink.related(api_call, 5)
         mock_response = _make_mock_response(make_single_work_item_dict())
         with patch.object(
             requests.Session, "request", return_value=mock_response

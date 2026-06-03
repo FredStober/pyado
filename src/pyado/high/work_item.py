@@ -120,15 +120,15 @@ class WorkItemLink:
 
     Artifact links (builds, commits, pull requests) use the ArtifactLink
     relation type with a ``vstfs://`` URL constructed from the supplied IDs.
-    Work item links (parent, child, related, etc.) require the target work
-    item's ``url`` field (available as ``WorkItemInfo.url``).
+    Work item links (parent, child, related, etc.) accept the target work
+    item's ID and project-level API call; the URL is constructed internally.
 
     Examples::
 
         # At creation time
         create_work_item(api, fields, relations=[
             WorkItemLink.build(build_id),
-            WorkItemLink.parent(str(parent_wi.url)),
+            WorkItemLink.parent(project_api, parent_wi_id),
         ])
 
         # On an existing work item
@@ -156,9 +156,13 @@ class WorkItemLink:
     @staticmethod
     def _wi_link(
         rel_type: WorkItemRelationType,
-        work_item_url: str,
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
         comment: str | None,
     ) -> WorkItemRelation:
+        work_item_url = get_work_item_api_call(
+            project_api_call, work_item_id
+        ).url.unicode_string()
         attributes: dict[str, Any] | None = (
             {"comment": comment} if comment is not None else None
         )
@@ -237,108 +241,165 @@ class WorkItemLink:
     # --- Work item links ---
 
     @staticmethod
-    def related(work_item_url: str, *, comment: str | None = None) -> WorkItemRelation:
+    def related(
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
+        *,
+        comment: str | None = None,
+    ) -> WorkItemRelation:
         """Return a Related link to another work item."""
         return WorkItemLink._wi_link(
-            WorkItemRelationType.RELATED, work_item_url, comment
+            WorkItemRelationType.RELATED, project_api_call, work_item_id, comment
         )
 
     @staticmethod
-    def parent(work_item_url: str, *, comment: str | None = None) -> WorkItemRelation:
+    def parent(
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
+        *,
+        comment: str | None = None,
+    ) -> WorkItemRelation:
         """Return a Parent (Hierarchy-Reverse) link to another work item."""
         return WorkItemLink._wi_link(
-            WorkItemRelationType.PARENT, work_item_url, comment
+            WorkItemRelationType.PARENT, project_api_call, work_item_id, comment
         )
 
     @staticmethod
-    def child(work_item_url: str, *, comment: str | None = None) -> WorkItemRelation:
+    def child(
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
+        *,
+        comment: str | None = None,
+    ) -> WorkItemRelation:
         """Return a Child (Hierarchy-Forward) link to another work item."""
-        return WorkItemLink._wi_link(WorkItemRelationType.CHILD, work_item_url, comment)
+        return WorkItemLink._wi_link(
+            WorkItemRelationType.CHILD, project_api_call, work_item_id, comment
+        )
 
     @staticmethod
     def duplicate(
-        work_item_url: str, *, comment: str | None = None
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
+        *,
+        comment: str | None = None,
     ) -> WorkItemRelation:
         """Return a Duplicate-Forward link to another work item."""
         return WorkItemLink._wi_link(
-            WorkItemRelationType.DUPLICATE, work_item_url, comment
+            WorkItemRelationType.DUPLICATE, project_api_call, work_item_id, comment
         )
 
     @staticmethod
     def duplicate_of(
-        work_item_url: str, *, comment: str | None = None
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
+        *,
+        comment: str | None = None,
     ) -> WorkItemRelation:
         """Return a Duplicate-Reverse link to another work item."""
         return WorkItemLink._wi_link(
-            WorkItemRelationType.DUPLICATE_OF, work_item_url, comment
-        )
-
-    @staticmethod
-    def successor(
-        work_item_url: str, *, comment: str | None = None
-    ) -> WorkItemRelation:
-        """Return a Dependency-Forward (successor) link to another work item."""
-        return WorkItemLink._wi_link(
-            WorkItemRelationType.SUCCESSOR, work_item_url, comment
-        )
-
-    @staticmethod
-    def predecessor(
-        work_item_url: str, *, comment: str | None = None
-    ) -> WorkItemRelation:
-        """Return a Dependency-Reverse (predecessor) link to another work item."""
-        return WorkItemLink._wi_link(
-            WorkItemRelationType.PREDECESSOR, work_item_url, comment
-        )
-
-    @staticmethod
-    def tested_by(
-        work_item_url: str, *, comment: str | None = None
-    ) -> WorkItemRelation:
-        """Return a TestedBy-Forward link to another work item."""
-        return WorkItemLink._wi_link(
-            WorkItemRelationType.TESTED_BY, work_item_url, comment
-        )
-
-    @staticmethod
-    def tests(work_item_url: str, *, comment: str | None = None) -> WorkItemRelation:
-        """Return a TestedBy-Reverse (tests) link to another work item."""
-        return WorkItemLink._wi_link(WorkItemRelationType.TESTS, work_item_url, comment)
-
-    @staticmethod
-    def test_case(
-        work_item_url: str, *, comment: str | None = None
-    ) -> WorkItemRelation:
-        """Return a SharedParameterReferencedBy-Forward link."""
-        return WorkItemLink._wi_link(
-            WorkItemRelationType.TEST_CASE, work_item_url, comment
-        )
-
-    @staticmethod
-    def shared_parameter_referenced_by(
-        work_item_url: str, *, comment: str | None = None
-    ) -> WorkItemRelation:
-        """Return a SharedParameterReferencedBy-Reverse link."""
-        return WorkItemLink._wi_link(
-            WorkItemRelationType.SHARED_PARAMETER_REFERENCED_BY,
-            work_item_url,
+            WorkItemRelationType.DUPLICATE_OF,
+            project_api_call,
+            work_item_id,
             comment,
         )
 
     @staticmethod
-    def affects(work_item_url: str, *, comment: str | None = None) -> WorkItemRelation:
+    def successor(
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
+        *,
+        comment: str | None = None,
+    ) -> WorkItemRelation:
+        """Return a Dependency-Forward (successor) link to another work item."""
+        return WorkItemLink._wi_link(
+            WorkItemRelationType.SUCCESSOR, project_api_call, work_item_id, comment
+        )
+
+    @staticmethod
+    def predecessor(
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
+        *,
+        comment: str | None = None,
+    ) -> WorkItemRelation:
+        """Return a Dependency-Reverse (predecessor) link to another work item."""
+        return WorkItemLink._wi_link(
+            WorkItemRelationType.PREDECESSOR, project_api_call, work_item_id, comment
+        )
+
+    @staticmethod
+    def tested_by(
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
+        *,
+        comment: str | None = None,
+    ) -> WorkItemRelation:
+        """Return a TestedBy-Forward link to another work item."""
+        return WorkItemLink._wi_link(
+            WorkItemRelationType.TESTED_BY, project_api_call, work_item_id, comment
+        )
+
+    @staticmethod
+    def tests(
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
+        *,
+        comment: str | None = None,
+    ) -> WorkItemRelation:
+        """Return a TestedBy-Reverse (tests) link to another work item."""
+        return WorkItemLink._wi_link(
+            WorkItemRelationType.TESTS, project_api_call, work_item_id, comment
+        )
+
+    @staticmethod
+    def test_case(
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
+        *,
+        comment: str | None = None,
+    ) -> WorkItemRelation:
+        """Return a TestCase-Forward link to another work item."""
+        return WorkItemLink._wi_link(
+            WorkItemRelationType.TEST_CASE, project_api_call, work_item_id, comment
+        )
+
+    @staticmethod
+    def shared_parameter_referenced_by(
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
+        *,
+        comment: str | None = None,
+    ) -> WorkItemRelation:
+        """Return a SharedParameterReferencedBy-Reverse link."""
+        return WorkItemLink._wi_link(
+            WorkItemRelationType.SHARED_PARAMETER_REFERENCED_BY,
+            project_api_call,
+            work_item_id,
+            comment,
+        )
+
+    @staticmethod
+    def affects(
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
+        *,
+        comment: str | None = None,
+    ) -> WorkItemRelation:
         """Return an Affects-Forward link to another work item."""
         return WorkItemLink._wi_link(
-            WorkItemRelationType.AFFECTS, work_item_url, comment
+            WorkItemRelationType.AFFECTS, project_api_call, work_item_id, comment
         )
 
     @staticmethod
     def affected_by(
-        work_item_url: str, *, comment: str | None = None
+        project_api_call: ApiCall,
+        work_item_id: WorkItemId,
+        *,
+        comment: str | None = None,
     ) -> WorkItemRelation:
         """Return an Affects-Reverse (affected by) link to another work item."""
         return WorkItemLink._wi_link(
-            WorkItemRelationType.AFFECTED_BY, work_item_url, comment
+            WorkItemRelationType.AFFECTED_BY, project_api_call, work_item_id, comment
         )
 
     # --- Other links ---

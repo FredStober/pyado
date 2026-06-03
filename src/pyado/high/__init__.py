@@ -55,9 +55,9 @@ __all__ = [
     "get_last_commit_touching_file",
     "get_pr_labels",
     "get_work_item_tags",
+    "iter_active_prs",
     "iter_build_work_item_ids",
     "iter_commit_diff",
-    "iter_open_prs",
     "iter_pending_approvals",
     "iter_pr_work_item_ids",
     "iter_work_item_details",
@@ -163,7 +163,7 @@ from pyado.high.pull_request import (
     get_pr_labels as get_pr_labels,
 )
 from pyado.high.pull_request import (
-    iter_open_prs as iter_open_prs,
+    iter_active_prs as iter_active_prs,
 )
 from pyado.high.pull_request import (
     iter_pr_work_item_ids as iter_pr_work_item_ids,

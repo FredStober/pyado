@@ -41,7 +41,7 @@ from pyado import (
     get_pr_labels,
     get_pr_reviewers,
     get_repository_api_call,
-    iter_open_prs,
+    iter_active_prs,
     iter_pr_commits,
     iter_pr_iterations,
     iter_pr_threads,
@@ -285,8 +285,8 @@ class TestIterPrs:
         assert len(result) == 101
 
 
-class TestIterOpenPrs:
-    """Tests for iter_open_prs."""
+class TestIterActivePrs:
+    """Tests for iter_active_prs."""
 
     @staticmethod
     def test_passes_active_status_criteria(api_call: ApiCall) -> None:
@@ -295,7 +295,7 @@ class TestIterOpenPrs:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            list(iter_open_prs(api_call))
+            list(iter_active_prs(api_call))
         params = mock_req.call_args.kwargs.get("params") or {}
         assert params.get("searchCriteria.status") == "active"
 

@@ -33,6 +33,8 @@ __all__ = [
     "WorkItemRef",
     "WorkItemRelation",
     "WorkItemRelationType",
+    "WorkItemState",
+    "WorkItemType",
     "WorkItemsBatchRequest",
     "add_team_iteration",
     "create_classification_node",
@@ -93,6 +95,9 @@ class WorkItemFieldName(StrEnum):
     HYPERLINK_COUNT = "System.HyperLinkCount"
     EXTERNAL_LINK_COUNT = "System.ExternalLinkCount"
     RELATED_LINK_COUNT = "System.RelatedLinkCount"
+    # RemoteLinkCount tracks links to external work items (GitHub, etc.);
+    # available on Azure DevOps Services only.
+    REMOTE_LINK_COUNT = "System.RemoteLinkCount"
     TAGS = "System.Tags"
     BOARD_COLUMN = "System.BoardColumn"
     BOARD_COLUMN_DONE = "System.BoardColumnDone"
@@ -105,28 +110,137 @@ class WorkItemFieldName(StrEnum):
     BUSINESS_VALUE = "Microsoft.VSTS.Common.BusinessValue"
     TIME_CRITICALITY = "Microsoft.VSTS.Common.TimeCriticality"
     RISK = "Microsoft.VSTS.Common.Risk"
-    EFFORT = "Microsoft.VSTS.Common.Effort"
     ACTIVITY = "Microsoft.VSTS.Common.Activity"
+    # Discipline is the CMMI equivalent of Activity (Agile/Scrum).
+    DISCIPLINE = "Microsoft.VSTS.Common.Discipline"
     STACK_RANK = "Microsoft.VSTS.Common.StackRank"
     BACKLOG_PRIORITY = "Microsoft.VSTS.Common.BacklogPriority"
     CLOSED_DATE = "Microsoft.VSTS.Common.ClosedDate"
     CLOSED_BY = "Microsoft.VSTS.Common.ClosedBy"
+    ACTIVATED_BY = "Microsoft.VSTS.Common.ActivatedBy"
+    ACTIVATED_DATE = "Microsoft.VSTS.Common.ActivatedDate"
     RESOLVED_DATE = "Microsoft.VSTS.Common.ResolvedDate"
     RESOLVED_BY = "Microsoft.VSTS.Common.ResolvedBy"
     RESOLVED_REASON = "Microsoft.VSTS.Common.ResolvedReason"
     ACCEPTANCE_CRITERIA = "Microsoft.VSTS.Common.AcceptanceCriteria"
     STATE_CHANGE_DATE = "Microsoft.VSTS.Common.StateChangeDate"
+    # Triage is CMMI-only (Pending / More Info / Info Received / Triaged).
+    TRIAGE = "Microsoft.VSTS.Common.Triage"
+    # Resolution describes how a Scrum Impediment was resolved.
+    RESOLUTION = "Microsoft.VSTS.Common.Resolution"
     # --- Microsoft.VSTS.Scheduling fields ---
     REMAINING_WORK = "Microsoft.VSTS.Scheduling.RemainingWork"
     COMPLETED_WORK = "Microsoft.VSTS.Scheduling.CompletedWork"
     ORIGINAL_ESTIMATE = "Microsoft.VSTS.Scheduling.OriginalEstimate"
+    # Effort, StoryPoints, and Size are process-specific names for the same
+    # planning concept (all map to "Effort" in ProcessConfiguration).
+    # Scrum uses EFFORT; Agile uses STORY_POINTS; CMMI uses SIZE.
+    EFFORT = "Microsoft.VSTS.Scheduling.Effort"
     STORY_POINTS = "Microsoft.VSTS.Scheduling.StoryPoints"
+    SIZE = "Microsoft.VSTS.Scheduling.Size"
     START_DATE = "Microsoft.VSTS.Scheduling.StartDate"
     FINISH_DATE = "Microsoft.VSTS.Scheduling.FinishDate"
     TARGET_DATE = "Microsoft.VSTS.Scheduling.TargetDate"
     # --- Microsoft.VSTS.Build fields ---
     INTEGRATION_BUILD = "Microsoft.VSTS.Build.IntegrationBuild"
     FOUND_IN = "Microsoft.VSTS.Build.FoundIn"
+    # --- Microsoft.VSTS.TCM fields ---
+    REPRO_STEPS = "Microsoft.VSTS.TCM.ReproSteps"
+    # SystemInfo captures the OS/browser environment recorded at repro time
+    # (Bug work items, all process templates).
+    SYSTEM_INFO = "Microsoft.VSTS.TCM.SystemInfo"
+    # AutomationStatus tracks whether a test case is automated
+    # (Automated / Not Automated / Planned).
+    AUTOMATION_STATUS = "Microsoft.VSTS.TCM.AutomationStatus"
+    # --- Microsoft.VSTS.CMMI fields ---
+    # Note: despite the CMMI namespace, BLOCKED is also used by Scrum Tasks
+    # (same reference name across both process templates).
+    BLOCKED = "Microsoft.VSTS.CMMI.Blocked"
+    # Committed and Escalate are CMMI-only.
+    COMMITTED = "Microsoft.VSTS.CMMI.Committed"
+    ESCALATE = "Microsoft.VSTS.CMMI.Escalate"
+
+
+class WorkItemState(StrEnum):
+    """Well-known work item state values across the four built-in ADO processes.
+
+    States are process-template-specific and can be customised per project.
+    This enum covers all states shipped with the Agile, Scrum, CMMI, and Basic
+    templates.  For projects with custom states, pass the state name as a plain
+    string — the field accepts any ``str`` value regardless.
+
+    To define a project-specific state set that reuses standard values alongside
+    custom ones, declare your own ``StrEnum`` and assign members from this
+    class::
+
+        from enum import StrEnum
+        from pyado import WorkItemState
+
+        class AcmeState(StrEnum):
+            NEW      = WorkItemState.NEW        # "New"
+            ACTIVE   = WorkItemState.ACTIVE     # "Active"
+            IN_SPRINT = "In Sprint"             # custom
+            CLOSED   = WorkItemState.CLOSED     # "Closed"
+    """
+
+    # --- Agile (Epic, Feature, User Story, Bug, Task, Issue) ---
+    NEW = "New"  # Agile, Scrum
+    ACTIVE = "Active"  # Agile, CMMI
+    RESOLVED = "Resolved"  # Agile, CMMI
+    CLOSED = "Closed"  # Agile, CMMI
+    REMOVED = "Removed"  # Agile, Scrum
+
+    # --- Scrum (Product Backlog Item, Bug) ---
+    APPROVED = "Approved"
+    COMMITTED = "Committed"
+
+    # --- Scrum / Basic (Task, Epic, Feature) ---
+    TO_DO = "To Do"
+    IN_PROGRESS = "In Progress"
+    DONE = "Done"
+
+    # --- Basic only ---
+    DOING = "Doing"
+
+    # --- CMMI (Requirement, Change Request, Bug, Task, Issue, Risk, Review) ---
+    PROPOSED = "Proposed"
+
+
+class WorkItemType(StrEnum):
+    """Common ADO work item type names for use with ``System.WorkItemType``.
+
+    These are the standard types shipped with the default Azure DevOps process
+    templates (Agile, Scrum, CMMI).  Custom process templates may define
+    additional types not listed here; pass the type name as a plain string in
+    those cases.
+
+    Example::
+
+        create_work_item(api, {
+            WorkItemFieldName.WORK_ITEM_TYPE: WorkItemType.BUG,
+            WorkItemFieldName.TITLE: "Something is broken",
+        })
+    """
+
+    # --- Agile / Scrum / CMMI shared ---
+    EPIC = "Epic"
+    FEATURE = "Feature"
+    BUG = "Bug"
+    TASK = "Task"
+    TEST_CASE = "Test Case"
+    TEST_PLAN = "Test Plan"
+    TEST_SUITE = "Test Suite"
+    # --- Agile ---
+    USER_STORY = "User Story"
+    ISSUE = "Issue"
+    # --- Scrum ---
+    PRODUCT_BACKLOG_ITEM = "Product Backlog Item"
+    IMPEDIMENT = "Impediment"
+    # --- CMMI ---
+    REQUIREMENT = "Requirement"
+    CHANGE_REQUEST = "Change Request"
+    REVIEW = "Review"
+    RISK = "Risk"
 
 
 class WorkItemRelationType(StrEnum):

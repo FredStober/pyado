@@ -142,6 +142,8 @@ __all__ = [
     "WorkItemRef",
     "WorkItemRelation",
     "WorkItemRelationType",
+    "WorkItemState",
+    "WorkItemType",
     "WorkItemsBatchRequest",
     "abandon_pr",
     "add_file",
@@ -198,13 +200,13 @@ __all__ = [
     "get_work_item",
     "get_work_item_api_call",
     "get_work_item_tags",
+    "iter_active_prs",
     "iter_approvals",
     "iter_build_artifacts",
     "iter_build_tags",
     "iter_build_work_item_ids",
     "iter_builds",
     "iter_commit_diff",
-    "iter_open_prs",
     "iter_pending_approvals",
     "iter_pipeline_definitions",
     "iter_pipeline_runs",
@@ -348,13 +350,13 @@ from pyado.high import (
     get_work_item_tags as get_work_item_tags,
 )
 from pyado.high import (
+    iter_active_prs as iter_active_prs,
+)
+from pyado.high import (
     iter_build_work_item_ids as iter_build_work_item_ids,
 )
 from pyado.high import (
     iter_commit_diff as iter_commit_diff,
-)
-from pyado.high import (
-    iter_open_prs as iter_open_prs,
 )
 from pyado.high import (
     iter_pending_approvals as iter_pending_approvals,
@@ -820,6 +822,12 @@ from pyado.raw import (
 )
 from pyado.raw import (
     WorkItemsBatchRequest as WorkItemsBatchRequest,
+)
+from pyado.raw import (
+    WorkItemState as WorkItemState,
+)
+from pyado.raw import (
+    WorkItemType as WorkItemType,
 )
 from pyado.raw import (
     add_team_iteration as add_team_iteration,
