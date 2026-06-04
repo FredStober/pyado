@@ -44,6 +44,7 @@ __all__ = [
     "delete_build_tag",
     "get_build_api_call",
     "get_build_details",
+    "get_build_log",
     "iter_build_artifacts",
     "iter_build_tags",
     "iter_build_work_item_ids",
@@ -284,6 +285,8 @@ class BuildDetails(BaseModel):
     )
     logs: BuildLogInfo | None = None
     deleted: bool = False
+    queue_position: int | None = Field(alias="queuePosition", default=None)
+    retained_by_release: bool = Field(alias="retainedByRelease", default=False)
 
 
 class _BuildDetailsResults(BaseModel):
@@ -538,6 +541,20 @@ def get_build_details(build_api_call: ApiCall) -> BuildDetails:
     """
     response = build_api_call.get(version="7.1")
     return BuildDetails.model_validate(response)
+
+
+def get_build_log(build_api_call: ApiCall, log_id: BuildLogId) -> str:
+    """Return the plain-text content of a build log.
+
+    Args:
+        build_api_call: Build-level ADO API call (from get_build_api_call).
+        log_id: Numeric log ID from a :class:`BuildLogInfo` record.
+
+    Returns:
+        Log content as a decoded UTF-8 string.
+    """
+    raw_bytes: bytes = build_api_call.get_raw("logs", log_id, version="7.1")
+    return raw_bytes.decode("utf-8")
 
 
 def iter_builds(

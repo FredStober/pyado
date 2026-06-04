@@ -18,12 +18,15 @@ from pyado import (
     PullRequestSearchCriteria,
     PullRequestStatus,
     PullRequestStatusContext,
+    PullRequestStatusInfo,
     PullRequestStatusRequest,
+    PullRequestStatusState,
     PullRequestThreadCommentRequest,
     PullRequestThreadCommentResponse,
     PullRequestThreadCommentType,
     PullRequestThreadRequest,
     PullRequestThreadResponse,
+    PullRequestThreadStatus,
     PullRequestUpdateRequest,
     PullRequestVote,
     WorkItemInfo,
@@ -44,11 +47,13 @@ from pyado import (
     iter_active_prs,
     iter_pr_commits,
     iter_pr_iterations,
+    iter_pr_statuses,
     iter_pr_threads,
     iter_pr_work_item_ids,
     iter_prs,
     link_pr_work_item,
     patch_pr,
+    patch_pr_thread,
     post_pr_label,
     post_pr_new_thread,
     post_pr_status,
@@ -907,8 +912,8 @@ class TestUpdatePrWorkItemRefs:
         assert call.args[0] == "PATCH"
         sent_json = call.kwargs.get("json") or {}
         assert "workItemRefs" in sent_json
-        assert {"id": "101"} in sent_json["workItemRefs"]
-        assert {"id": "202"} in sent_json["workItemRefs"]
+        assert {"id": 101} in sent_json["workItemRefs"]
+        assert {"id": 202} in sent_json["workItemRefs"]
 
     @staticmethod
     def test_empty_work_item_ids_sends_empty_refs(api_call: ApiCall) -> None:
@@ -929,3 +934,135 @@ class TestUpdatePrWorkItemRefs:
             update_pr_work_item_refs(api_call, [])
         sent_json = mock_req.call_args.kwargs.get("json") or {}
         assert sent_json.get("workItemRefs") == []
+
+
+class TestPatchPrThread:
+    """Tests for patch_pr_thread."""
+
+    @staticmethod
+    def test_returns_thread_response(api_call: ApiCall) -> None:
+        """Returns a PullRequestThreadResponse parsed from the response."""
+        response_data = {
+            "id": 11,
+            "status": "fixed",
+            "publishedDate": "2024-01-15T12:00:00+00:00",
+            "lastUpdatedDate": "2024-01-15T12:00:00+00:00",
+            "comments": [],
+            "isDeleted": False,
+            "identities": None,
+            "properties": None,
+            "pullRequestThreadContext": None,
+        }
+        mock_response = _make_mock_response(response_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = patch_pr_thread(api_call, 11, PullRequestThreadStatus.FIXED)
+        assert isinstance(result, PullRequestThreadResponse)
+
+    @staticmethod
+    def test_sends_patch_request(api_call: ApiCall) -> None:
+        """Sends a PATCH request."""
+        response_data = {
+            "id": 1,
+            "status": "active",
+            "publishedDate": "2024-01-15T12:00:00+00:00",
+            "lastUpdatedDate": "2024-01-15T12:00:00+00:00",
+            "comments": [],
+            "isDeleted": False,
+            "identities": None,
+            "properties": None,
+            "pullRequestThreadContext": None,
+        }
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            patch_pr_thread(api_call, 1, PullRequestThreadStatus.ACTIVE)
+        assert mock_req.call_args.args[0] == "PATCH"
+
+    @staticmethod
+    def test_url_contains_thread_id(api_call: ApiCall) -> None:
+        """Request URL contains the thread ID."""
+        response_data = {
+            "id": 5,
+            "status": "active",
+            "publishedDate": "2024-01-15T12:00:00+00:00",
+            "lastUpdatedDate": "2024-01-15T12:00:00+00:00",
+            "comments": [],
+            "isDeleted": False,
+            "identities": None,
+            "properties": None,
+            "pullRequestThreadContext": None,
+        }
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            patch_pr_thread(api_call, 5, PullRequestThreadStatus.ACTIVE)
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "5" in url
+
+    @staticmethod
+    def test_body_contains_status(api_call: ApiCall) -> None:
+        """Request body contains the status field."""
+        response_data = {
+            "id": 1,
+            "status": "byDesign",
+            "publishedDate": "2024-01-15T12:00:00+00:00",
+            "lastUpdatedDate": "2024-01-15T12:00:00+00:00",
+            "comments": [],
+            "isDeleted": False,
+            "identities": None,
+            "properties": None,
+            "pullRequestThreadContext": None,
+        }
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            patch_pr_thread(api_call, 1, PullRequestThreadStatus.BY_DESIGN)
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert "status" in sent_json
+
+
+class TestIterPrStatuses:
+    """Tests for iter_pr_statuses."""
+
+    @staticmethod
+    def test_yields_status_info_objects(api_call: ApiCall) -> None:
+        """Yields PullRequestStatusInfo objects from the value list."""
+        response_data = {
+            "value": [
+                {
+                    "id": 1,
+                    "state": "succeeded",
+                    "context": {"name": "my-check", "genre": None},
+                    "description": "All good",
+                }
+            ]
+        }
+        mock_response = _make_mock_response(response_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = list(iter_pr_statuses(api_call))
+        assert len(result) == 1
+        assert isinstance(result[0], PullRequestStatusInfo)
+        assert result[0].state == PullRequestStatusState.SUCCEEDED
+
+    @staticmethod
+    def test_yields_empty_when_no_statuses(api_call: ApiCall) -> None:
+        """Yields nothing when the value list is empty."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = list(iter_pr_statuses(api_call))
+        assert result == []
+
+    @staticmethod
+    def test_sends_get_request(api_call: ApiCall) -> None:
+        """Sends a GET request to the statuses endpoint."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(iter_pr_statuses(api_call))
+        assert mock_req.call_args.args[0] == "GET"
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "statuses" in url

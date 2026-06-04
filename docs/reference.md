@@ -1,11 +1,129 @@
 # Reference
 
-Most callers should use the **high-level API** (`pyado.high`).  The
-**raw API** (`pyado.raw`) provides one thin wrapper per ADO endpoint and is
-useful for advanced use-cases or when a high-level helper does not yet exist.
+pyado provides three layers, all re-exported from the top-level `pyado` package:
 
-All public symbols from both layers are also re-exported from the top-level
-`pyado` package.
+- **OOP API** (`pyado.oop`) — object-oriented resource wrappers; the
+  recommended entry point for most applications.
+- **High-level API** (`pyado.high`) — functional wrappers with pagination,
+  payload construction, and multi-step operations.
+- **Raw API** (`pyado.raw`) — one thin HTTP wrapper per ADO endpoint; useful
+  for advanced use-cases or when a high-level helper does not yet exist.
+
+---
+
+## OOP API
+
+### Service
+
+```{eval-rst}
+.. automodule:: pyado.oop.service
+   :members:
+```
+
+### Organization
+
+```{eval-rst}
+.. automodule:: pyado.oop.organization
+   :members:
+```
+
+### Project
+
+```{eval-rst}
+.. automodule:: pyado.oop.project
+   :members:
+```
+
+### Repository
+
+```{eval-rst}
+.. automodule:: pyado.oop.repository
+   :members:
+```
+
+### Pull Request
+
+```{eval-rst}
+.. automodule:: pyado.oop.pull_request
+   :members:
+```
+
+### Work Item
+
+```{eval-rst}
+.. automodule:: pyado.oop.work_item
+   :members:
+```
+
+### Build
+
+```{eval-rst}
+.. automodule:: pyado.oop.build
+   :members:
+```
+
+### Pipeline
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipeline
+   :members:
+```
+
+### Variable Group
+
+```{eval-rst}
+.. automodule:: pyado.oop.variable_group
+   :members:
+```
+
+### Team
+
+```{eval-rst}
+.. automodule:: pyado.oop.team
+   :members:
+```
+
+### Iteration
+
+```{eval-rst}
+.. automodule:: pyado.oop.iteration
+   :members:
+```
+
+### Area
+
+```{eval-rst}
+.. automodule:: pyado.oop.area
+   :members:
+```
+
+### Commit
+
+```{eval-rst}
+.. automodule:: pyado.oop.commit
+   :members:
+```
+
+### File Changes
+
+```{eval-rst}
+.. automodule:: pyado.oop.file_change
+   :members:
+```
+
+### Build Timeline
+
+```{eval-rst}
+.. automodule:: pyado.oop.build_timeline
+   :members:
+```
+
+### Active Build Task
+
+```{eval-rst}
+.. automodule:: pyado.oop.active_build_task
+   :members:
+```
 
 ---
 

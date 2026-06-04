@@ -10,11 +10,11 @@ from pyado.raw import (
     BranchName,
     CommitDiffPage,
     CommitId,
+    GitChangeType,
     GitCommitChange,
     GitCommitSearchCriteria,
     GitPushChange,
     GitPushChangeItem,
-    GitPushChangeType,
     GitPushCommit,
     GitPushNewContent,
     GitPushRefUpdate,
@@ -22,6 +22,7 @@ from pyado.raw import (
     GitPushResult,
     GitRefFilter,
     GitRefUpdate,
+    VersionDescriptorType,
     get_commit_diff_page,
     get_repository_commits,
     get_repository_item_bytes,
@@ -59,7 +60,7 @@ def add_file(path: str, content: str) -> GitPushChange:
         content: UTF-8 text content for the new file.
     """
     return GitPushChange(
-        change_type=GitPushChangeType.ADD,
+        change_type=GitChangeType.ADD,
         item=GitPushChangeItem(path=path),
         new_content=GitPushNewContent(content=content),
     )
@@ -73,7 +74,7 @@ def edit_file(path: str, content: str) -> GitPushChange:
         content: New UTF-8 text content.
     """
     return GitPushChange(
-        change_type=GitPushChangeType.EDIT,
+        change_type=GitChangeType.EDIT,
         item=GitPushChangeItem(path=path),
         new_content=GitPushNewContent(content=content),
     )
@@ -86,7 +87,7 @@ def delete_file(path: str) -> GitPushChange:
         path: Repository-root-relative path of the file to delete.
     """
     return GitPushChange(
-        change_type=GitPushChangeType.DELETE,
+        change_type=GitChangeType.DELETE,
         item=GitPushChangeItem(path=path),
     )
 
@@ -99,7 +100,7 @@ def rename_file(old_path: str, new_path: str) -> GitPushChange:
         new_path: Desired repository-root-relative path after the rename.
     """
     return GitPushChange(
-        change_type=GitPushChangeType.RENAME,
+        change_type=GitChangeType.RENAME,
         item=GitPushChangeItem(path=new_path),
         source_server_item=old_path,
     )
@@ -206,7 +207,9 @@ def get_file_content_at_commit(
     Returns:
         File content as a UTF-8 string, or ``""`` if the file is not found.
     """
-    raw = get_repository_item_bytes(repository_api_call, path, commit_sha, "commit")
+    raw = get_repository_item_bytes(
+        repository_api_call, path, commit_sha, VersionDescriptorType.COMMIT
+    )
     return raw.decode("utf-8") if raw else ""
 
 
@@ -230,7 +233,9 @@ def get_file_content_at_branch(
         File content as a UTF-8 string, or ``""`` if the file is not found.
     """
     short_name = branch_name.removeprefix("refs/heads/")
-    raw = get_repository_item_bytes(repository_api_call, path, short_name, "branch")
+    raw = get_repository_item_bytes(
+        repository_api_call, path, short_name, VersionDescriptorType.BRANCH
+    )
     return raw.decode("utf-8") if raw else ""
 
 
@@ -289,7 +294,7 @@ def get_last_commit_touching_file(
             GitCommitSearchCriteria(
                 item_path=path,
                 item_version=before_commit,
-                item_version_type="commit",
+                item_version_type=VersionDescriptorType.COMMIT,
                 top=1,
             ),
         )

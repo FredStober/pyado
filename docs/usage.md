@@ -13,6 +13,7 @@ showing the code.
 > iterator.
 
 **Contents:**
+[OOP interface](#oop-interface) ·
 [ApiCall](#the-apicall-object) ·
 [Work items](#work-items) ·
 [Pull requests](#pull-requests) ·
@@ -24,6 +25,469 @@ showing the code.
 [Projects](#projects) ·
 [Variable groups](#variable-groups) ·
 [Profile](#profile)
+
+---
+
+## OOP interface
+
+The `pyado.oop` subpackage (also re-exported directly from `pyado`) wraps
+every ADO resource as a Python object. Instead of constructing `ApiCall`
+objects yourself, you navigate a hierarchy: `AzureDevOpsService →
+Organization → Project → Repository / WorkItem / Build / Pipeline /
+VariableGroup / Team`. Pull requests live under `Repository`. Back-navigation
+(`build.project`, `pr.repo.org`, etc.) is always zero-cost.
+
+Objects obtained from different factory paths share identity when they
+represent the same ADO resource: `build.project is wi.project` is guaranteed.
+
+### Authentication and construction
+
+```python
+import pyado
+
+# Explicit credentials
+svc = pyado.AzureDevOpsService(
+    org="https://dev.azure.com/myorg",
+    pat="<personal-access-token>",
+)
+
+# From environment variables (AZURE_DEVOPS_ORG, AZURE_DEVOPS_EXT_PAT)
+svc = pyado.AzureDevOpsService()
+
+# Azure identity / managed identity (any azure-identity TokenCredential)
+from azure.identity import DefaultAzureCredential
+svc = pyado.AzureDevOpsService(
+    org="https://dev.azure.com/myorg",
+    credential=DefaultAzureCredential(),
+)
+
+# Navigate to a project
+org  = svc.org
+proj = org.get_project("MyProject")
+```
+
+### Organization
+
+```python
+org = svc.org
+
+# List all projects
+for project in org.iter_projects():
+    print(project.name, project.id)
+
+# Connection metadata (confirms auth, returns org info)
+data = org.get_connection_data()
+print(data.authenticated_user.provider_display_name)
+
+# Authenticated user's profile
+me = org.get_my_profile()
+print(me.display_name, me.email_address)
+
+# Identity lookups
+groups = list(org.iter_graph_groups())
+identities = org.get_identities([g.descriptor for g in groups[:3]])
+```
+
+### Project
+
+```python
+proj = org.get_project("MyProject")
+print(proj.name, proj.id)
+
+# Force a fresh fetch
+proj.refresh()
+
+# Access the owning org — zero API calls
+assert proj.org is org
+```
+
+### Repository
+
+```python
+repo = proj.get_repository("myrepo")     # by name or UUID string
+print(repo.name, repo.default_branch, repo.web_url)
+
+# List all repos
+for repo in proj.iter_repositories():
+    print(repo.name)
+
+# File content
+text = repo.get_file_at_branch("/config.json", "main")
+text = repo.get_file_at_commit("/config.json", "abc123")
+raw_bytes = repo.get_file_bytes_at_branch("/image.png", "main")
+
+# Git refs
+for ref in repo.iter_refs(name_filter="heads/release/"):
+    print(ref.name, ref.object_id)
+
+# Branch management
+repo.create_branch("feature/new-branch", from_commit="abc123")
+repo.delete_branch("feature/old-branch", current_commit="def456")
+
+# Ahead/behind statistics
+stats = repo.get_statistics("feature/my-branch")
+print(stats.ahead_count, stats.behind_count)
+
+# Commits
+for commit in repo.iter_commits(branch="main", top=10):
+    print(commit.id, commit.message)
+commit = repo.get_commit("abc123")
+
+# Diff between two commits
+for change in repo.iter_commit_diff("abc123", "def456"):
+    print(change.change_type, change.item.path)
+
+# ACL
+acl = repo.get_acl()
+```
+
+### Committing files
+
+```python
+from pyado import AddFile, EditFile, DeleteFile, RenameFile
+
+# Push a single commit (fetches current HEAD automatically)
+result = repo.commit("main", "chore: update config", [
+    EditFile("/config.json", '{"key": "value"}'),
+    DeleteFile("/old_config.json"),
+    AddFile("/new_file.txt", "hello"),
+    RenameFile("/a.json", "/b.json"),
+])
+print(result.commits[0].commit_id)
+
+# Advanced: build ref updates and commits manually
+ref_update = repo.make_ref_update("main")   # fetches current HEAD
+result = repo.push_commits([ref_update], [pyado.make_commit("msg", [...])])
+```
+
+### Pull Request
+
+```python
+# Create
+pr = repo.create_pr(
+    title="Update config",
+    source_branch="feature/update-config",
+    target_branch="main",
+    description="Fixes #123.",
+)
+
+# Fetch existing
+pr = repo.get_pr(42)
+
+# List
+for pr in repo.iter_prs():              # active by default
+    print(pr.id, pr.title, pr.status)
+
+for pr in proj.iter_active_prs():       # across all repos in the project
+    print(pr.repo.name, pr.title)
+
+# Find PR by source branch
+pr = repo.get_pr_for_branch("feature/my-branch")   # None if not found
+
+# Properties (no API call)
+print(pr.id, pr.title, pr.status, pr.source_branch, pr.target_branch)
+print(pr.created_by, pr.description)
+
+# Re-fetch
+pr.refresh()
+
+# Back-navigation — zero API calls
+assert pr.repo is repo
+assert pr.project is proj
+
+# Labels
+pr.add_label("ready-to-merge")
+pr.remove_label("do-not-merge")
+labels = pr.get_labels()
+
+# Reviewers
+pr.add_reviewer("<identity-id>", is_required=True)
+pr.remove_reviewer("<identity-id>")
+pr.vote("<identity-id>", pyado.PullRequestVote.APPROVED)
+reviewers = pr.get_reviewers()
+
+# Threads (review comments)
+thread = pr.add_thread(
+    "This import is unused.",
+    file_path="/src/foo.py",
+    line=42,
+)
+pr.reply_to_thread(thread.id, "Fixed in the latest push.")
+pr.update_thread_status(thread.id, pyado.PullRequestThreadStatus.FIXED)
+for thread in pr.iter_threads():
+    print(thread.status, thread.comments[0].content)
+
+# Work item association
+pr.link_work_item(wi)                         # artifact link on the work item
+pr.set_work_item_refs([wi.id])                # visible in the ADO PR page
+for wi_id in pr.iter_work_item_ids():
+    print(wi_id)
+
+# Status checks
+pr.set_status(
+    pyado.PullRequestStatusState.SUCCEEDED,
+    "ci/integration-tests",
+    description="All 142 tests passed",
+)
+for status in pr.iter_statuses():
+    print(status.context.name, status.state)
+
+# Commits and iterations
+for commit in pr.iter_commits():
+    print(commit.commit_id, commit.comment)
+for iteration in pr.iter_iterations():
+    changes = pr.get_iteration_changes(iteration.id)
+
+# Lifecycle
+pr.update(title="New title", is_draft=False)
+pr.enable_auto_complete("<identity-id>")
+pr.complete(last_merge_source_commit="<sha>")
+pr.abandon()
+```
+
+### WorkItem
+
+```python
+wi = proj.get_work_item(153)
+
+# Properties (no API call after construction)
+print(wi.id, wi.title, wi.state, wi.type)
+print(wi.area_path, wi.iteration_path, wi.assigned_to)
+print(wi.get_field("Microsoft.VSTS.Common.Priority"))
+
+# Iterate by WIQL
+for wi in proj.iter_work_items(
+    "SELECT [System.Id] FROM WorkItems WHERE [System.State] = 'Active'"
+):
+    print(wi.title)
+
+# Batch fetch (efficient when you have IDs already)
+items = proj.get_work_items([123, 456, 789])
+
+# Create
+wi = proj.create_work_item(
+    "Task",
+    fields={
+        "System.Title": "Investigate memory leak",
+        "System.AssignedTo": "jane@example.com",
+    },
+)
+
+# Update
+wi.update({"System.State": "Resolved"})
+wi.update(
+    {"System.Description": "## Fix\nSee PR #42."},
+    multiline_fields_format={"System.Description": "markdown"},
+)
+wi.refresh()
+
+# Tags
+wi.add_tag("reviewed")
+wi.remove_tag("needs-work")
+tags = wi.get_tags()
+
+# Comments
+comment = wi.add_comment("Confirmed in staging.", comment_format="markdown")
+wi.update_comment(comment.id, "Confirmed — closing.")
+wi.delete_comment(comment.id)
+for comment in wi.iter_comments():
+    print(comment.created_by.display_name, comment.text)
+
+# Attachments
+ref = wi.add_attachment("report.html", open("report.html", "rb").read())
+print(ref.url)
+
+# Links between work items
+parent = wi.get_parent()
+for child in wi.iter_children():
+    print(child.title)
+wi.add_link(other_wi, pyado.WorkItemRelationType.CHILD)
+
+# Artifact links
+wi.link_pull_request(pr)
+wi.link_build(build)
+wi.link_commit(repo, "abc123")
+
+# Delete (soft — restorable from Recycle Bin for 30 days)
+wi.delete()
+```
+
+### Build
+
+```python
+build = proj.get_build(456)
+
+# Properties
+print(build.id, build.number, build.status, build.result)
+print(build.source_branch, build.start_time, build.finish_time)
+
+# Pipeline definition back-reference — zero API calls
+print(build.pipeline.name)
+
+# List builds
+for build in proj.iter_builds(status_filter="completed"):
+    print(build.id, build.result)
+
+# Queue a new build
+build = proj.start_build(
+    definition_id=42,
+    source_branch="refs/heads/main",
+    parameters={"env": "staging"},
+)
+
+# Retry with the same definition and branch
+new_build = build.retry()
+
+# Re-fetch
+build.refresh()
+
+# Lifecycle
+build.cancel()
+build.cancel_run()   # via Pipelines v2 endpoint
+
+# Tags
+build.add_tag("release-candidate")
+build.remove_tag("release-candidate")
+for tag in build.iter_tags():
+    print(tag)
+
+# Artifacts
+for artifact in build.iter_artifacts():
+    print(artifact.name, artifact.resource.download_url)
+
+# Timeline — stages, jobs, tasks
+for stage in build.iter_stages():
+    print(stage.name, stage.result)
+    for job in stage.iter_jobs():
+        for task in job.iter_tasks():
+            print(task.name, task.result)
+            log = build.get_log_text(task.log.id)
+
+# Work items
+for wi_id in build.iter_work_item_ids():
+    print(wi_id)
+for wi_id in build.iter_work_items_between(older_build):
+    print(wi_id)
+
+# Serverless / external task integration
+active_task = build.get_active_build_task(
+    hub_name="build",
+    plan_id=plan_uuid,
+    timeline_id=timeline_uuid,
+    job_id=job_uuid,
+    task_instance_id=task_uuid,
+)
+```
+
+### Pipeline
+
+```python
+pipeline = proj.get_pipeline(99)
+print(pipeline.id, pipeline.name)
+
+# List
+for pipeline in proj.iter_pipelines():
+    print(pipeline.id, pipeline.name)
+
+# Runs
+run = pipeline.start_run(
+    template_parameters={"env": "staging", "run_smoke_tests": "true"},
+    stages_to_skip=["deploy-prod"],
+)
+run = pipeline.get_run(run_id=1)
+for run in pipeline.iter_runs():
+    print(run.id, run.state, run.result)
+latest = pipeline.get_latest_run()
+
+# Resource permissions
+pipeline.authorize_resource(
+    pyado.PipelineResourceType.VARIABLE_GROUP,
+    resource_id="42",
+)
+
+# Approvals (project-level)
+for approval in proj.iter_pending_approvals():
+    print(approval.id, approval.status)
+proj.approve_pipeline(approval.id, comment="LGTM")
+```
+
+### VariableGroup
+
+```python
+vg = proj.get_variable_group("my-group")
+print(vg.id, vg.name)
+for name, info in vg.variables.items():
+    print(f"  {name} = {info.value!r}  (secret: {info.is_secret})")
+
+# Set a single variable (read-modify-write)
+vg.set_variable("MY_VAR", "new-value")
+vg.set_variable("SECRET_VAR", "secret", is_secret=True)
+
+# Delete a variable
+vg.delete_variable("OLD_VAR")
+
+# Replace the whole variable map
+vg.update({
+    **vg.variables,
+    "MY_VAR": pyado.VariableInfo(value="updated"),
+})
+vg.refresh()
+```
+
+### Team
+
+```python
+team = proj.get_team("Backend Team")
+print(team.id, team.name)
+for team in proj.iter_teams():
+    print(team.name)
+
+# Sprint iterations
+for sprint in team.iter_sprint_iterations():
+    print(sprint.name, sprint.attributes.start_date)
+for sprint in team.iter_sprint_iterations(
+    timeframe_filter=pyado.SprintIterationTimeframe.CURRENT
+):
+    print(sprint.name)
+
+# Area path configuration
+field_values = team.get_field_values()
+
+# Assign iteration to team
+team.add_iteration(iteration_id)
+```
+
+### Iteration and Area nodes
+
+```python
+# Iteration tree
+root = proj.get_iteration_node(depth=2)
+for child in root.children:
+    print(child.name, child.start_date, child.finish_date)
+
+# Create an iteration
+guid = proj.create_iteration(
+    "Sprint 42",
+    parent_path=None,
+    start_date=date(2025, 1, 1),
+    finish_date=date(2025, 1, 14),
+)
+proj.add_team_iteration("Backend Team", guid)
+
+# Area tree
+root = proj.get_area_node(depth=2)
+for child in root.children:
+    print(child.name)
+
+guid = proj.create_area("New Area", parent_path=None)
+```
+
+### WIT query folders
+
+```python
+tree = proj.get_query_tree(depth=2)
+folder = proj.get_query_folder(folder_id="<uuid>", depth=1)
+```
 
 ---
 

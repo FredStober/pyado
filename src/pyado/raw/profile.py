@@ -73,7 +73,7 @@ def get_connection_data(org_api_call: ApiCall) -> ConnectionData:
     Returns:
         ConnectionData for the organisation and authenticated user.
     """
-    response = org_api_call.get("_apis", "connectionData", version="5.1")
+    response = org_api_call.get("_apis", "connectionData", version="5.1-preview")
     return ConnectionData.model_validate(response)
 
 

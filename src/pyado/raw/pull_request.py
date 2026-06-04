@@ -13,6 +13,7 @@ from pydantic.networks import AnyUrl
 from pyado.raw._core import ApiCall, _IdentityRef
 from pyado.raw.git import (
     CommitId,
+    GitChangeType,
     GitCommitRef,
     PullRequestStatusContext,
     RepositoryId,
@@ -20,8 +21,10 @@ from pyado.raw.git import (
 from pyado.raw.work_item import WorkItemRef, _WorkItemRefResults
 
 __all__ = [
+    "CommitIdRef",
     "GitForkRef",
     "GitPullRequestMergeStrategy",
+    "IdentityIdRef",
     "PrIterationChange",
     "PrIterationChangeItem",
     "PullRequestCompletionOptions",
@@ -40,6 +43,7 @@ __all__ = [
     "PullRequestReviewerVoteRequest",
     "PullRequestSearchCriteria",
     "PullRequestStatus",
+    "PullRequestStatusInfo",
     "PullRequestStatusRequest",
     "PullRequestStatusState",
     "PullRequestThreadCommentRequest",
@@ -63,10 +67,12 @@ __all__ = [
     "get_pr_reviewers",
     "iter_pr_commits",
     "iter_pr_iterations",
+    "iter_pr_statuses",
     "iter_pr_threads",
     "iter_pr_work_item_ids",
     "iter_prs",
     "patch_pr",
+    "patch_pr_thread",
     "post_pr_label",
     "post_pr_new_thread",
     "post_pr_status",
@@ -159,6 +165,26 @@ class PullRequestVote(IntEnum):
     REJECTED = -10
 
 
+class CommitIdRef(BaseModel):
+    """Minimal commit reference for use in PR request bodies.
+
+    Serialises to ``{"commitId": "<sha>"}`` as required by the ADO PATCH PR
+    endpoint's ``lastMergeSourceCommit`` field.
+    """
+
+    commit_id: CommitId = Field(serialization_alias="commitId")
+
+
+class IdentityIdRef(BaseModel):
+    """Minimal identity reference for use in PR request bodies (id only).
+
+    Serialises to ``{"id": "<uuid>"}`` as required by ADO endpoints such as
+    ``autoCompleteSetBy``.
+    """
+
+    id: str
+
+
 class RepositoryRef(BaseModel):
     """Minimal repository reference as returned in PR list responses."""
 
@@ -184,6 +210,23 @@ class PullRequestStatusRequest(BaseModel):
     iteration_id: PullRequestIteration = Field(serialization_alias="iterationId")
     state: PullRequestStatusState
     target_url: AnyUrl | None = Field(default=None, serialization_alias="targetUrl")
+
+
+class PullRequestStatusInfo(BaseModel):
+    """A status item as returned by the PR statuses GET endpoint."""
+
+    id: int | None = None
+    state: PullRequestStatusState
+    context: PullRequestStatusContext
+    description: str | None = None
+    target_url: AnyUrl | None = Field(default=None, alias="targetUrl")
+    iteration_id: PullRequestIteration | None = Field(default=None, alias="iterationId")
+
+
+class _PullRequestStatusResults(BaseModel):
+    """Internal: container for PR status list results."""
+
+    value: list[PullRequestStatusInfo] = []
 
 
 class PullRequestReviewer(BaseModel):
@@ -433,11 +476,14 @@ class PullRequestUpdateRequest(BaseModel):
     completion_options: PullRequestCompletionOptions | None = Field(
         default=None, serialization_alias="completionOptions"
     )
-    last_merge_source_commit: dict[str, str] | None = Field(
+    last_merge_source_commit: CommitIdRef | None = Field(
         default=None, serialization_alias="lastMergeSourceCommit"
     )
-    work_item_refs: list[dict[str, str]] | None = Field(
+    work_item_refs: list[WorkItemRef] | None = Field(
         default=None, serialization_alias="workItemRefs"
+    )
+    auto_complete_set_by: IdentityIdRef | None = Field(
+        default=None, serialization_alias="autoCompleteSetBy"
     )
 
 
@@ -553,7 +599,7 @@ class PullRequestCreateRequest(BaseModel):
         serialization_alias="completionOptions"
     )
     description: str | None = None
-    work_item_refs: list[dict[str, str]] | None = Field(
+    work_item_refs: list[WorkItemRef] | None = Field(
         default=None, serialization_alias="workItemRefs"
     )
 
@@ -568,7 +614,7 @@ class PrIterationChangeItem(BaseModel):
 class PrIterationChange(BaseModel):
     """A single file change entry from a PR iteration changes response."""
 
-    change_type: str = Field(alias="changeType")
+    change_type: GitChangeType = Field(alias="changeType")
     item: PrIterationChangeItem
 
 
@@ -950,3 +996,40 @@ def post_pull_request(
         json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
     )
     return PullRequestCreated.model_validate(response)
+
+
+def patch_pr_thread(
+    pr_api_call: ApiCall,
+    thread_id: int,
+    status: PullRequestThreadStatus,
+) -> PullRequestThreadResponse:
+    """Update the status of an existing PR review thread.
+
+    Args:
+        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        thread_id: Numeric ID of the thread to update.
+        status: New thread status (e.g. ``PullRequestThreadStatus.FIXED``).
+
+    Returns:
+        Updated PullRequestThreadResponse.
+    """
+    response = pr_api_call.patch(
+        "threads",
+        thread_id,
+        version="7.1-preview.1",
+        json={"status": status},
+    )
+    return PullRequestThreadResponse.model_validate(response)
+
+
+def iter_pr_statuses(pr_api_call: ApiCall) -> Iterator[PullRequestStatusInfo]:
+    """Iterate over status checks posted on a pull request.
+
+    Args:
+        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+
+    Yields:
+        PullRequestStatusInfo for each status item on the PR.
+    """
+    response = pr_api_call.get("statuses", version="7.1-preview.1")
+    yield from _PullRequestStatusResults.model_validate(response).value

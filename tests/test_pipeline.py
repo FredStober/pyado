@@ -13,6 +13,8 @@ from pyado import (
     BuildRecordInfo,
     JobEventPayload,
     PipelineApproval,
+    PipelineResourcePermissions,
+    PipelineResourceType,
     PipelineRunRequest,
     approve_pipeline,
     get_job_api_call,
@@ -26,6 +28,7 @@ from pyado import (
     iter_pipeline_runs,
     iter_pipelines,
     post_job_logs,
+    post_pipeline_permission,
     post_pipeline_run,
     send_job_event,
     send_job_feed,
@@ -446,3 +449,50 @@ class TestPostPipelineRun:
             post_pipeline_run(api_call, 1, request=request)
         sent_json = mock_req.call_args.kwargs.get("json") or {}
         assert sent_json.get("templateParameters") == {"env": "prod"}
+
+
+def _make_pipeline_permissions_dict(pipeline_id: int = 1) -> dict[str, Any]:
+    """Create a minimal valid PipelineResourcePermissions dict."""
+    return {
+        "allPipelines": None,
+        "pipelines": [{"authorized": True, "id": pipeline_id}],
+    }
+
+
+class TestPostPipelinePermission:
+    """Tests for post_pipeline_permission."""
+
+    @staticmethod
+    def test_returns_pipeline_resource_permissions(api_call: ApiCall) -> None:
+        """Returns a PipelineResourcePermissions parsed from the response."""
+        response_data = _make_pipeline_permissions_dict()
+        mock_response = _make_mock_response(response_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = post_pipeline_permission(
+                api_call,
+                PipelineResourceType.VARIABLE_GROUP,
+                "42",
+                pipeline_id=99,
+                authorized=True,
+            )
+        assert isinstance(result, PipelineResourcePermissions)
+        assert result.pipelines[0].authorized is True
+
+    @staticmethod
+    def test_url_contains_resource_type_and_id(api_call: ApiCall) -> None:
+        """Request URL contains the resource type and resource ID."""
+        response_data = _make_pipeline_permissions_dict()
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            post_pipeline_permission(
+                api_call,
+                PipelineResourceType.QUEUE,
+                "7",
+                pipeline_id=1,
+                authorized=True,
+            )
+        url_called = mock_req.call_args[1]["url"]
+        assert "queue" in url_called
+        assert "7" in url_called

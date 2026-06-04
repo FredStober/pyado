@@ -16,6 +16,7 @@ from pyado.raw._core import ApiCall, _IdentityRef
 __all__ = [
     "ClassificationNode",
     "ClassificationNodeAttributes",
+    "ClassificationNodeType",
     "SprintIterationAttributes",
     "SprintIterationId",
     "SprintIterationInfo",
@@ -30,6 +31,9 @@ __all__ = [
     "WorkItemFieldName",
     "WorkItemId",
     "WorkItemInfo",
+    "WorkItemQuery",
+    "WorkItemQueryExpand",
+    "WorkItemQueryType",
     "WorkItemRef",
     "WorkItemRelation",
     "WorkItemRelationType",
@@ -37,8 +41,14 @@ __all__ = [
     "WorkItemType",
     "WorkItemsBatchRequest",
     "add_team_iteration",
+    "create_area_node",
     "create_classification_node",
+    "delete_work_item",
+    "delete_work_item_comment",
+    "get_area_node",
     "get_classification_node",
+    "get_query_folder",
+    "get_query_tree",
     "get_team_field_values",
     "get_work_item",
     "get_work_item_api_call",
@@ -46,6 +56,7 @@ __all__ = [
     "iter_work_item_comments",
     "patch_classification_node",
     "patch_work_item",
+    "patch_work_item_comment",
     "post_wiql",
     "post_work_item",
     "post_work_item_attachment_upload",
@@ -417,6 +428,13 @@ class WorkItemsBatchRequest(BaseModel):
     expand: WorkItemExpand | None = Field(default=None, serialization_alias="$expand")
 
 
+class ClassificationNodeType(StrEnum):
+    """Discriminates iteration nodes from area nodes in the classification tree."""
+
+    ITERATION = "iteration"
+    AREA = "area"
+
+
 class ClassificationNodeAttributes(BaseModel):
     """Date attributes of a classification node (sprint iteration)."""
 
@@ -425,13 +443,23 @@ class ClassificationNodeAttributes(BaseModel):
 
 
 class ClassificationNode(BaseModel):
-    """A classification node (iteration or area) as returned by the ADO API."""
+    """A classification node as returned by the ADO API.
+
+    The same schema is used for both **iteration** nodes (``structureType ==
+    "iteration"``) and **area** nodes (``structureType == "area"``).  The
+    distinction matters for the ``attributes`` field:
+
+    - **Iterations** may carry ``attributes.startDate`` / ``attributes.finishDate``.
+    - **Areas** never have ``attributes`` — the field will always be ``None``.
+    """
 
     id: int
     identifier: str | None = None
     name: str
     path: str | None = None
-    structure_type: str | None = Field(alias="structureType", default=None)
+    structure_type: ClassificationNodeType | None = Field(
+        alias="structureType", default=None
+    )
     has_children: bool | None = Field(alias="hasChildren", default=None)
     attributes: ClassificationNodeAttributes | None = None
     children: list["ClassificationNode"] | None = None
@@ -756,7 +784,7 @@ def create_classification_node(
 
 def patch_classification_node(
     project_call: ApiCall,
-    path: str,
+    path: str | None,
     *,
     start_date: date | None = None,
     finish_date: date | None = None,
@@ -765,28 +793,81 @@ def patch_classification_node(
 
     Args:
         project_call: Project-level ADO API call.
-        path: Path of the iteration node to update (e.g. ``"Sprint 42"``).
+        path: Path of the iteration node to update (e.g. ``"Sprint 42"``), or
+            None for the root node.
         start_date: New start date, or None to leave unchanged.
         finish_date: New end date, or None to leave unchanged.
 
     Returns:
         Updated ClassificationNode from the ADO API.
     """
-    patch = _ClassificationNodePatchRequest(
+    args: list[str] = ["wit", "classificationnodes", "iterations"]
+    if path:
+        args.append(path)
+    patch_body = _ClassificationNodePatchRequest(
         attributes=_ClassificationNodeAttributes(
             start_date=start_date.isoformat() + "T00:00:00Z" if start_date else None,
             finish_date=finish_date.isoformat() + "T00:00:00Z" if finish_date else None,
         )
     )
     response = project_call.patch(
-        "wit",
-        "classificationnodes",
-        "iterations",
-        path,
+        *args,
         version="7.0",
-        json=patch.model_dump(mode="json", by_alias=True, exclude_none=True),
+        json=patch_body.model_dump(mode="json", by_alias=True, exclude_none=True),
     )
     return ClassificationNode.model_validate(response)
+
+
+def get_area_node(
+    project_call: ApiCall,
+    path: str | None = None,
+    *,
+    depth: int = 1,
+) -> ClassificationNode:
+    """Return the area classification node tree for a project.
+
+    Args:
+        project_call: Project-level ADO API call.
+        path: Path within the area tree (e.g. ``"Team A"``), or None for the
+            root.
+        depth: Number of levels to fetch below the requested node (default: 1).
+
+    Returns:
+        ClassificationNode for the requested area path.
+    """
+    args: list[str] = ["wit", "classificationnodes", "areas"]
+    if path:
+        args.append(path)
+    response = project_call.get(*args, parameters={"$depth": depth}, version="7.0")
+    return ClassificationNode.model_validate(response)
+
+
+def create_area_node(
+    project_call: ApiCall,
+    name: str,
+    parent_path: str | None = None,
+) -> str:
+    """Create an area classification node under a parent path.
+
+    Args:
+        project_call: Project-level ADO API call.
+        name: Name of the new area node.
+        parent_path: Path of the parent node within the area tree, or None to
+            create at the root.
+
+    Returns:
+        The GUID identifier string of the created node.
+    """
+    args: list[str] = ["wit", "classificationnodes", "areas"]
+    if parent_path:
+        args.append(parent_path)
+    body = _ClassificationNodeRequest(name=name, attributes=None)
+    response = project_call.post(
+        *args,
+        version="7.0",
+        json=body.model_dump(mode="json", by_alias=True, exclude_none=True),
+    )
+    return cast("str", response["identifier"])
 
 
 def get_team_field_values(team_call: ApiCall) -> list[TeamFieldValue]:
@@ -826,6 +907,116 @@ def add_team_iteration(
     )
 
 
+class WorkItemQueryExpand(StrEnum):
+    """Expand options for WIT query fetch requests.
+
+    These are OData ``$expand`` values used with ``GET wit/queries``.
+    """
+
+    NONE = "none"
+    MINIMAL = "minimal"
+    CLAUSES = "clauses"
+    ALL = "all"
+
+
+class WorkItemQueryType(StrEnum):
+    """The structural type of a WIT saved query."""
+
+    FLAT = "flat"
+    ONE_HOP = "oneHop"
+    TREE = "tree"
+
+
+class WorkItemQuery(BaseModel):
+    """A saved query or query folder returned by the WIT queries endpoint."""
+
+    id: str
+    name: str
+    path: str | None = None
+    is_folder: bool = Field(alias="isFolder", default=False)
+    has_children: bool = Field(alias="hasChildren", default=False)
+    children: list["WorkItemQuery"] = []
+    wiql: str | None = None
+    query_type: WorkItemQueryType | None = Field(alias="queryType", default=None)
+
+
+WorkItemQuery.model_rebuild()
+
+
+def get_query_tree(
+    project_call: ApiCall,
+    *,
+    depth: int = 2,
+    expand: WorkItemQueryExpand = WorkItemQueryExpand.ALL,
+) -> list[WorkItemQuery]:
+    """Return the root-level WIT saved-query folders for a project.
+
+    ADO's ``GET wit/queries`` endpoint returns a paged list of root folders
+    (typically "My Queries" and "Shared Queries").  Use
+    :func:`get_query_folder` to fetch a specific folder's contents by GUID.
+
+    Args:
+        project_call: Project-level ADO API call.
+        depth: Number of folder levels to expand below the root folders.
+            ``2`` is sufficient for the standard Shared Queries structure
+            (folder → queries).  Avoid ``3`` or higher unless you know the
+            project has nested sub-folders.
+        expand: OData ``$expand`` value controlling which fields are populated.
+            Defaults to ``WorkItemQueryExpand.ALL`` to include ``wiql`` and
+            other query details.
+
+    Returns:
+        List of :class:`WorkItemQuery` objects, one per root folder.
+
+    Note:
+        The depth parameter **must** be passed as ``$depth`` (with leading
+        dollar sign) to be recognised by ADO.  Using plain ``depth`` causes
+        ADO to silently ignore it, returning folders with empty ``children``
+        even when ``hasChildren`` is ``true``.  This function always sends
+        the correctly-spelled parameter.
+    """
+    response = project_call.get(
+        "wit",
+        "queries",
+        parameters={"$depth": depth, "$expand": expand},
+        version="7.1",
+    )
+    return [WorkItemQuery.model_validate(item) for item in response.get("value", [])]
+
+
+def get_query_folder(
+    project_call: ApiCall,
+    folder_id: str,
+    *,
+    depth: int = 1,
+    expand: WorkItemQueryExpand = WorkItemQueryExpand.ALL,
+) -> WorkItemQuery:
+    """Return the children of a specific WIT query folder by GUID.
+
+    Use this when you only need queries under a particular folder rather than
+    fetching the entire tree.
+
+    Args:
+        project_call: Project-level ADO API call.
+        folder_id: GUID of the query folder.
+        depth: Number of levels to expand below the requested folder.
+            ``1`` is sufficient when starting directly at a folder (you are
+            already at the folder level).
+        expand: OData ``$expand`` value; defaults to ``WorkItemQueryExpand.ALL``.
+
+    Returns:
+        WorkItemQuery for the folder with its children populated.
+    """
+    response = project_call.get(
+        "wit",
+        "queries",
+        folder_id,
+        parameters={"$depth": depth, "$expand": expand},
+        version="7.1",
+    )
+    return WorkItemQuery.model_validate(response)
+
+
 def post_work_item_comment(
     work_item_api_call: ApiCall,
     text: str,
@@ -851,3 +1042,52 @@ def post_work_item_comment(
         json=_WorkItemCommentRequest(text=text).model_dump(mode="json"),
     )
     return WorkItemComment.model_validate(response)
+
+
+def delete_work_item(work_item_api_call: ApiCall) -> None:
+    """Soft-delete a work item.
+
+    Args:
+        work_item_api_call: Work-item-level ADO API call (from
+            get_work_item_api_call).
+    """
+    work_item_api_call.delete(version="7.1")
+
+
+def patch_work_item_comment(
+    work_item_api_call: ApiCall,
+    comment_id: int,
+    text: str,
+) -> WorkItemComment:
+    """Update the text of an existing work item comment.
+
+    Args:
+        work_item_api_call: Work-item-level ADO API call (from
+            get_work_item_api_call).
+        comment_id: Numeric ID of the comment to update.
+        text: New comment body text.
+
+    Returns:
+        The updated WorkItemComment.
+    """
+    response = work_item_api_call.patch(
+        "comments",
+        comment_id,
+        version="7.1-preview.4",
+        json=_WorkItemCommentRequest(text=text).model_dump(mode="json"),
+    )
+    return WorkItemComment.model_validate(response)
+
+
+def delete_work_item_comment(
+    work_item_api_call: ApiCall,
+    comment_id: int,
+) -> None:
+    """Delete a comment from a work item.
+
+    Args:
+        work_item_api_call: Work-item-level ADO API call (from
+            get_work_item_api_call).
+        comment_id: Numeric ID of the comment to delete.
+    """
+    work_item_api_call.delete("comments", comment_id, version="7.1-preview.4")

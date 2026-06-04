@@ -1,30 +1,30 @@
-"""OOP wrapper for Azure DevOps pull request resources.
-
-Provides the :class:`PullRequest` class, which wraps a single ADO pull
-request and exposes its operations as methods rather than free functions.
-"""
+"""OOP wrapper for Azure DevOps pull request resources."""
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
 from collections.abc import Iterator
-from urllib.parse import quote
-from uuid import UUID
+from typing import TYPE_CHECKING
 
 from pydantic import TypeAdapter
 from pydantic.networks import AnyUrl
 
 from pyado import high, raw
-from pyado.oop.work_item import WorkItem
 from pyado.raw import (
     ApiCall,
+    CommitId,
     GitCommitRef,
+    IdentityIdRef,
+    PrIterationChange,
+    PullRequestCompletionOptions,
     PullRequestCreated,
     PullRequestId,
     PullRequestIteration,
+    PullRequestIterationRecord,
     PullRequestListItem,
     PullRequestReviewer,
     PullRequestStatus,
     PullRequestStatusContext,
+    PullRequestStatusInfo,
     PullRequestStatusRequest,
     PullRequestStatusState,
     PullRequestThreadCommentResponse,
@@ -35,83 +35,126 @@ from pyado.raw import (
     WorkItemId,
 )
 
+if TYPE_CHECKING:
+    from pyado.oop.organization import Organization
+    from pyado.oop.project import Project
+    from pyado.oop.repository import Repository
+    from pyado.oop.work_item import WorkItem
+
 __all__ = ["PullRequest"]
-
-
-def _pr_artifact_url(project_id: UUID, repo_id: UUID, pr_id: PullRequestId) -> str:
-    """Build the vstfs:// artifact URL that ADO uses to identify a pull request.
-
-    Returns:
-        A string of the form
-        ``vstfs:///Git/PullRequestId/{project_id}%2F{repo_id}%2F{pr_id}``.
-    """
-    encoded = quote(f"{project_id}/{repo_id}/{pr_id}", safe="")
-    return f"vstfs:///Git/PullRequestId/{encoded}"
 
 
 class PullRequest:
     """An Azure DevOps pull request resource.
 
     Wraps a single ADO pull request and exposes its operations as instance
-    methods.  Instances are normally obtained from
-    :meth:`Repository.get_pr`, :meth:`Repository.iter_prs`, or
-    :meth:`Repository.create_pr`.
+    methods.  Instances are obtained from :meth:`Repository.get_pr`,
+    :meth:`Repository.iter_prs`, or :meth:`Repository.create_pr`.
+
+    Pull requests are not cached — each factory call returns a fresh instance.
+    Call :meth:`refresh` to re-fetch the info from the API at any time.
 
     The ``info`` attribute holds either a :class:`~pyado.raw.PullRequestListItem`
     (when obtained via a list endpoint) or a :class:`~pyado.raw.PullRequestCreated`
     (when freshly created), reflecting the data available at construction time.
 
     Attributes:
+        _repo: The Repository this pull request belongs to.
         _api_call: PR-level API call used by all operations.
-        _repo_api_call: Repository-level API call (needed for PR creation).
         _info: PR data; type depends on how the instance was constructed.
-        _project_id: UUID of the containing project (used for artifact links).
-        _repo_id: UUID of the containing repository (used for artifact links).
     """
 
     def __init__(
         self,
+        repo: "Repository",
         pr_api_call: ApiCall,
-        repo_api_call: ApiCall,
         info: PullRequestListItem | PullRequestCreated,
-        project_id: UUID,
-        repo_id: UUID,
     ) -> None:
         """Construct a PullRequest wrapper.
 
         Args:
+            repo: The Repository that owns this pull request.
             pr_api_call: PR-level ADO API call (from raw.get_pr_api_call).
-            repo_api_call: Repository-level ADO API call.
             info: PR data; either PullRequestListItem or PullRequestCreated.
-            project_id: UUID of the project that owns this PR.
-            repo_id: UUID of the repository that owns this PR.
         """
+        self._repo = repo
         self._api_call = pr_api_call
-        self._repo_api_call = repo_api_call
         self._info = info
-        self._project_id = project_id
-        self._repo_id = repo_id
 
     # ------------------------------------------------------------------
-    # Accessors
+    # Properties
     # ------------------------------------------------------------------
 
-    def get_info(self) -> PullRequestListItem | PullRequestCreated:
-        """Return the PR data fetched at construction time.
-
-        Returns:
-            Either PullRequestListItem or PullRequestCreated, depending on
-            how this object was constructed.
-        """
+    @property
+    def info(self) -> PullRequestListItem | PullRequestCreated:
+        """PR data captured at construction time (or last refresh)."""
         return self._info
 
-    def get_id(self) -> PullRequestId:
-        """Return the numeric pull request ID.
-
-        Returns:
-            Integer pull request ID.
-        """
+    @property
+    def id(self) -> PullRequestId:
+        """Numeric pull request ID."""
         return self._info.pr_id
+
+    @property
+    def title(self) -> str | None:
+        """Pull request title."""
+        return self._info.title
+
+    @property
+    def status(self) -> str | None:
+        """Pull request lifecycle status (e.g. ``"active"``, ``"completed"``)."""
+        return self._info.status
+
+    @property
+    def source_branch(self) -> str | None:
+        """Source ref name (e.g. ``"refs/heads/feature/my-branch"``)."""
+        return self._info.source_ref_name
+
+    @property
+    def target_branch(self) -> str | None:
+        """Target ref name (e.g. ``"refs/heads/main"``)."""
+        return self._info.target_ref_name
+
+    @property
+    def description(self) -> str | None:
+        """Pull request description body, or ``None`` if not set."""
+        return self._info.description
+
+    @property
+    def created_by(self) -> str | None:
+        """Display name of the user who created the PR, or ``None``.
+
+        For the full identity (id, unique name), use ``pr.info.created_by``.
+        """
+        return self._info.created_by.display_name if self._info.created_by else None
+
+    @property
+    def api_call(self) -> ApiCall:
+        """PR-level API call for direct use with pyado.raw functions."""
+        return self._api_call
+
+    @property
+    def repo(self) -> "Repository":
+        """Repository this pull request belongs to — zero-cost."""
+        return self._repo
+
+    @property
+    def project(self) -> "Project":
+        """Project this pull request belongs to — zero-cost."""
+        return self._repo.project
+
+    @property
+    def org(self) -> "Organization":
+        """Organisation this pull request belongs to — zero-cost."""
+        return self._repo.org
+
+    # ------------------------------------------------------------------
+    # Refresh
+    # ------------------------------------------------------------------
+
+    def refresh(self) -> None:
+        """Re-fetch pull request info from the API immediately."""
+        self._info = raw.get_pr_details(self._api_call)
 
     # ------------------------------------------------------------------
     # Work item linking
@@ -119,7 +162,7 @@ class PullRequest:
 
     def link_work_item(
         self,
-        work_item: WorkItem,
+        work_item: "WorkItem",
         *,
         comment: str | None = None,
     ) -> None:
@@ -132,10 +175,13 @@ class PullRequest:
             work_item: The WorkItem to link to this pull request.
             comment: Optional comment to attach to the relation.
         """
-        artifact_url = _pr_artifact_url(
-            self._project_id, self._repo_id, self._info.pr_id
+        relation = high.WorkItemLink.pull_request(
+            self._repo.info.project.id,
+            self._repo.id,
+            self._info.pr_id,
+            comment=comment,
         )
-        high.add_artifact_link(work_item.get_api_call(), artifact_url, comment=comment)
+        high.add_work_item_link(work_item.api_call, relation)
 
     # ------------------------------------------------------------------
     # Labels
@@ -183,7 +229,7 @@ class PullRequest:
         *,
         file_path: str | None = None,
         line: int | None = None,
-        status: PullRequestThreadStatus = "active",
+        status: PullRequestThreadStatus = PullRequestThreadStatus.ACTIVE,
     ) -> PullRequestThreadResponse:
         """Create a new review thread on the pull request.
 
@@ -325,6 +371,44 @@ class PullRequest:
             ),
         )
 
+    def complete(
+        self,
+        last_merge_source_commit: CommitId,
+        *,
+        completion_options: PullRequestCompletionOptions | None = None,
+    ) -> None:
+        """Complete (merge) the pull request.
+
+        Args:
+            last_merge_source_commit: Current HEAD SHA of the source branch.
+                Used by ADO as an optimistic-concurrency guard; obtain it from
+                ``pr.info.last_merge_source_commit.commit_id`` after a
+                :meth:`refresh`.
+            completion_options: Merge strategy and post-completion options.
+                Defaults to squash merge with source-branch deletion.
+        """
+        self._info = high.complete_pr(
+            self._api_call,
+            last_merge_source_commit,
+            completion_options=completion_options,
+        )
+
+    def abandon(self) -> None:
+        """Abandon the pull request."""
+        self._info = high.abandon_pr(self._api_call)
+
+    def set_work_item_refs(self, work_item_ids: list[WorkItemId]) -> None:
+        """Set the work items visible on the pull request page.
+
+        Replaces the PR's ``workItemRefs`` list so the given work items appear
+        in the ADO pull request UI.  To also add the reverse link on the work
+        item side, call :meth:`link_work_item` for each item.
+
+        Args:
+            work_item_ids: Numeric IDs of the work items to associate.
+        """
+        high.update_pr_work_item_refs(self._api_call, work_item_ids)
+
     def set_status(
         self,
         state: PullRequestStatusState,
@@ -379,3 +463,82 @@ class PullRequest:
             Integer work item IDs associated with the PR.
         """
         yield from high.iter_pr_work_item_ids(self._api_call)
+
+    def iter_iterations(self) -> Iterator[PullRequestIterationRecord]:
+        """Iterate over the push iterations of this pull request.
+
+        Each iteration corresponds to a force-push or new commit push to the
+        source branch.  Use :meth:`get_iteration_changes` to retrieve the
+        file-level diff introduced by a specific iteration.
+
+        Yields:
+            PullRequestIterationRecord for each iteration, oldest first.
+        """
+        yield from raw.iter_pr_iterations(self._api_call)
+
+    def get_iteration_changes(
+        self,
+        iteration_id: PullRequestIteration,
+    ) -> list[PrIterationChange]:
+        """Return the file changes introduced by a specific PR iteration.
+
+        Args:
+            iteration_id: The 1-based iteration number.  Obtain it from
+                :meth:`iter_iterations`.
+
+        Returns:
+            List of PrIterationChange entries for the iteration.
+        """
+        return raw.get_pr_iteration_changes(self._api_call, iteration_id)
+
+    def enable_auto_complete(
+        self,
+        identity_id: str,
+        *,
+        completion_options: PullRequestCompletionOptions | None = None,
+    ) -> None:
+        """Enable auto-complete on the pull request.
+
+        When auto-complete is set, ADO will automatically complete (merge)
+        the PR once all required reviewers have approved and all policies
+        pass.
+
+        Args:
+            identity_id: Object ID of the identity to record as the
+                auto-complete setter (typically the calling user's ID).
+            completion_options: Merge strategy and post-completion options.
+                When ``None``, ADO retains the existing options.
+        """
+        raw.patch_pr(
+            self._api_call,
+            PullRequestUpdateRequest(
+                auto_complete_set_by=IdentityIdRef(id=identity_id),
+                completion_options=completion_options,
+            ),
+        )
+
+    def update_thread_status(
+        self,
+        thread_id: int,
+        status: PullRequestThreadStatus,
+    ) -> PullRequestThreadResponse:
+        """Update the status of an existing review thread.
+
+        Args:
+            thread_id: Numeric ID of the thread to update.  Obtain it from
+                :meth:`iter_threads`.
+            status: New status for the thread (e.g.
+                ``PullRequestThreadStatus.FIXED``).
+
+        Returns:
+            Updated PullRequestThreadResponse reflecting the new status.
+        """
+        return raw.patch_pr_thread(self._api_call, thread_id, status)
+
+    def iter_statuses(self) -> Iterator[PullRequestStatusInfo]:
+        """Iterate over status checks posted on this pull request.
+
+        Yields:
+            PullRequestStatusInfo for each status item, in API-returned order.
+        """
+        yield from raw.iter_pr_statuses(self._api_call)
