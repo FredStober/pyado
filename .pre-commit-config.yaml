@@ -35,31 +35,33 @@ repos:
   hooks:
   - id: mypy
     name: mypy
-    entry: .venv/bin/mypy
+    entry: uv
     language: system
     types: [python]
     require_serial: true
+    args: [run, mypy]
 
   - id: ty
     name: ty
-    entry: .venv/bin/ty check
+    entry: uv
     language: system
     types: [python]
     require_serial: true
     pass_filenames: false
-    args: [src]
+    args: [run, ty, check, src]
 
   - id: pytest
     name: pytest
-    entry: .venv/bin/pytest
+    entry: uv
     language: system
     pass_filenames: false
     always_run: true
+    args: [run, pytest]
 
   - id: sphinx
     name: sphinx
-    entry: .venv/bin/sphinx-build
-    args: [-W, docs, docs/_build/html]
+    entry: uv
+    args: [run, --group=docs, sphinx-build, -W, docs, docs/_build/html]
     language: system
     pass_filenames: false
     always_run: true

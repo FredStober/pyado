@@ -8,6 +8,7 @@ from pyado.high.git import _full_ref
 from pyado.raw import (
     ApiCall,
     CommitId,
+    CommitIdRef,
     PullRequestCompletionOptions,
     PullRequestCreated,
     PullRequestCreateRequest,
@@ -29,6 +30,7 @@ from pyado.raw import (
     WorkItemArtifactUrlPrefix,
     WorkItemId,
     WorkItemInfo,
+    WorkItemRef,
     WorkItemRelationType,
     get_pr_details,
     get_pr_labels_details,
@@ -303,7 +305,7 @@ def create_pr(
         else PullRequestCompletionOptions()
     )
     work_item_refs = (
-        [{"id": str(wi_id)} for wi_id in work_item_ids]
+        [WorkItemRef(id=wi_id) for wi_id in work_item_ids]
         if work_item_ids is not None
         else None
     )
@@ -371,7 +373,7 @@ def complete_pr(
         pr_api_call,
         PullRequestUpdateRequest(
             status=PullRequestStatus.COMPLETED,
-            last_merge_source_commit={"commitId": last_merge_source_commit},
+            last_merge_source_commit=CommitIdRef(commit_id=last_merge_source_commit),
             completion_options=opts,
         ),
     )
@@ -432,6 +434,6 @@ def update_pr_work_item_refs(
     patch_pr(
         pr_api_call,
         PullRequestUpdateRequest(
-            work_item_refs=[{"id": str(wi_id)} for wi_id in work_item_ids],
+            work_item_refs=[WorkItemRef(id=wi_id) for wi_id in work_item_ids],
         ),
     )

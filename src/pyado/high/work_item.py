@@ -154,12 +154,24 @@ class WorkItemLink:
         )
 
     @staticmethod
-    def _wi_link(
+    def wi_link(
         rel_type: WorkItemRelationType,
         project_api_call: ApiCall,
         work_item_id: WorkItemId,
         comment: str | None,
     ) -> WorkItemRelation:
+        """Build a work-item-to-work-item relation.
+
+        Args:
+            rel_type: Relation type (e.g. PARENT, CHILD, RELATED).
+            project_api_call: Project-level API call for the target work item.
+            work_item_id: Numeric ID of the target work item.
+            comment: Optional comment to attach to the relation.
+
+        Returns:
+            WorkItemRelation ready to pass to add_work_item_link or
+            create_work_item.
+        """
         work_item_url = get_work_item_api_call(
             project_api_call, work_item_id
         ).url.unicode_string()
@@ -248,7 +260,7 @@ class WorkItemLink:
         comment: str | None = None,
     ) -> WorkItemRelation:
         """Return a Related link to another work item."""
-        return WorkItemLink._wi_link(
+        return WorkItemLink.wi_link(
             WorkItemRelationType.RELATED, project_api_call, work_item_id, comment
         )
 
@@ -260,7 +272,7 @@ class WorkItemLink:
         comment: str | None = None,
     ) -> WorkItemRelation:
         """Return a Parent (Hierarchy-Reverse) link to another work item."""
-        return WorkItemLink._wi_link(
+        return WorkItemLink.wi_link(
             WorkItemRelationType.PARENT, project_api_call, work_item_id, comment
         )
 
@@ -272,7 +284,7 @@ class WorkItemLink:
         comment: str | None = None,
     ) -> WorkItemRelation:
         """Return a Child (Hierarchy-Forward) link to another work item."""
-        return WorkItemLink._wi_link(
+        return WorkItemLink.wi_link(
             WorkItemRelationType.CHILD, project_api_call, work_item_id, comment
         )
 
@@ -284,7 +296,7 @@ class WorkItemLink:
         comment: str | None = None,
     ) -> WorkItemRelation:
         """Return a Duplicate-Forward link to another work item."""
-        return WorkItemLink._wi_link(
+        return WorkItemLink.wi_link(
             WorkItemRelationType.DUPLICATE, project_api_call, work_item_id, comment
         )
 
@@ -296,7 +308,7 @@ class WorkItemLink:
         comment: str | None = None,
     ) -> WorkItemRelation:
         """Return a Duplicate-Reverse link to another work item."""
-        return WorkItemLink._wi_link(
+        return WorkItemLink.wi_link(
             WorkItemRelationType.DUPLICATE_OF,
             project_api_call,
             work_item_id,
@@ -311,7 +323,7 @@ class WorkItemLink:
         comment: str | None = None,
     ) -> WorkItemRelation:
         """Return a Dependency-Forward (successor) link to another work item."""
-        return WorkItemLink._wi_link(
+        return WorkItemLink.wi_link(
             WorkItemRelationType.SUCCESSOR, project_api_call, work_item_id, comment
         )
 
@@ -323,7 +335,7 @@ class WorkItemLink:
         comment: str | None = None,
     ) -> WorkItemRelation:
         """Return a Dependency-Reverse (predecessor) link to another work item."""
-        return WorkItemLink._wi_link(
+        return WorkItemLink.wi_link(
             WorkItemRelationType.PREDECESSOR, project_api_call, work_item_id, comment
         )
 
@@ -335,7 +347,7 @@ class WorkItemLink:
         comment: str | None = None,
     ) -> WorkItemRelation:
         """Return a TestedBy-Forward link to another work item."""
-        return WorkItemLink._wi_link(
+        return WorkItemLink.wi_link(
             WorkItemRelationType.TESTED_BY, project_api_call, work_item_id, comment
         )
 
@@ -347,7 +359,7 @@ class WorkItemLink:
         comment: str | None = None,
     ) -> WorkItemRelation:
         """Return a TestedBy-Reverse (tests) link to another work item."""
-        return WorkItemLink._wi_link(
+        return WorkItemLink.wi_link(
             WorkItemRelationType.TESTS, project_api_call, work_item_id, comment
         )
 
@@ -359,7 +371,7 @@ class WorkItemLink:
         comment: str | None = None,
     ) -> WorkItemRelation:
         """Return a TestCase-Forward link to another work item."""
-        return WorkItemLink._wi_link(
+        return WorkItemLink.wi_link(
             WorkItemRelationType.TEST_CASE, project_api_call, work_item_id, comment
         )
 
@@ -371,7 +383,7 @@ class WorkItemLink:
         comment: str | None = None,
     ) -> WorkItemRelation:
         """Return a SharedParameterReferencedBy-Reverse link."""
-        return WorkItemLink._wi_link(
+        return WorkItemLink.wi_link(
             WorkItemRelationType.SHARED_PARAMETER_REFERENCED_BY,
             project_api_call,
             work_item_id,
@@ -386,7 +398,7 @@ class WorkItemLink:
         comment: str | None = None,
     ) -> WorkItemRelation:
         """Return an Affects-Forward link to another work item."""
-        return WorkItemLink._wi_link(
+        return WorkItemLink.wi_link(
             WorkItemRelationType.AFFECTS, project_api_call, work_item_id, comment
         )
 
@@ -398,7 +410,7 @@ class WorkItemLink:
         comment: str | None = None,
     ) -> WorkItemRelation:
         """Return an Affects-Reverse (affected by) link to another work item."""
-        return WorkItemLink._wi_link(
+        return WorkItemLink.wi_link(
             WorkItemRelationType.AFFECTED_BY, project_api_call, work_item_id, comment
         )
 

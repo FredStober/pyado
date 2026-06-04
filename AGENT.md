@@ -7,17 +7,411 @@ code without reading the source.
 
 ## Package overview
 
-`pyado` is a typed Python wrapper over the Azure DevOps REST API. Every public
-function accepts an `ApiCall` object and returns a Pydantic model (never a raw
-dict). Pagination is transparent — every function that could return many results
-is a generator.
+`pyado` provides two interfaces over the Azure DevOps REST API, both available
+directly from `import pyado`:
+
+1. **OOP interface** — resource objects with methods; the recommended entry
+   point. `AzureDevOpsService → Organization → Project → Repository /
+   WorkItem / Build / Pipeline / VariableGroup / Team`. Pull requests live
+   under `Repository`.
+2. **Functional interface** — typed functions that each accept an `ApiCall`
+   and return a Pydantic model (never a raw dict). Pagination is transparent.
 
 ```python
 import pyado
 ```
 
-All public symbols are available directly from `pyado`. There is no need to
-import from sub-packages.
+All public symbols — OOP classes and functional API — are available directly
+from `pyado`. No need to import sub-packages.
+
+---
+
+## OOP interface
+
+### Quick start
+
+```python
+import pyado
+
+svc  = pyado.AzureDevOpsService(org="https://dev.azure.com/myorg", pat="<pat>")
+# or: AzureDevOpsService()  →  reads AZURE_DEVOPS_ORG + AZURE_DEVOPS_EXT_PAT
+proj = svc.org.get_project("MyProject")
+
+repo = proj.get_repository("myrepo")
+pr   = repo.create_pr("Update config", "feature/branch", "main")
+wi   = proj.get_work_item(153)
+pr.link_work_item(wi)
+
+build    = proj.start_build(definition_id=42)
+pipeline = proj.get_pipeline(99)
+run      = pipeline.start_run(template_parameters={"env": "staging"})
+```
+
+### AzureDevOpsService
+
+```python
+pyado.AzureDevOpsService(
+    org: str | None = None,         # falls back to AZURE_DEVOPS_ORG
+    pat: str | None = None,         # falls back to AZURE_DEVOPS_EXT_PAT
+    credential: TokenCredential | None = None,  # azure-identity; mutually exclusive with pat
+)
+
+.org         → Organization        # singleton, zero-cost
+.api_call    → ApiCall             # org-level; for direct raw calls
+.refresh()                         # clear all cached objects
+```
+
+### Organization
+
+```python
+org = svc.org
+
+.api_call              → ApiCall
+.get_project(name)     → Project
+.iter_projects()       → Iterator[Project]
+.get_connection_data() → ConnectionData
+.get_my_profile()      → UserProfile
+.get_identities(descriptors: list[str]) → list[IdentityInfo]
+.iter_graph_groups()   → Iterator[GraphGroup]
+```
+
+### Project
+
+```python
+.name      → str           # always available, no API call
+.id        → ProjectId     # lazy-fetched on first access
+.info      → ProjectInfo
+.api_call  → ApiCall
+.org       → Organization  # zero-cost
+.refresh()
+
+# Repositories
+.iter_repositories()         → Iterator[Repository]
+.get_repository(name_or_id)  → Repository
+.iter_active_prs()           → Iterator[PullRequest]
+
+# Work items
+.get_work_item(id)           → WorkItem
+.iter_work_items(wiql)       → Iterator[WorkItem]
+.get_work_items(ids)         → list[WorkItem]
+.create_work_item(type, fields, relations?) → WorkItem
+
+# Builds
+.get_build(id)               → Build
+.iter_builds(*, status_filter?) → Iterator[Build]
+.start_build(definition_id, *, source_branch?, source_version?, parameters?) → Build
+
+# Pipelines
+.get_pipeline(id)            → Pipeline
+.iter_pipelines()            → Iterator[Pipeline]
+.iter_pipeline_definitions() → Iterator[PipelineDefinitionInfo]
+.iter_pending_approvals()    → Iterator[PipelineApproval]
+.approve_pipeline(approval_id, *, comment?) → None
+
+# Variable groups
+.get_variable_group(name)          → VariableGroup
+.get_variable_group_by_id(id)      → VariableGroup
+.iter_variable_groups()            → Iterator[VariableGroup]
+
+# Teams
+.get_team(name_or_id)  → Team
+.iter_teams()          → Iterator[Team]
+
+# Iterations / areas / queries
+.get_iteration_node(path?, *, depth?) → Iteration
+.create_iteration(name, parent_path?, *, start_date?, finish_date?) → str (guid)
+.iter_sprint_iterations(team_name, *, timeframe_filter?) → Iterator[SprintIterationInfo]
+.add_team_iteration(team_name, iteration_id) → None
+.get_team_field_values(team_name)  → list[TeamFieldValue]
+.get_area_node(path?, *, depth?)   → Area
+.create_area(name, parent_path?)   → str (guid)
+.get_query_tree(*, depth?, expand?) → WorkItemQuery
+.get_query_folder(folder_id, *, depth?, expand?) → WorkItemQuery
+```
+
+### Repository
+
+```python
+.id             → RepositoryId
+.name           → str
+.default_branch → BranchName | None
+.web_url        → ADOUrl
+.info           → RepositoryInfo
+.api_call       → ApiCall
+.project        → Project          # zero-cost
+.org            → Organization     # zero-cost
+.refresh()
+
+# Pull requests
+.get_pr(pr_id)                             → PullRequest
+.iter_prs(status?)                         → Iterator[PullRequest]
+.get_pr_for_branch(source_branch)          → PullRequest | None
+.create_pr(title, source_branch, target_branch, *, description?, completion_options?) → PullRequest
+
+# File access
+.get_file_at_branch(path, branch)          → str   # "" if absent
+.get_file_at_commit(path, commit)          → str   # "" if absent
+.get_file_bytes_at_branch(path, branch)    → bytes | None
+.get_file_bytes_at_commit(path, commit)    → bytes | None
+
+# Refs and branches
+.iter_refs(name_filter?, name_contains?)   → Iterator[GitRef]
+.create_branch(name, from_commit)          → None
+.delete_branch(name, current_commit)       → None
+.get_statistics(branch)                    → BranchStatistics
+
+# Commits and diffs
+.iter_commits(*, item_path?, top?, branch?) → Iterator[Commit]
+.get_commit(sha)                            → Commit
+.iter_commit_diff(base, target)             → Iterator[GitCommitChange]
+.get_last_commit_touching_file(path, before_commit) → CommitId
+
+# Pushes
+.commit(branch, message, changes)          → GitPushResult
+.make_ref_update(branch)                   → GitPushRefUpdate
+.push_commits(ref_updates, commits)        → GitPushResult
+
+# ACL
+.get_acl()                                 → list[AccessControlList]
+```
+
+File change helpers (use with `repo.commit` or `pyado.make_commit`):
+
+```python
+pyado.AddFile(path, content)          # create a new file
+pyado.EditFile(path, content)         # overwrite existing file
+pyado.DeleteFile(path)                # delete a file
+pyado.RenameFile(old_path, new_path)  # rename without changing content
+```
+
+### PullRequest
+
+```python
+.id            → PullRequestId
+.title         → str | None
+.status        → str | None    # "active"|"abandoned"|"completed"
+.source_branch → str | None
+.target_branch → str | None
+.description   → str | None
+.created_by    → str | None    # display name
+.info          → PullRequestListItem | PullRequestCreated
+.api_call      → ApiCall
+.repo          → Repository    # zero-cost
+.project       → Project       # zero-cost
+.org           → Organization  # zero-cost
+.refresh()
+
+# Work items
+.link_work_item(wi, *, comment?)      # ArtifactLink on the work item
+.set_work_item_refs(ids)              # visible in ADO PR page
+.iter_work_item_ids()                 → Iterator[int]
+
+# Labels
+.get_labels()           → list[str]
+.add_label(name)
+.remove_label(name)
+
+# Threads
+.iter_threads()          → Iterator[PullRequestThreadResponse]
+.add_thread(content, *, file_path?, line?, status?) → PullRequestThreadResponse
+.reply_to_thread(thread_id, content, *, parent_comment_id?) → PullRequestThreadCommentResponse
+.update_thread_status(thread_id, status) → PullRequestThreadResponse
+
+# Reviewers
+.get_reviewers()                                  → list[PullRequestReviewer]
+.add_reviewer(reviewer_id, *, is_required?, is_reapprove?)
+.remove_reviewer(reviewer_id)
+.vote(reviewer_id, vote: PullRequestVote, *, is_reapprove?)
+
+# Status checks
+.set_status(state, context_name, *, description?, iteration_id?, target_url?, genre?)
+.iter_statuses()  → Iterator[PullRequestStatusInfo]
+
+# Commits and iterations
+.iter_commits()               → Iterator[GitCommitRef]
+.iter_iterations()            → Iterator[PullRequestIterationRecord]
+.get_iteration_changes(iter_id) → list[PrIterationChange]
+
+# Lifecycle
+.update(*, title?, description?, status?, is_draft?)
+.enable_auto_complete(identity_id, *, completion_options?)
+.complete(last_merge_source_commit, *, completion_options?)
+.abandon()
+```
+
+### WorkItem
+
+```python
+.id             → int
+.title          → str | None    # System.Title
+.state          → str | None    # System.State
+.type           → str | None    # System.WorkItemType
+.assigned_to    → Any           # System.AssignedTo (identity dict)
+.area_path      → str | None    # System.AreaPath
+.iteration_path → str | None    # System.IterationPath
+.get_field(field) → Any
+.info           → WorkItemInfo
+.api_call       → ApiCall
+.project        → Project       # zero-cost
+.org            → Organization  # zero-cost
+.refresh()
+
+.update(fields, *, multiline_fields_format?)
+.get_tags()        → list[str]
+.add_tag(tag)      → list[str]
+.remove_tag(tag)   → list[str]
+
+.iter_comments()              → Iterator[WorkItemComment]
+.add_comment(text, *, comment_format?) → WorkItemComment
+.update_comment(id, text)     → WorkItemComment
+.delete_comment(id)
+
+.add_attachment(filename, content) → WorkItemAttachmentRef
+
+.add_link(other, link_type, *, comment?)  # WI-to-WI relation
+.link_pull_request(pr, *, comment?)
+.link_build(build, *, comment?)
+.link_commit(repo, commit_id, *, comment?)
+
+.get_parent()      → WorkItem | None
+.iter_children()   → Iterator[WorkItem]
+.iter_linked_work_items(rel_type?) → Iterator[WorkItem]
+
+.delete()          # soft-delete; restorable from Recycle Bin for 30 days
+```
+
+### Build
+
+```python
+.id           → int
+.number       → str           # e.g. "20240101.1"
+.status       → BuildStatus
+.result       → BuildResult | None
+.source_branch → str
+.start_time   → datetime | None
+.finish_time  → datetime | None
+.info         → BuildDetails
+.api_call     → ApiCall
+.pipeline     → Pipeline       # zero-cost, no API call
+.project      → Project        # zero-cost
+.org          → Organization   # zero-cost
+.refresh()
+
+.cancel()          → BuildDetails
+.cancel_run()      → PipelineRunInfo   # via Pipelines v2
+.retry()           → Build             # same definition and branch
+
+.iter_artifacts()  → Iterator[BuildArtifact]
+.iter_tags()       → Iterator[str]
+.add_tag(tag)      → list[str]
+.remove_tag(tag)   → list[str]
+
+.iter_timeline_records()  → Iterator[BuildRecordInfo]
+.iter_stages()            → Iterator[BuildStage]
+.get_log_text(log_id)     → str
+
+.iter_work_item_ids()                → Iterator[int]
+.iter_work_items_between(older_build, *, top?) → Iterator[int]
+
+.get_active_build_task(*, hub_name, plan_id, timeline_id, job_id, task_instance_id) → ActiveBuildTask
+```
+
+**BuildStage / BuildJob / BuildTask** (from `build.iter_stages()`):
+
+```python
+stage.name, stage.state, stage.result, stage.log
+stage.iter_jobs()    → Iterator[BuildJob]
+
+job.name, job.state, job.result, job.log
+job.iter_tasks()     → Iterator[BuildTask]
+job.iter_phases()    → Iterator[BuildPhase]
+
+task.name, task.state, task.result, task.log
+```
+
+### Pipeline
+
+```python
+.id    → int        # always known, no API call
+.name  → str        # always known, no API call
+.info  → PipelineInfo   # lazy-fetched
+.api_call → ApiCall
+.project  → Project     # zero-cost
+.org      → Organization # zero-cost
+.refresh()
+
+.iter_runs()              → Iterator[PipelineRunInfo]
+.get_run(run_id)          → PipelineRunInfo
+.get_latest_run()         → PipelineRunInfo | None
+.start_run(*, resources?, variables?, template_parameters?, stages_to_skip?) → PipelineRunInfo
+.authorize_resource(resource_type, resource_id, *, authorized?) → PipelineResourcePermissions
+```
+
+### VariableGroup
+
+```python
+.id        → int
+.name      → str
+.variables → dict[str, VariableInfo]
+.info      → VariableGroupInfo
+.api_call  → ApiCall
+.project   → Project       # zero-cost
+.org       → Organization  # zero-cost
+.refresh()
+
+.update(variables, *, name?, description?, var_group_type?, provider_data?)
+.set_variable(var_name, value, *, is_secret?)  # read-modify-write
+.delete_variable(var_name)                     # raises KeyError if absent
+```
+
+### Team
+
+```python
+.id      → str   # UUID string
+.name    → str
+.info    → TeamInfo
+.api_call → ApiCall   # team-level (for raw teamsettings functions)
+.project → Project    # zero-cost
+.org     → Organization # zero-cost
+
+.iter_sprint_iterations(*, timeframe_filter?) → Iterator[SprintIterationInfo]
+.get_field_values()     → list[TeamFieldValue]
+.add_iteration(iteration_id) → None
+```
+
+### Iteration / Area
+
+```python
+# Iteration (from proj.get_iteration_node)
+.name        → str
+.id          → str   # GUID
+.path        → str
+.start_date  → date | None
+.finish_date → date | None
+.children    → list[Iteration]
+.project     → Project
+
+# Area (from proj.get_area_node)
+.name     → str
+.id       → str
+.path     → str
+.children → list[Area]
+.project  → Project
+```
+
+### Commit
+
+```python
+# Obtained from repo.iter_commits() or repo.get_commit()
+.id         → CommitId      # SHA string
+.message    → str | None
+.author     → ...           # .name, .email, .date
+.info       → GitCommitRef
+.repo       → Repository    # zero-cost
+.project    → Project       # zero-cost
+```
+
+---
 
 ---
 

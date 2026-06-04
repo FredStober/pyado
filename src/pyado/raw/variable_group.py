@@ -15,6 +15,7 @@ __all__ = [
     "UserId",
     "VariableGroupId",
     "VariableGroupInfo",
+    "VariableGroupProjectReference",
     "VariableGroupUpdateRequest",
     "VariableGroupUserInfo",
     "VariableInfo",
@@ -46,6 +47,21 @@ class VariableInfo(BaseModel):
     value: str | None = None
 
 
+class _VgProjectRef(BaseModel):
+    """Internal: project id/name pair within a variable group project reference."""
+
+    id: str
+    name: str
+
+
+class VariableGroupProjectReference(BaseModel):
+    """A project reference entry within a variable group's project references list."""
+
+    description: str | None = None
+    name: str
+    project_reference: _VgProjectRef = Field(alias="projectReference")
+
+
 class VariableGroupInfo(BaseModel):
     """Type to store variable group details."""
 
@@ -60,7 +76,9 @@ class VariableGroupInfo(BaseModel):
     modified_on: datetime = Field(alias="modifiedOn")
     name: str
     type: str
-    variable_group_refs: Any = Field(alias="variableGroupProjectReferences")
+    variable_group_refs: list[VariableGroupProjectReference] | None = Field(
+        alias="variableGroupProjectReferences", default=None
+    )
     variables: dict[str, VariableInfo]
 
 
@@ -75,8 +93,8 @@ class VariableGroupUpdateRequest(BaseModel):
 
     name: str
     variables: dict[str, VariableInfo]
-    variable_group_project_references: Any = Field(
-        serialization_alias="variableGroupProjectReferences"
+    variable_group_project_references: list[VariableGroupProjectReference] | None = (
+        Field(default=None, serialization_alias="variableGroupProjectReferences")
     )
     description: str | None = None
     type: str | None = None

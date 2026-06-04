@@ -10,7 +10,10 @@ import pytest
 import requests
 
 from pyado import (
+    GIT_SECURITY_NAMESPACE_ID,
+    AccessControlList,
     ApiCall,
+    BranchStatistics,
     GitCommitChange,
     GitCommitRef,
     GitCommitSearchCriteria,
@@ -19,14 +22,19 @@ from pyado import (
     RepositoryInfo,
     create_branch,
     delete_branch,
+    get_commit_by_id,
     get_file_content_at_branch,
     get_file_content_at_commit,
+    get_git_acl,
     get_last_commit_touching_file,
     get_repository_api_call,
     get_repository_commits,
+    get_repository_info,
+    get_repository_statistics,
     iter_commit_diff,
     iter_refs,
     iter_repository_details,
+    make_git_acl_token,
 )
 from tests.conftest import _make_mock_response
 
@@ -105,6 +113,17 @@ class TestIterRepositoryDetails:
         assert len(result) == 2
         assert result[0].name == "repo-a"
         assert result[1].name == "repo-b"
+
+
+def test_get_repository_info_returns_repository_info(api_call: ApiCall) -> None:
+    """get_repository_info returns a RepositoryInfo for a repository-level call."""
+    data = make_repository_dict(name="my-repo")
+    mock_response = _make_mock_response(data)
+    repo_api_call = get_repository_api_call(api_call, uuid4())
+    with patch.object(requests.Session, "request", return_value=mock_response):
+        result = get_repository_info(repo_api_call)
+    assert isinstance(result, RepositoryInfo)
+    assert result.name == "my-repo"
 
 
 REPO_ID = uuid4()
@@ -434,3 +453,147 @@ class TestGetRepositoryCommits:
             result = get_repository_commits(repo_api_call)
         assert len(result) == 1
         assert result[0].commit_id == "def456"
+
+
+PROJECT_ID = uuid4()
+REPO_ID = uuid4()
+
+
+class TestMakeGitAclToken:
+    """Tests for make_git_acl_token."""
+
+    @staticmethod
+    def test_project_only_token() -> None:
+        """Returns repoV2/{project_id} when no repo_id is given."""
+        token = make_git_acl_token(PROJECT_ID)
+        assert token == f"repoV2/{PROJECT_ID}"
+
+    @staticmethod
+    def test_project_and_repo_token() -> None:
+        """Returns repoV2/{project}/{repo} when repo_id is given."""
+        token = make_git_acl_token(PROJECT_ID, REPO_ID)
+        assert token == f"repoV2/{PROJECT_ID}/{REPO_ID}"
+
+    @staticmethod
+    def test_branch_token() -> None:
+        """Returns token with refs/heads/ and encoded branch name."""
+        token = make_git_acl_token(PROJECT_ID, REPO_ID, branch="main")
+        assert token == f"repoV2/{PROJECT_ID}/{REPO_ID}/refs/heads/main"
+
+    @staticmethod
+    def test_branch_token_strips_refs_heads_prefix() -> None:
+        """Strips refs/heads/ prefix before encoding."""
+        token = make_git_acl_token(PROJECT_ID, REPO_ID, branch="refs/heads/main")
+        assert token == f"repoV2/{PROJECT_ID}/{REPO_ID}/refs/heads/main"
+
+    @staticmethod
+    def test_branch_slash_encoded() -> None:
+        """Encodes forward slashes in branch names as ^3."""
+        token = make_git_acl_token(PROJECT_ID, REPO_ID, branch="feature/my-branch")
+        assert token == f"repoV2/{PROJECT_ID}/{REPO_ID}/refs/heads/feature^3my-branch"
+
+
+class TestGetGitAcl:
+    """Tests for get_git_acl."""
+
+    @staticmethod
+    def test_returns_acl_list(api_call: ApiCall) -> None:
+        """Returns a list of AccessControlList objects."""
+        response_data = {
+            "value": [
+                {
+                    "token": f"repoV2/{PROJECT_ID}/{REPO_ID}",
+                    "entries": {},
+                }
+            ]
+        }
+        mock_response = _make_mock_response(response_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_git_acl(api_call, PROJECT_ID, REPO_ID)
+        assert isinstance(result, list)
+        assert isinstance(result[0], AccessControlList)
+
+    @staticmethod
+    def test_url_contains_security_namespace(api_call: ApiCall) -> None:
+        """Request URL path contains the git security namespace GUID."""
+        response_data = {"value": [{"token": f"repoV2/{PROJECT_ID}", "entries": {}}]}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_git_acl(api_call, PROJECT_ID)
+        call_kwargs = mock_req.call_args[1]
+        url_called = call_kwargs["url"]
+        params = call_kwargs.get("params", {})
+        assert GIT_SECURITY_NAMESPACE_ID in url_called or any(
+            GIT_SECURITY_NAMESPACE_ID in str(v) for v in params.values()
+        )
+
+
+class TestGetCommitById:
+    """Tests for get_commit_by_id."""
+
+    @staticmethod
+    def test_returns_git_commit_ref(api_call: ApiCall) -> None:
+        """Returns a GitCommitRef parsed from the API response."""
+        response_data = {
+            "commitId": "abc123",
+            "comment": "Test commit",
+            "commentTruncated": False,
+        }
+        mock_response = _make_mock_response(response_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_commit_by_id(api_call, "abc123")
+        assert isinstance(result, GitCommitRef)
+        assert result.commit_id == "abc123"
+
+
+class TestGetRepositoryStatistics:
+    """Tests for get_repository_statistics."""
+
+    @staticmethod
+    def test_returns_branch_statistics(api_call: ApiCall) -> None:
+        """Returns a BranchStatistics parsed from the API response."""
+        response_data = {
+            "name": "main",
+            "aheadCount": 3,
+            "behindCount": 1,
+            "commit": {
+                "commitId": "abc123",
+                "comment": "Latest commit",
+                "commentTruncated": False,
+            },
+        }
+        mock_response = _make_mock_response(response_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_repository_statistics(api_call, "main")
+        assert isinstance(result, BranchStatistics)
+        assert result.name == "main"
+        assert result.ahead_count == 3
+        assert result.behind_count == 1
+
+    @staticmethod
+    def test_sends_get_request(api_call: ApiCall) -> None:
+        """Sends a GET request to the stats/branches endpoint."""
+        response_data = {"name": "main", "aheadCount": 0, "behindCount": 0}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_repository_statistics(api_call, "main")
+        assert mock_req.call_args.args[0] == "GET"
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "stats" in url
+        assert "branches" in url
+
+    @staticmethod
+    def test_passes_branch_name_as_param(api_call: ApiCall) -> None:
+        """Passes the branch name as a query parameter."""
+        response_data = {"name": "feature/x", "aheadCount": 5, "behindCount": 0}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_repository_statistics(api_call, "feature/x")
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params.get("name") == "feature/x"

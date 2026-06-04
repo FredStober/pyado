@@ -36,7 +36,58 @@ your code needs to accomplish.
 
 ---
 
-## Quick look
+## OOP interface
+
+Navigate a hierarchy of resource objects instead of threading `ApiCall`
+arguments through every call. All OOP classes are available directly from
+`pyado`.
+
+```python
+import pyado
+
+# Construct once — org URL and PAT also resolve from env vars
+svc  = pyado.AzureDevOpsService(org="https://dev.azure.com/myorg", pat="<pat>")
+proj = svc.org.get_project("MyProject")
+
+# Repositories and file pushes
+repo = proj.get_repository("myrepo")
+print(repo.default_branch)               # "refs/heads/main"
+repo.commit("main", "chore: update config", [
+    pyado.EditFile("/config.json", '{"key": "value"}'),
+    pyado.DeleteFile("/old_config.json"),
+])
+
+# Pull requests
+pr = repo.create_pr(
+    title="Update config",
+    source_branch="feature/update-config",
+    target_branch="main",
+)
+pr.add_label("ready-to-merge")
+pr.add_reviewer("<reviewer-identity-id>", is_required=True)
+
+# Work items
+wi = proj.get_work_item(153)
+print(wi.title, wi.state)               # "Fix the bug"  "Active"
+wi.update({"System.State": "Resolved"})
+wi.add_tag("reviewed")
+
+# Link PR to work item (both sides of the association)
+pr.link_work_item(wi)
+
+# Builds and pipelines
+build = proj.start_build(42, source_branch="refs/heads/main")
+print(build.status, build.number)
+
+pipeline = proj.get_pipeline(99)
+run = pipeline.start_run(template_parameters={"env": "staging"})
+```
+
+See the **[full OOP usage guide][oop-usage]** for all classes and methods.
+
+---
+
+## Functional interface
 
 ```python
 import pyado
@@ -119,6 +170,7 @@ overview to help you decide which package fits your use case.
 
 ## Further reading
 
+- **[OOP interface guide][oop-usage]** — all OOP classes and methods with examples
 - **[Full usage guide][usage]** — every domain with detailed examples
 - **[API reference][read the docs]** — auto-generated from docstrings
 - **[Contributor Guide]** — coding standards, architecture, and how to get started
@@ -148,4 +200,5 @@ Please [file an issue] with a detailed description of the problem.
 [license]: https://github.com/fredstober/pyado/blob/main/LICENSE
 [contributor guide]: https://github.com/fredstober/pyado/blob/main/CONTRIBUTING.md
 [usage]: https://github.com/fredstober/pyado/blob/main/docs/usage.md
+[oop-usage]: https://github.com/fredstober/pyado/blob/main/docs/usage.md#oop-interface
 [alternatives]: https://github.com/fredstober/pyado/blob/main/docs/alternatives.md

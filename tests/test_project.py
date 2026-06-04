@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import requests
 
-from pyado import ApiCall, ProjectInfo, iter_projects
+from pyado import ApiCall, ProjectInfo, get_project, iter_projects
 from tests.conftest import _make_mock_response
 
 
@@ -29,6 +29,16 @@ def make_project_dict(**overrides: Any) -> dict[str, Any]:
     }
     project.update(overrides)
     return project
+
+
+def test_get_project_returns_project_info(api_call: ApiCall) -> None:
+    """get_project returns a ProjectInfo for the named project."""
+    data = make_project_dict(name="MyProject")
+    mock_response = _make_mock_response(data)
+    with patch.object(requests.Session, "request", return_value=mock_response):
+        result = get_project(api_call, "MyProject")
+    assert isinstance(result, ProjectInfo)
+    assert result.name == "MyProject"
 
 
 def test_project_info_parses_from_dict() -> None:

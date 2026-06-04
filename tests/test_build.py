@@ -32,6 +32,7 @@ from pyado import (
     post_build_tag,
     start_build,
 )
+from pyado.raw import get_build_log
 from tests.conftest import NOW_ISO, _make_mock_response, make_build_record_dict
 
 
@@ -44,6 +45,20 @@ class TestGetBuildApiCall:
         result = get_build_api_call(api_call, build_id=42)
         url_str = result.url.unicode_string()
         assert "build/builds/42" in url_str
+
+
+class TestGetBuildLog:
+    """Tests for get_build_log."""
+
+    @staticmethod
+    def test_returns_decoded_log_content(api_call: ApiCall) -> None:
+        """Returns log bytes decoded as UTF-8 string."""
+        build_api_call = get_build_api_call(api_call, build_id=42)
+        mock_response = _make_mock_response()
+        mock_response.content = b"build log line 1\nbuild log line 2\n"
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_build_log(build_api_call, 5)
+        assert result == "build log line 1\nbuild log line 2\n"
 
 
 class TestIterBuildWorkItemIds:

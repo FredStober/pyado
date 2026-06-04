@@ -23,6 +23,8 @@ from pyado import (
     WorkItemFieldMap,
     WorkItemInfo,
     WorkItemLink,
+    WorkItemQuery,
+    WorkItemQueryExpand,
     WorkItemRef,
     WorkItemRelation,
     WorkItemRelationType,
@@ -30,9 +32,15 @@ from pyado import (
     add_work_item_attachment,
     add_work_item_link,
     add_work_item_tag,
+    create_area_node,
     create_classification_node,
     create_work_item,
+    delete_work_item,
+    delete_work_item_comment,
+    get_area_node,
     get_classification_node,
+    get_query_folder,
+    get_query_tree,
     get_team_field_values,
     get_work_item,
     get_work_item_api_call,
@@ -41,6 +49,7 @@ from pyado import (
     iter_work_item_comments,
     iter_work_item_details,
     patch_classification_node,
+    patch_work_item_comment,
     post_wiql,
     post_work_item_comment,
     query_work_items,
@@ -627,6 +636,94 @@ class TestAddWorkItemTag:
         assert mock_req.call_count == 1
 
 
+def _make_wit_query_dict(query_id: str = "abc-123", **overrides: Any) -> dict[str, Any]:
+    """Create a minimal valid WorkItemQuery dict."""
+    data: dict[str, Any] = {
+        "id": query_id,
+        "name": "Shared Queries",
+        "isFolder": True,
+        "hasChildren": False,
+        "children": [],
+    }
+    data.update(overrides)
+    return data
+
+
+class TestGetQueryTree:
+    """Tests for get_query_tree."""
+
+    @staticmethod
+    def test_returns_wit_query(api_call: ApiCall) -> None:
+        """Returns a list of WorkItemQuery parsed from the paged response."""
+        response_data = {"count": 1, "value": [_make_wit_query_dict()]}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_query_tree(api_call)
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert isinstance(result[0], WorkItemQuery)
+        assert result[0].id == "abc-123"
+        assert result[0].is_folder is True
+
+    @staticmethod
+    def test_sends_dollar_depth_parameter(api_call: ApiCall) -> None:
+        """Sends $depth (not depth) as the query parameter key."""
+        response_data: dict[str, Any] = {"count": 0, "value": []}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_query_tree(api_call, depth=3)
+        params = mock_req.call_args[1]["params"]
+        assert "$depth" in params
+        assert "depth" not in {k for k in params if k != "$depth"}
+
+    @staticmethod
+    def test_sends_dollar_expand_parameter(api_call: ApiCall) -> None:
+        """Sends $expand as the query parameter key."""
+        response_data: dict[str, Any] = {"count": 0, "value": []}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_query_tree(api_call, expand=WorkItemQueryExpand.CLAUSES)
+        params = mock_req.call_args[1]["params"]
+        assert "$expand" in params
+        assert params["$expand"] == WorkItemQueryExpand.CLAUSES
+
+
+class TestGetQueryFolder:
+    """Tests for get_query_folder."""
+
+    @staticmethod
+    def test_returns_wit_query(api_call: ApiCall) -> None:
+        """Returns a WorkItemQuery parsed from the response."""
+        folder_id = "folder-guid-001"
+        child = _make_wit_query_dict("child-1", name="Sprint Queries", isFolder=False)
+        response_data = _make_wit_query_dict(
+            "folder-guid-001", name="Sprints", hasChildren=True, children=[child]
+        )
+        mock_response = _make_mock_response(response_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_query_folder(api_call, folder_id)
+        assert isinstance(result, WorkItemQuery)
+        assert result.id == folder_id
+        assert len(result.children) == 1
+
+    @staticmethod
+    def test_folder_id_in_url(api_call: ApiCall) -> None:
+        """The folder GUID appears in the request URL."""
+        folder_id = "deadbeef-0000-0000-0000-000000000001"
+        response_data = _make_wit_query_dict(folder_id)
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_query_folder(api_call, folder_id)
+        url_called = mock_req.call_args[1]["url"]
+        assert folder_id in url_called
+
+
 class TestRemoveWorkItemTag:
     """Tests for remove_work_item_tag."""
 
@@ -1066,6 +1163,17 @@ class TestPatchClassificationNode:
         assert sent_json["attributes"]["startDate"] == "2024-03-01T00:00:00Z"
         assert sent_json["attributes"]["finishDate"] == "2024-03-14T00:00:00Z"
 
+    @staticmethod
+    def test_none_path_targets_root(api_call: ApiCall) -> None:
+        """When path is None, the request targets the root iterations endpoint."""
+        mock_response = _make_mock_response({"id": 1, "name": "Iterations"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            patch_classification_node(api_call, None)
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert url.endswith("classificationnodes/iterations")
+
 
 class TestGetTeamFieldValues:
     """Tests for get_team_field_values."""
@@ -1130,3 +1238,219 @@ class TestAddTeamIteration:
             add_team_iteration(api_call, uuid4())
         url = mock_req.call_args.kwargs.get("url", "")
         assert "teamsettings/iterations" in url
+
+
+class TestGetAreaNode:
+    """Tests for get_area_node."""
+
+    @staticmethod
+    def test_returns_classification_node(api_call: ApiCall) -> None:
+        """Returns a ClassificationNode parsed from the response."""
+        node_data = {"id": 1, "name": "Teams", "structureType": "area"}
+        mock_response = _make_mock_response(node_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_area_node(api_call)
+        assert isinstance(result, ClassificationNode)
+        assert result.id == 1
+        assert result.name == "Teams"
+
+    @staticmethod
+    def test_without_path_targets_root(api_call: ApiCall) -> None:
+        """Without a path, requests the area tree root."""
+        mock_response = _make_mock_response({"id": 1, "name": "root"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_area_node(api_call)
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "classificationnodes/areas" in url
+        assert url.endswith("classificationnodes/areas")
+
+    @staticmethod
+    def test_with_path_appends_path_to_url(api_call: ApiCall) -> None:
+        """With a path, the path is appended to the URL (spaces percent-encoded)."""
+        mock_response = _make_mock_response({"id": 2, "name": "Team A"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_area_node(api_call, "Team A")
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "Team%20A" in url
+
+    @staticmethod
+    def test_depth_passed_as_parameter(api_call: ApiCall) -> None:
+        """The depth argument is forwarded as a $depth query parameter."""
+        mock_response = _make_mock_response({"id": 1, "name": "root"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_area_node(api_call, depth=3)
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params.get("$depth") == 3
+
+
+class TestCreateAreaNode:
+    """Tests for create_area_node."""
+
+    @staticmethod
+    def test_returns_identifier_guid(api_call: ApiCall) -> None:
+        """Returns the 'identifier' value from the response."""
+        guid = "aaaabbbb-cccc-dddd-eeee-ffffffffffff"
+        mock_response = _make_mock_response({"identifier": guid, "name": "Team A"})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = create_area_node(api_call, "Team A")
+        assert result == guid
+
+    @staticmethod
+    def test_posts_name_in_body(api_call: ApiCall) -> None:
+        """The request body contains the 'name' field."""
+        mock_response = _make_mock_response({"identifier": "abc", "name": "Team B"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            create_area_node(api_call, "Team B")
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json["name"] == "Team B"
+
+    @staticmethod
+    def test_without_parent_path_targets_root(api_call: ApiCall) -> None:
+        """Without a parent_path, posts to the area root endpoint."""
+        mock_response = _make_mock_response({"identifier": "abc", "name": "Root Child"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            create_area_node(api_call, "Root Child")
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert url.endswith("classificationnodes/areas")
+
+    @staticmethod
+    def test_with_parent_path_appends_to_url(api_call: ApiCall) -> None:
+        """When parent_path is given, it appears in the request URL (spaces encoded)."""
+        mock_response = _make_mock_response({"identifier": "abc", "name": "Child"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            create_area_node(api_call, "Child", "Team A")
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "Team%20A" in url
+
+
+def _make_work_item_comment_dict(comment_id: int = 1) -> dict[str, Any]:
+    """Create a minimal valid WorkItemComment dict."""
+    return {
+        "id": comment_id,
+        "text": "A comment",
+        "version": 1,
+        "createdDate": "2024-01-15T12:00:00+00:00",
+        "modifiedDate": "2024-01-15T12:00:00+00:00",
+        "url": f"https://dev.azure.com/org/proj/_apis/wit/workItems/42/comments/{comment_id}",
+    }
+
+
+class TestDeleteWorkItem:
+    """Tests for delete_work_item."""
+
+    @staticmethod
+    def test_sends_delete_request(work_item_api_call: ApiCall) -> None:
+        """Sends a DELETE request to the work item endpoint."""
+        mock_response = _make_mock_response()
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            delete_work_item(work_item_api_call)
+        assert mock_req.call_args.args[0] == "DELETE"
+
+    @staticmethod
+    def test_returns_none(work_item_api_call: ApiCall) -> None:
+        """Returns None on success."""
+        mock_response = _make_mock_response()
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            delete_work_item(work_item_api_call)
+
+    @staticmethod
+    def test_url_contains_work_item_id(work_item_api_call: ApiCall) -> None:
+        """Request URL contains the work item ID."""
+        mock_response = _make_mock_response()
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            delete_work_item(work_item_api_call)
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert str(WORK_ITEM_ID) in url
+
+
+class TestPatchWorkItemComment:
+    """Tests for patch_work_item_comment."""
+
+    @staticmethod
+    def test_returns_work_item_comment(work_item_api_call: ApiCall) -> None:
+        """Returns a WorkItemComment parsed from the response."""
+        mock_response = _make_mock_response(_make_work_item_comment_dict(5))
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = patch_work_item_comment(work_item_api_call, 5, "updated text")
+        assert isinstance(result, WorkItemComment)
+        assert result.id == 5
+
+    @staticmethod
+    def test_sends_patch_request(work_item_api_call: ApiCall) -> None:
+        """Sends a PATCH request."""
+        mock_response = _make_mock_response(_make_work_item_comment_dict(1))
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            patch_work_item_comment(work_item_api_call, 1, "new text")
+        assert mock_req.call_args.args[0] == "PATCH"
+
+    @staticmethod
+    def test_url_contains_comment_id(work_item_api_call: ApiCall) -> None:
+        """Request URL path includes the comment ID."""
+        mock_response = _make_mock_response(_make_work_item_comment_dict(7))
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            patch_work_item_comment(work_item_api_call, 7, "text")
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "7" in url
+
+    @staticmethod
+    def test_body_contains_text(work_item_api_call: ApiCall) -> None:
+        """Request body contains the new comment text."""
+        mock_response = _make_mock_response(_make_work_item_comment_dict(1))
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            patch_work_item_comment(work_item_api_call, 1, "my updated comment")
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json.get("text") == "my updated comment"
+
+
+class TestDeleteWorkItemComment:
+    """Tests for delete_work_item_comment."""
+
+    @staticmethod
+    def test_sends_delete_request(work_item_api_call: ApiCall) -> None:
+        """Sends a DELETE request."""
+        mock_response = _make_mock_response()
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            delete_work_item_comment(work_item_api_call, 3)
+        assert mock_req.call_args.args[0] == "DELETE"
+
+    @staticmethod
+    def test_returns_none(work_item_api_call: ApiCall) -> None:
+        """Returns None on success."""
+        mock_response = _make_mock_response()
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            delete_work_item_comment(work_item_api_call, 3)
+
+    @staticmethod
+    def test_url_contains_comment_id(work_item_api_call: ApiCall) -> None:
+        """Request URL contains the comment ID."""
+        mock_response = _make_mock_response()
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            delete_work_item_comment(work_item_api_call, 9)
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "9" in url

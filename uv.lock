@@ -78,6 +78,19 @@ wheels = [
 ]
 
 [[package]]
+dependencies = [
+  {name = "requests"},
+  {name = "typing-extensions"}
+]
+name = "azure-core"
+sdist = {url = "https://files.pythonhosted.org/packages/a6/f3/b416179e408990df5db0d516283022dde0f5d0111d98c1a848e41853e81c/azure_core-1.41.0.tar.gz", hash = "sha256:f46ff5dfcd230f25cf1c19e8a34b8dc08a337b2503e268bb600a16c00db8ad5a", size = 381042, upload-time = "2026-05-07T23:30:54.302Z"}
+source = {registry = "https://pypi.org/simple"}
+version = "1.41.0"
+wheels = [
+  {url = "https://files.pythonhosted.org/packages/5b/db/325c6d7312d2200251c52323878281045aaffcb5586612296484e4280eaa/azure_core-1.41.0-py3-none-any.whl", hash = "sha256:522b4011e8180b1a3dcd2024396a4e7fe9ac37fb8597db47163d230b5efe892d", size = 220920, upload-time = "2026-05-07T23:30:56.357Z"}
+]
+
+[[package]]
 name = "babel"
 sdist = {url = "https://files.pythonhosted.org/packages/7d/b2/51899539b6ceeeb420d40ed3cd4b7a40519404f9baf3d4ac99dc413a834b/babel-2.18.0.tar.gz", hash = "sha256:b80b99a14bd085fcacfa15c9165f651fbb3406e66cc603abf11c5750937c992d", size = 9959554, upload-time = "2026-02-01T12:30:56.078Z"}
 source = {registry = "https://pypi.org/simple"}
@@ -691,10 +704,11 @@ dependencies = [
 ]
 name = "pyado"
 source = {editable = "."}
-version = "0.3.3"
+version = "0.4.0"
 
 [package.dev-dependencies]
 dev = [
+  {name = "azure-core"},
   {name = "mypy"},
   {name = "prek"},
   {name = "pytest"},
@@ -711,13 +725,16 @@ docs = [
 ]
 
 [package.metadata]
+provides-extras = ["azure"]
 requires-dist = [
+  {name = "azure-core", marker = "extra == 'azure'", specifier = ">=1.41.0"},
   {name = "pydantic", specifier = ">=2.11.7"},
   {name = "requests", specifier = ">=2.32.2"}
 ]
 
 [package.metadata.requires-dev]
 dev = [
+  {name = "azure-core", specifier = ">=1.41.0"},
   {name = "mypy", specifier = ">=1.15.0"},
   {name = "prek", specifier = ">=0.4.3"},
   {name = "pytest", specifier = ">=9.0.3"},
@@ -730,6 +747,11 @@ docs = [
   {name = "furo", specifier = ">=2024.1.29"},
   {name = "myst-parser", specifier = ">=4.0.0"},
   {name = "sphinx", specifier = ">=8.2.3"}
+]
+
+[package.optional-dependencies]
+azure = [
+  {name = "azure-core"}
 ]
 
 [[package]]
@@ -994,11 +1016,11 @@ wheels = [
 
 [[package]]
 name = "snowballstemmer"
-sdist = {url = "https://files.pythonhosted.org/packages/63/ee/67eef9600338e245ad7838230969a34c823ddbdbccc5e1fc43cd75b55bc9/snowballstemmer-3.1.0.tar.gz", hash = "sha256:fd9e34526b23340cd23ffea6c9f9760974ecc2c2ac9e1d81401443ccdb2a801f", size = 122523, upload-time = "2026-05-24T19:04:19.691Z"}
+sdist = {url = "https://files.pythonhosted.org/packages/43/f8/0a71edf031f03c40db17503cb8ca78a69a171254e568e7db241b0ab57ea1/snowballstemmer-3.1.1.tar.gz", hash = "sha256:e07bbc54a0d798fe6010a12398422e62a8bfbba95c394fd0956ef58cb4d3e260", size = 123314, upload-time = "2026-06-03T00:56:40.194Z"}
 source = {registry = "https://pypi.org/simple"}
-version = "3.1.0"
+version = "3.1.1"
 wheels = [
-  {url = "https://files.pythonhosted.org/packages/49/83/ddbf4533c62dd32667ef1238952abef155f3d3391f5be69a352ad1638a42/snowballstemmer-3.1.0-py3-none-any.whl", hash = "sha256:17e6d1da216aa07db6dad37139ea70cf13c4b2e9a096f6e64a9648fc657d3154", size = 104550, upload-time = "2026-05-24T19:04:18.026Z"}
+  {url = "https://files.pythonhosted.org/packages/4c/07/2ebca9b11fb9be7340a818d8d6f63feaebb146be2c4afbd6061701d6df6e/snowballstemmer-3.1.1-py3-none-any.whl", hash = "sha256:7e207fa178741da09cdee59d3ecec3827ad5f92b1fc5c9ff3755b639f71f5752", size = 104164, upload-time = "2026-06-03T00:56:38.614Z"}
 ]
 
 [[package]]

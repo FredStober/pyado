@@ -37,6 +37,9 @@ __all__ = [
     "PipelineApprovalStep",
     "PipelineApprovalUpdateRequest",
     "PipelineInfo",
+    "PipelinePermissionEntry",
+    "PipelineResourcePermissions",
+    "PipelineResourceType",
     "PipelineRunInfo",
     "PipelineRunRequest",
     "PipelineRunResult",
@@ -57,6 +60,7 @@ __all__ = [
     "post_job_event",
     "post_job_feed",
     "post_job_logs",
+    "post_pipeline_permission",
     "post_pipeline_run",
 ]
 
@@ -138,6 +142,7 @@ class PipelineRunInfo(BaseModel):
         alias="templateParameters", default=None
     )
     variables: dict[str, VariableInfo] | None = None
+    final_yaml: str | None = Field(alias="finalYaml", default=None)
 
 
 class _PipelineRunListResults(BaseModel):
@@ -190,7 +195,7 @@ class PipelineApprovalStep(BaseModel):
     """A single step within a pipeline approval."""
 
     assigned_approver: _IdentityRef = Field(alias="assignedApprover")
-    status: str
+    status: PipelineApprovalStatus
     actual_approver: _IdentityRef | None = Field(alias="actualApprover", default=None)
     comment: str | None = None
 
@@ -548,6 +553,43 @@ def iter_approvals(
     yield from _PipelineApprovalResults.model_validate(response).value
 
 
+class PipelineResourceType(StrEnum):
+    """Resource type values for the pipeline resource permissions endpoint."""
+
+    ENDPOINT = "endpoint"
+    ENVIRONMENT = "environment"
+    QUEUE = "queue"
+    REPOSITORY = "repository"
+    SECURE_FILE = "securefile"
+    VARIABLE_GROUP = "variablegroup"
+
+
+class PipelinePermissionEntry(BaseModel):
+    """Authorization state for a single pipeline or the all-pipelines wildcard."""
+
+    authorized: bool
+    authorized_by: _IdentityRef | None = Field(alias="authorizedBy", default=None)
+    authorized_on: datetime | None = Field(alias="authorizedOn", default=None)
+    id: int | None = None
+
+
+class PipelineResourcePermissions(BaseModel):
+    """Resource-level permissions response from the pipelinepermissions endpoint."""
+
+    resource: PipelinePermissionEntry | None = None
+    all_pipelines: PipelinePermissionEntry | None = Field(
+        alias="allPipelines", default=None
+    )
+    pipelines: list[PipelinePermissionEntry] = []
+
+
+class _PipelinePermissionRequest(BaseModel):
+    """Internal: single-pipeline authorization request body."""
+
+    authorized: bool
+    id: int = Field(serialization_alias="id")
+
+
 def patch_approvals(
     project_api_call: ApiCall,
     updates: list[PipelineApprovalUpdateRequest],
@@ -564,3 +606,50 @@ def patch_approvals(
         version="7.1-preview.1",
         json=[u.model_dump(mode="json", by_alias=True) for u in updates],
     )
+
+
+def post_pipeline_permission(
+    project_api_call: ApiCall,
+    resource_type: PipelineResourceType,
+    resource_id: str,
+    pipeline_id: int,
+    *,
+    authorized: bool,
+) -> PipelineResourcePermissions:
+    """Authorize or de-authorize a pipeline to use a protected resource.
+
+    Maps to ``POST /{project}/_apis/pipelines/pipelinepermissions/{type}/{id}``.
+
+    **Important — additive semantics:** this endpoint only *adds* authorizations;
+    it never removes existing ones.  There is no bulk-replace endpoint.  To
+    remove a pipeline authorization you must use the ADO web UI or compare the
+    current ADO state against your expected configuration and handle the delta
+    manually.
+
+    Args:
+        project_api_call: Project-level ADO API call.
+        resource_type: The resource category (e.g.
+            ``PipelineResourceType.VARIABLE_GROUP``).
+        resource_id: String identifier of the resource (numeric ID as a string
+            for variable groups and queues; GUID string for environments).
+        pipeline_id: Numeric pipeline ID to authorize.
+        authorized: ``True`` to grant access, ``False`` to revoke.
+
+    Returns:
+        PipelineResourcePermissions reflecting the updated state of the
+        resource's authorization list.
+    """
+    body = [
+        _PipelinePermissionRequest(authorized=authorized, id=pipeline_id).model_dump(
+            mode="json", by_alias=True
+        )
+    ]
+    response = project_api_call.post(
+        "pipelines",
+        "pipelinepermissions",
+        str(resource_type),
+        resource_id,
+        version="7.1-preview.1",
+        json=body,
+    )
+    return PipelineResourcePermissions.model_validate(response)

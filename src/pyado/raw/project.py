@@ -17,6 +17,7 @@ __all__ = [
     "ProjectName",
     "ProjectState",
     "ProjectVisibility",
+    "get_project",
     "iter_projects",
 ]
 
@@ -60,6 +61,20 @@ class _ProjectListResults(BaseModel):
     """Internal: container for project list results."""
 
     value: list[ProjectInfo]
+
+
+def get_project(org_api_call: ApiCall, name: str) -> ProjectInfo:
+    """Return details for a single project by name or UUID string.
+
+    Args:
+        org_api_call: Organisation-level ADO API call.
+        name: Project name (case-sensitive) or UUID string.
+
+    Returns:
+        ProjectInfo for the requested project.
+    """
+    response = org_api_call.get("projects", name, version="7.1-preview.1")
+    return ProjectInfo.model_validate(response)
 
 
 def iter_projects(base_api_call: ApiCall) -> Iterator[ProjectInfo]:
