@@ -2,11 +2,12 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from pyado import high, raw
+from pyado import raw
+from pyado.oop import _build
 from pyado.oop.active_build_task import ActiveBuildTask
 from pyado.oop.build_timeline import BuildJob, BuildPhase, BuildStage, BuildTask
 from pyado.oop.pipeline import Pipeline
@@ -14,7 +15,9 @@ from pyado.raw import (
     ApiCall,
     BuildArtifact,
     BuildDetails,
+    BuildExpand,
     BuildLogId,
+    BuildLogInfo,
     BuildRecordInfo,
     BuildRecordType,
     BuildResult,
@@ -31,6 +34,7 @@ if TYPE_CHECKING:
     from pyado.oop.organization import Organization
     from pyado.oop.project import Project
     from pyado.oop.service import AzureDevOpsService
+    from pyado.oop.work_item import WorkItem
 
 __all__ = [
     "Build",
@@ -78,7 +82,8 @@ class Build:
         self._project = project
         self._service = service
         self._api_call = build_api_call
-        self._info = info
+        self._info: BuildDetails | None = info
+        self._expand: BuildExpand | None = None
 
     # ------------------------------------------------------------------
     # Properties
@@ -87,22 +92,24 @@ class Build:
     @property
     def info(self) -> BuildDetails:
         """Build data captured at construction time (or last refresh)."""
+        if self._info is None:
+            self._info = raw.get_build_details(self._api_call, expand=self._expand)
         return self._info
 
     @property
     def id(self) -> int:
         """Numeric build ID."""
-        return self._info.id
+        return self.info.id
 
     @property
     def status(self) -> BuildStatus:
         """Current build status."""
-        return self._info.status
+        return self.info.status
 
     @property
     def number(self) -> str:
         """Build number string (e.g. ``"20240101.1"``)."""
-        return self._info.build_number
+        return self.info.build_number
 
     @property
     def result(self) -> BuildResult | None:
@@ -110,22 +117,46 @@ class Build:
 
         ``None`` while the build is still running.
         """
-        return self._info.result
+        return self.info.result
 
     @property
     def source_branch(self) -> str:
         """Source branch used for this build (e.g. ``"refs/heads/main"``)."""
-        return self._info.source_branch
+        return self.info.source_branch
 
     @property
     def start_time(self) -> datetime | None:
         """UTC datetime when the build started, or ``None`` if not yet started."""
-        return self._info.start_time
+        return self.info.start_time
 
     @property
     def finish_time(self) -> datetime | None:
         """UTC datetime when the build finished, or ``None`` if not yet complete."""
-        return self._info.finish_time
+        return self.info.finish_time
+
+    @property
+    def queue_time(self) -> datetime | None:
+        """UTC datetime when the build was queued, or ``None`` if not available."""
+        return self.info.queue_time
+
+    @property
+    def source_version(self) -> str:
+        """Commit SHA that triggered this build."""
+        return self.info.source_version
+
+    @property
+    def requested_by(self) -> str:
+        """Display name of the identity that queued the build."""
+        return self.info.requested_by.display_name
+
+    @property
+    def requested_for(self) -> str | None:
+        """Display name of the identity the build was requested for, or ``None``.
+
+        For CI builds this is usually the commit author; for manually-queued
+        builds it may differ from :attr:`requested_by`.
+        """
+        return self.info.requested_for.display_name if self.info.requested_for else None
 
     @property
     def api_call(self) -> ApiCall:
@@ -150,7 +181,7 @@ class Build:
         cache using the definition id and name embedded in the build info.
         No API call is made unless :attr:`Pipeline.info` is accessed.
         """
-        defn = self._info.definition
+        defn = self.info.definition
         cache_key = str(self._project.api_call.url) + "/pipelines/" + str(defn.id)
         return self._service.oop_api.get_or_cache(
             cache_key,
@@ -161,40 +192,57 @@ class Build:
     # Refresh
     # ------------------------------------------------------------------
 
-    def refresh(self) -> None:
-        """Re-fetch build info from the API immediately."""
-        self._info = raw.get_build_details(self._api_call)
+    def refresh(self, expand: BuildExpand | None = None) -> None:
+        """Discard cached build info.
+
+        The next access to :attr:`info` re-fetches from the API.
+
+        Args:
+            expand: Optional ``$expand`` value to use on the next fetch.
+                When provided, replaces any previously stored expand value;
+                when ``None``, previously stored expand is preserved.
+        """
+        if expand is not None:
+            self._expand = expand
+        self._info = None
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def cancel(self) -> BuildDetails:
+    def update(self, status: BuildStatus) -> None:
+        """Update the status of this build.
+
+        Args:
+            status: New build status to set (e.g.
+                ``BuildStatus.CANCELLING``).
+        """
+        self._info = raw.patch_build(self._api_call, status)
+
+    def cancel(self) -> None:
         """Request cancellation of this running build.
 
-        Returns:
-            BuildDetails with status ``"cancelling"``; transitions to
-            ``"completed"`` with result ``"canceled"`` once the agent
-            acknowledges.
+        Updates the wrapper's cached info to reflect the cancelling state.
+        Read :attr:`info` after the call to inspect the cancelling state
+        without a separate :meth:`refresh` call.
         """
-        return high.cancel_build(self._api_call)
+        self._info = _build.cancel_build(self._api_call)
 
     def cancel_run(self) -> PipelineRunInfo:
-        """Request cancellation of this build via the Pipelines v2 endpoint.
+        """Cancel this build via the Pipelines v2 API.
 
-        Use this when the build was queued through a Pipelines v2 definition
-        and you need the run to reflect a ``"canceling"`` state via that API.
-        For classic builds use :meth:`cancel` instead.
+        Delegates to :func:`~pyado.oop._build.cancel_pipeline_run`, which
+        uses the Build API to request cancellation and then re-fetches the
+        run via the Pipelines API.  Use :meth:`cancel` instead when you only
+        need a :class:`~pyado.raw.BuildDetails` response.
 
         Returns:
-            PipelineRunInfo with state ``"canceling"``; transitions to
-            ``"completed"`` with result ``"canceled"`` once the agent
-            acknowledges.
+            PipelineRunInfo reflecting the cancelling/canceled state.
         """
-        return high.cancel_pipeline_run(
+        return _build.cancel_pipeline_run(
             self._project.api_call,
-            self._info.definition.id,
-            self.id,
+            self.info.definition.id,
+            self.info.id,
         )
 
     # ------------------------------------------------------------------
@@ -208,6 +256,17 @@ class Build:
             BuildArtifact for each artifact associated with the build.
         """
         yield from raw.iter_build_artifacts(self._api_call)
+
+    def download_artifact(self, artifact: BuildArtifact) -> bytes | None:
+        """Download the bytes of a build artifact.
+
+        Args:
+            artifact: A BuildArtifact obtained from :meth:`iter_artifacts`.
+
+        Returns:
+            Raw artifact bytes, or ``None`` if no download URL is available.
+        """
+        return raw.get_build_artifact_bytes(self._api_call, artifact)
 
     # ------------------------------------------------------------------
     # Tags
@@ -228,7 +287,9 @@ class Build:
             tag: Tag name to add.
 
         Returns:
-            Updated list of tag name strings.
+            Updated list of all tag name strings on the build after the
+            operation.  ADO returns the full tag list; this is a direct
+            pass-through.
         """
         return raw.post_build_tag(self._api_call, tag)
 
@@ -239,7 +300,9 @@ class Build:
             tag: Tag name to remove.
 
         Returns:
-            Updated list of tag name strings.
+            Updated list of all tag name strings on the build after the
+            operation.  ADO returns the full tag list; this is a direct
+            pass-through.
         """
         return raw.delete_build_tag(self._api_call, tag)
 
@@ -254,6 +317,29 @@ class Build:
             BuildRecordInfo for each timeline entry.
         """
         yield from raw.iter_timeline_records(self._api_call)
+
+    def find_task(
+        self, predicate: Callable[[BuildRecordInfo], bool]
+    ) -> BuildRecordInfo | None:
+        """Return the first timeline record for which *predicate* returns True.
+
+        Fetches all timeline records in one API call, then returns the first
+        record for which *predicate* returns ``True``, or ``None`` if no
+        record matches.
+
+        Args:
+            predicate: A callable that accepts a
+                :class:`~pyado.raw.BuildRecordInfo` and returns ``True`` when
+                it is the desired record.
+
+        Returns:
+            The first matching :class:`~pyado.raw.BuildRecordInfo`, or
+            ``None`` if no record satisfies *predicate*.
+        """
+        for record in raw.iter_timeline_records(self._api_call):
+            if predicate(record):
+                return record
+        return None
 
     def iter_stages(self) -> Iterator[BuildStage]:
         """Iterate over the stages of the build.
@@ -272,7 +358,7 @@ class Build:
                 yield BuildStage(record, all_records, build=self)
 
     # ------------------------------------------------------------------
-    # Work items
+    # Logs
     # ------------------------------------------------------------------
 
     def get_log_text(self, log_id: BuildLogId) -> str:
@@ -288,15 +374,91 @@ class Build:
         """
         return raw.get_build_log(self._api_call, log_id)
 
+    def iter_logs(self) -> Iterator[BuildLogInfo]:
+        """Iterate over all log entries for this build.
+
+        Yields:
+            BuildLogInfo for each log container associated with the build.
+        """
+        yield from raw.iter_build_logs(self._api_call)
+
+    def get_all_log_text(self, *, separator: str = "\n") -> str:
+        r"""Fetch and concatenate the text of every build log.
+
+        Makes one API call to list all log IDs, then one call per log to
+        fetch the text.  Logs are joined with *separator*.
+
+        Args:
+            separator: String inserted between consecutive log texts
+                (default: ``"\n"``).
+
+        Returns:
+            All log content as a single string.
+        """
+        return separator.join(
+            raw.get_build_log(self._api_call, log.id)
+            for log in raw.iter_build_logs(self._api_call)
+        )
+
+    # ------------------------------------------------------------------
+    # Work items
+    # ------------------------------------------------------------------
+
     def iter_work_item_ids(self) -> Iterator[WorkItemId]:
         """Iterate over work item IDs associated with the build.
 
         Yields:
             Integer work item IDs linked to this build.
         """
-        yield from high.iter_build_work_item_ids(self._api_call)
+        yield from _build.iter_build_work_item_ids(self._api_call)
+
+    def iter_work_items(self) -> "Iterator[WorkItem]":
+        """Iterate over work items associated with the build.
+
+        Convenience wrapper that resolves the linked IDs via
+        :meth:`iter_work_item_ids` and then fetches the work item details in
+        a single batch call.
+
+        Yields:
+            WorkItem for each linked work item.
+        """
+        ids = list(self.iter_work_item_ids())
+        if ids:
+            yield from self._project.get_work_items(ids)
 
     def iter_work_items_between(
+        self,
+        older_build: "Build",
+        *,
+        top: int | None = None,
+    ) -> "Iterator[WorkItem]":
+        """Iterate over work items in the range (older_build, this build].
+
+        Fetches the work item IDs via
+        :func:`~pyado.raw.iter_work_items_between_builds`, then resolves them
+        in a single batch call.
+
+        Args:
+            older_build: The earlier build that marks the exclusive lower
+                bound of the range.
+            top: Optional cap on the number of work items returned.
+
+        Yields:
+            WorkItem for each work item in the build range.
+        """
+        ids = [
+            ref.id
+            for ref in raw.iter_work_items_between_builds(
+                self._project.api_call,
+                older_build.id,
+                self.id,
+                top=top,
+            )
+        ]
+        if ids:
+            yield from self._project.get_work_items(ids)
+
+    def iter_work_item_ids_between(
         self,
         older_build: "Build",
         *,
@@ -371,10 +533,56 @@ class Build:
         Returns:
             A new :class:`Build` object for the queued build run.
         """
-        new_details = high.start_build(
+        new_details = _build.start_build(
             self._project.api_call,
-            self._info.definition.id,
-            source_branch=self._info.source_branch,
+            self.info.definition.id,
+            source_branch=self.info.source_branch,
         )
         new_api_call = raw.get_build_api_call(self._project.api_call, new_details.id)
         return Build(self._project, new_api_call, new_details, self._service)
+
+    def list_artifacts(self) -> list[BuildArtifact]:
+        """Return all artifacts for this build as a list."""
+        return list(self.iter_artifacts())
+
+    def list_tags(self) -> list[str]:
+        """Return all tags for this build as a list."""
+        return list(self.iter_tags())
+
+    def list_timeline_records(self) -> list[BuildRecordInfo]:
+        """Return all timeline records for this build as a list."""
+        return list(self.iter_timeline_records())
+
+    def list_stages(self) -> list[BuildStage]:
+        """Return all stages for this build as a list."""
+        return list(self.iter_stages())
+
+    def list_logs(self) -> list[BuildLogInfo]:
+        """Return all log entries for this build as a list."""
+        return list(self.iter_logs())
+
+    def list_work_item_ids(self) -> list[WorkItemId]:
+        """Return all work item IDs for this build as a list."""
+        return list(self.iter_work_item_ids())
+
+    def list_work_items(self) -> "list[WorkItem]":
+        """Return all work items for this build as a list."""
+        return list(self.iter_work_items())
+
+    def list_work_items_between(
+        self,
+        older_build: "Build",
+        *,
+        top: int | None = None,
+    ) -> "list[WorkItem]":
+        """Return all work items between two builds as a list."""
+        return list(self.iter_work_items_between(older_build, top=top))
+
+    def list_work_item_ids_between(
+        self,
+        older_build: "Build",
+        *,
+        top: int | None = None,
+    ) -> list[WorkItemId]:
+        """Return all work item IDs between two builds as a list."""
+        return list(self.iter_work_item_ids_between(older_build, top=top))

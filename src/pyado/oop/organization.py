@@ -124,8 +124,9 @@ class Organization:
         Returns:
             ApiCall scoped to the vssps endpoint for this organisation.
         """
-        org_name = self._service.oop_api.org_url.rstrip("/").split("/")[-1]
-        return raw.get_vssps_api_call(self._service.oop_api.token, org_name)
+        return raw.get_vssps_api_call(
+            self._service.oop_api.token, self._service.oop_api.org_name
+        )
 
     def get_identities(self, descriptors: list[str]) -> list[IdentityInfo]:
         """Return identity info for a list of subject descriptors.
@@ -145,3 +146,11 @@ class Organization:
             GraphGroup for each group in the organisation.
         """
         yield from raw.iter_graph_groups(self._vssps_api_call())
+
+    def list_projects(self) -> list[Project]:
+        """Return all projects in this organisation as a list."""
+        return list(self.iter_projects())
+
+    def list_graph_groups(self) -> list[GraphGroup]:
+        """Return all graph groups in this organisation as a list."""
+        return list(self.iter_graph_groups())

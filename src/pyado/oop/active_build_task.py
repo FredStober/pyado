@@ -4,7 +4,8 @@
 
 from typing import TYPE_CHECKING
 
-from pyado import high, raw
+from pyado import raw
+from pyado.oop import _build
 from pyado.oop.build_timeline import BuildJob, BuildTask
 from pyado.raw import (
     ApiCall,
@@ -97,10 +98,6 @@ class ActiveBuildTask(BuildTask):
         if self._record is None:
             self._record = self.get_record()
         return self._record
-
-    # ------------------------------------------------------------------
-    # Navigation (zero-cost)
-    # ------------------------------------------------------------------
 
     @property
     def build(self) -> "Build":
@@ -243,7 +240,7 @@ class ActiveBuildTask(BuildTask):
         Args:
             messages: Log lines to append to the feed.
         """
-        high.send_job_feed(self._make_job_api_call(), messages)
+        _build.send_job_feed(self._make_job_api_call(), messages)
 
     def send_log(self, message: str) -> None:
         """Append a message to the task's persistent log.
@@ -261,14 +258,16 @@ class ActiveBuildTask(BuildTask):
         """Send messages to both the task feed and the task log.
 
         Uses the ``7.1-preview.1`` distributed-task API for both operations.
+        All messages are joined with newlines into a single log entry.
+
+        Breaking change: previously each message was sent as a separate log
+        entry; now all messages are combined into one ``post_job_logs`` call.
 
         Args:
             messages: Log lines to append to both feed and persistent log.
         """
-        high.send_job_feed(self._make_job_api_call(), messages)
-        log_api_call = self._make_log_api_call()
-        for message in messages:
-            raw.post_job_logs(log_api_call, message)
+        _build.send_job_feed(self._make_job_api_call(), messages)
+        raw.post_job_logs(self._make_log_api_call(), "\n".join(messages))
 
     def add_issues(self, issues: list[BuildIssue]) -> None:
         """Append issues to this task's timeline record.
@@ -281,7 +280,7 @@ class ActiveBuildTask(BuildTask):
         """
         record = self._resolve()
         updated = record.model_copy(update={"issues": (record.issues or []) + issues})
-        high.update_timeline_records(self._make_timeline_api_call(), [updated])
+        _build.update_timeline_records(self._make_timeline_api_call(), [updated])
 
     def complete(self, *, succeeded: bool) -> None:
         """Signal task completion to the pipeline.
@@ -291,7 +290,7 @@ class ActiveBuildTask(BuildTask):
                 failure.
         """
         result = JobEventResult.SUCCEEDED if succeeded else JobEventResult.FAILED
-        high.send_job_event(
+        _build.send_job_event(
             self._make_plan_api_call(),
             self._task_instance_id,
             self._job_id,

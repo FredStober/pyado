@@ -4,7 +4,8 @@
 
 from typing import TYPE_CHECKING, Any
 
-from pyado import high, raw
+from pyado import raw
+from pyado.oop import _variable_group
 from pyado.raw import (
     ApiCall,
     VariableGroupId,
@@ -54,7 +55,7 @@ class VariableGroup:
         """
         self._project = project
         self._api_call = variable_group_api_call
-        self._info = info
+        self._info: VariableGroupInfo | None = info
 
     # ------------------------------------------------------------------
     # Properties
@@ -63,22 +64,24 @@ class VariableGroup:
     @property
     def info(self) -> VariableGroupInfo:
         """Variable group data captured at construction time."""
+        if self._info is None:
+            self._info = raw.get_variable_group_details(self._api_call)
         return self._info
 
     @property
     def id(self) -> VariableGroupId:
         """Numeric variable group ID."""
-        return self._info.id
+        return self.info.id
 
     @property
     def name(self) -> str:
         """Variable group name."""
-        return self._info.name
+        return self.info.name
 
     @property
     def variables(self) -> dict[str, VariableInfo]:
         """Current variable mapping (name → VariableInfo)."""
-        return self._info.variables
+        return self.info.variables
 
     @property
     def api_call(self) -> ApiCall:
@@ -107,12 +110,12 @@ class VariableGroup:
         field (returns ``null``), we construct the entry from the owning
         project's id and name.
         """
-        if self._info.variable_group_refs:
-            return self._info.variable_group_refs
+        if self.info.variable_group_refs:
+            return self.info.variable_group_refs
         return [
             VariableGroupProjectReference.model_validate(
                 {
-                    "name": self._info.name,
+                    "name": self.info.name,
                     "projectReference": {
                         "id": str(self._project.id),
                         "name": self._project.name,
@@ -143,9 +146,9 @@ class VariableGroup:
             provider_data: Optional provider-specific configuration object
                 (e.g. key vault settings).
         """
-        self._info = high.update_variable_group(
+        self._info = _variable_group.update_variable_group(
             self._api_call,
-            name if name is not None else self._info.name,
+            name if name is not None else self.info.name,
             variables,
             self._project_refs(),
             description=description,
@@ -165,7 +168,7 @@ class VariableGroup:
             value: New value for the variable.
             is_secret: When ``True`` the variable is marked as secret.
         """
-        updated = dict(self._info.variables)
+        updated = dict(self.info.variables)
         updated[var_name] = VariableInfo.model_validate(
             {"value": value, "isSecret": is_secret}
         )
@@ -180,7 +183,7 @@ class VariableGroup:
         Raises:
             KeyError: If the variable does not exist in the group.
         """
-        updated = dict(self._info.variables)
+        updated = dict(self.info.variables)
         if var_name not in updated:
             raise KeyError(var_name)
         del updated[var_name]
@@ -191,8 +194,15 @@ class VariableGroup:
     # ------------------------------------------------------------------
 
     def refresh(self) -> None:
-        """Re-fetch variable group info from the API immediately."""
-        for info in raw.iter_variable_group_details(self._project.api_call):
-            if info.id == self._info.id:
-                self._info = info
-                return
+        """Discard cached variable group info.
+
+        The next access to :attr:`info` re-fetches from the API.
+        """
+        self._info = None
+
+    def delete(self) -> None:
+        """Delete this variable group from the project.
+
+        The deletion is permanent and cannot be undone via the API.
+        """
+        raw.delete_variable_group(self._api_call)

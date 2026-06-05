@@ -4,6 +4,7 @@
 
 import json as _json
 from collections.abc import Iterator
+from contextlib import suppress
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -12,7 +13,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_serializer
 from pydantic.networks import AnyUrl
 
-from pyado.raw._core import ADOUrl, ApiCall, _IdentityRef
+from pyado.raw._core import ADOUrl, ApiCall, _get_session, _IdentityRef
 from pyado.raw.project import ProjectInfo
 from pyado.raw.work_item import WorkItemRef, _WorkItemRefResults
 
@@ -21,6 +22,7 @@ __all__ = [
     "BuildArtifactResource",
     "BuildAttemptInfo",
     "BuildDetails",
+    "BuildExpand",
     "BuildId",
     "BuildIssue",
     "BuildIssueType",
@@ -43,9 +45,11 @@ __all__ = [
     "TimelineId",
     "delete_build_tag",
     "get_build_api_call",
+    "get_build_artifact_bytes",
     "get_build_details",
     "get_build_log",
     "iter_build_artifacts",
+    "iter_build_logs",
     "iter_build_tags",
     "iter_build_work_item_ids",
     "iter_builds",
@@ -74,6 +78,18 @@ class BuildStatus(StrEnum):
     NONE = "none"
     NOT_STARTED = "notStarted"
     POSTPONED = "postponed"
+
+
+class BuildExpand(StrEnum):
+    """Expand options for build fetch requests."""
+
+    NONE = "none"
+    TRIGGERS = "triggers"
+    VARIABLES = "variables"
+    TAGS = "tags"
+    PROJECT = "project"
+    RETENTION_RULES = "retentionRules"
+    ALL = "all"
 
 
 class BuildResult(StrEnum):
@@ -168,6 +184,9 @@ class BuildLogInfo(BaseModel, extra="forbid"):
     id: BuildLogId
     log_type: BuildLogType = Field(alias="type")
     url: ADOUrl
+    line_count: int | None = Field(alias="lineCount", default=None)
+    created_on: datetime | None = Field(alias="createdOn", default=None)
+    last_changed_on: datetime | None = Field(alias="lastChangedOn", default=None)
 
 
 class BuildRecordTypeInfo(BaseModel, extra="forbid"):
@@ -459,6 +478,10 @@ def get_build_api_call(project_api_call: ApiCall, build_id: BuildId) -> ApiCall:
 def iter_build_artifacts(build_api_call: ApiCall) -> Iterator[BuildArtifact]:
     """Iterate over artifacts produced by a build.
 
+    Note:
+        Issues a single HTTP request — the ADO artifacts endpoint returns all
+        artifacts in one response and does not support pagination parameters.
+
     Args:
         build_api_call: Build-level ADO API call (from get_build_api_call).
 
@@ -471,6 +494,10 @@ def iter_build_artifacts(build_api_call: ApiCall) -> Iterator[BuildArtifact]:
 
 def iter_build_tags(build_api_call: ApiCall) -> Iterator[str]:
     """Iterate over tags attached to a build.
+
+    Note:
+        Issues a single HTTP request — the ADO tags endpoint returns all tags
+        in one response and does not support pagination parameters.
 
     Args:
         build_api_call: Build-level ADO API call (from get_build_api_call).
@@ -499,6 +526,11 @@ def post_build_tag(build_api_call: ApiCall, tag: str) -> list[str]:
 def delete_build_tag(build_api_call: ApiCall, tag: str) -> list[str]:
     """Remove a tag from a build.
 
+    Note:
+        Returns the updated tag list (not ``None``) — this is intentional ADO
+        behaviour.  The DELETE endpoint always returns the full list of
+        remaining tags after the operation.
+
     Args:
         build_api_call: Build-level ADO API call (from get_build_api_call).
         tag: The tag string to remove.
@@ -512,6 +544,11 @@ def delete_build_tag(build_api_call: ApiCall, tag: str) -> list[str]:
 
 def iter_timeline_records(build_api_call: ApiCall) -> Iterator[BuildRecordInfo]:
     """Iterate over task records in the build timeline.
+
+    Note:
+        Issues a single HTTP request — the ADO timeline endpoint returns a
+        single ``Timeline`` object containing all records at once and does not
+        support pagination parameters.
 
     Reference: https://github.com/MicrosoftDocs/vsts-rest-api-specs/blob/master
     /specification/build/7.1/build.json#L2478
@@ -530,16 +567,24 @@ def iter_timeline_records(build_api_call: ApiCall) -> Iterator[BuildRecordInfo]:
     yield from results.records
 
 
-def get_build_details(build_api_call: ApiCall) -> BuildDetails:
+def get_build_details(
+    build_api_call: ApiCall,
+    *,
+    expand: BuildExpand | None = None,
+) -> BuildDetails:
     """Return the top-level details of a build run.
 
     Args:
         build_api_call: Build-level ADO API call (from get_build_api_call).
+        expand: Optional ``$expand`` value to request additional fields.
 
     Returns:
         BuildDetails for the build.
     """
-    response = build_api_call.get(version="7.1")
+    response = build_api_call.get(
+        parameters={"$expand": expand} if expand is not None else None,
+        version="7.1",
+    )
     return BuildDetails.model_validate(response)
 
 
@@ -557,8 +602,69 @@ def get_build_log(build_api_call: ApiCall, log_id: BuildLogId) -> str:
     return raw_bytes.decode("utf-8")
 
 
+def get_build_artifact_bytes(
+    build_api_call: ApiCall,
+    artifact: BuildArtifact,
+) -> bytes | None:
+    """Download the bytes of a build artifact.
+
+    Uses the ``downloadUrl`` from ``artifact.resource``.  Returns ``None``
+    when the artifact has no download URL (e.g. pipeline artifacts that
+    require a separate API call to locate).
+
+    Args:
+        build_api_call: Build-level API call (for auth and timeout).
+        artifact: BuildArtifact whose bytes to download.
+
+    Returns:
+        Raw artifact bytes, or ``None`` if no download URL is available.
+
+    Raises:
+        RuntimeError: If the HTTP response indicates an error.
+    """
+    download_url = artifact.resource.download_url
+    if download_url is None:
+        return None
+    session = (
+        build_api_call.session
+        if build_api_call.session is not None
+        else _get_session(build_api_call.access_token)
+    )
+    response = session.get(str(download_url), timeout=build_api_call.timeout)
+    try:
+        response.raise_for_status()
+    except Exception as ex:
+        with suppress(Exception):
+            raise RuntimeError(response.json()["message"]) from ex
+        raise RuntimeError(repr(response.content)) from ex
+    return response.content
+
+
+class _BuildLogResults(BaseModel):
+    """Internal: container for build log list results."""
+
+    value: list[BuildLogInfo]
+
+
+def iter_build_logs(build_api_call: ApiCall) -> Iterator[BuildLogInfo]:
+    """Iterate over all log entries for a build.
+
+    Calls ``GET build/builds/{id}/logs``, which returns metadata for every
+    log container associated with the build.
+
+    Args:
+        build_api_call: Build-level ADO API call (from get_build_api_call).
+
+    Yields:
+        BuildLogInfo for each log entry, in ADO-returned order.
+    """
+    response = build_api_call.get("logs", version="7.1")
+    yield from _BuildLogResults.model_validate(response).value
+
+
 def iter_builds(
     project_api_call: ApiCall,
+    *,
     search_criteria: BuildSearchCriteria | None = None,
 ) -> Iterator[BuildDetails]:
     """Iterate over build runs in the project.
@@ -645,3 +751,58 @@ def iter_pipeline_definitions(
         version="7.1",
     )
     yield from _PipelineDefinitionResults.model_validate(response).value
+
+
+def list_build_work_item_ids(build_api_call: ApiCall) -> list[WorkItemRef]:
+    """Return all work item IDs for a build as a list."""
+    return list(iter_build_work_item_ids(build_api_call))
+
+
+def list_work_items_between_builds(
+    project_api_call: ApiCall,
+    from_build_id: BuildId,
+    to_build_id: BuildId,
+    top: int | None = None,
+) -> list[WorkItemRef]:
+    """Return all work items between two builds as a list."""
+    return list(
+        iter_work_items_between_builds(
+            project_api_call, from_build_id, to_build_id, top=top
+        )
+    )
+
+
+def list_build_artifacts(build_api_call: ApiCall) -> list[BuildArtifact]:
+    """Return all artifacts for a build as a list."""
+    return list(iter_build_artifacts(build_api_call))
+
+
+def list_build_tags(build_api_call: ApiCall) -> list[str]:
+    """Return all tags for a build as a list."""
+    return list(iter_build_tags(build_api_call))
+
+
+def list_timeline_records(build_api_call: ApiCall) -> list[BuildRecordInfo]:
+    """Return all timeline records for a build as a list."""
+    return list(iter_timeline_records(build_api_call))
+
+
+def list_build_logs(build_api_call: ApiCall) -> list[BuildLogInfo]:
+    """Return all log entries for a build as a list."""
+    return list(iter_build_logs(build_api_call))
+
+
+def list_builds(
+    project_api_call: ApiCall,
+    search_criteria: BuildSearchCriteria | None = None,
+) -> list[BuildDetails]:
+    """Return all builds matching the given criteria as a list."""
+    return list(iter_builds(project_api_call, search_criteria=search_criteria))
+
+
+def list_pipeline_definitions(
+    project_api_call: ApiCall,
+    name_filter: str | None = None,
+) -> list[PipelineDefinitionInfo]:
+    """Return all pipeline definitions as a list."""
+    return list(iter_pipeline_definitions(project_api_call, name_filter=name_filter))

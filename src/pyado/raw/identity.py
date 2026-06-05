@@ -38,7 +38,7 @@ class IdentityInfo(BaseModel):
 class _IdentityInfoResults(BaseModel):
     """Internal: container for identity list results."""
 
-    value: list[IdentityInfo]
+    value: list[IdentityInfo | None]
 
 
 class GraphGroup(BaseModel):
@@ -101,7 +101,8 @@ def get_identities(
         parameters={"descriptors": ",".join(descriptors)},
         version="7.1",
     )
-    return _IdentityInfoResults.model_validate(response).value
+    results = _IdentityInfoResults.model_validate(response)
+    return [item for item in results.value if item is not None]
 
 
 def iter_graph_groups(vssps_call: ApiCall) -> Iterator[GraphGroup]:
@@ -120,3 +121,8 @@ def iter_graph_groups(vssps_call: ApiCall) -> Iterator[GraphGroup]:
         version="7.1-preview.1",
     )
     yield from _GraphGroupResults.model_validate(response).value
+
+
+def list_graph_groups(vssps_call: ApiCall) -> list[GraphGroup]:
+    """Return all graph groups as a list."""
+    return list(iter_graph_groups(vssps_call))

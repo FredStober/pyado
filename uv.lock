@@ -324,6 +324,19 @@ toml = [
 ]
 
 [[package]]
+dependencies = [
+  {name = "pyyaml"},
+  {name = "requests"}
+]
+name = "detect-secrets"
+sdist = {url = "https://files.pythonhosted.org/packages/69/67/382a863fff94eae5a0cf05542179169a1c49a4c8784a9480621e2066ca7d/detect_secrets-1.5.0.tar.gz", hash = "sha256:6bb46dcc553c10df51475641bb30fd69d25645cc12339e46c824c1e0c388898a", size = 97351, upload-time = "2024-05-06T17:46:19.721Z"}
+source = {registry = "https://pypi.org/simple"}
+version = "1.5.0"
+wheels = [
+  {url = "https://files.pythonhosted.org/packages/4e/5e/4f5fe4b89fde1dc3ed0eb51bd4ce4c0bca406246673d370ea2ad0c58d747/detect_secrets-1.5.0-py3-none-any.whl", hash = "sha256:e24e7b9b5a35048c313e983f76c4bd09dad89f045ff059e354f9943bf45aa060", size = 120341, upload-time = "2024-05-06T17:46:16.628Z"}
+]
+
+[[package]]
 name = "docutils"
 sdist = {url = "https://files.pythonhosted.org/packages/ae/b6/03bb70946330e88ffec97aefd3ea75ba575cb2e762061e0e62a213befee8/docutils-0.22.4.tar.gz", hash = "sha256:4db53b1fde9abecbb74d91230d32ab626d94f6badfc575d6db9194a49df29968", size = 2291750, upload-time = "2025-12-18T19:00:26.443Z"}
 source = {registry = "https://pypi.org/simple"}
@@ -704,15 +717,17 @@ dependencies = [
 ]
 name = "pyado"
 source = {editable = "."}
-version = "0.4.0"
+version = "0.5.0"
 
 [package.dev-dependencies]
 dev = [
   {name = "azure-core"},
+  {name = "detect-secrets"},
   {name = "mypy"},
   {name = "prek"},
   {name = "pytest"},
   {name = "pytest-cov"},
+  {name = "rich"},
   {name = "ruff"},
   {name = "ty"},
   {name = "types-requests"}
@@ -735,10 +750,12 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
   {name = "azure-core", specifier = ">=1.41.0"},
+  {name = "detect-secrets", specifier = ">=1.5.0"},
   {name = "mypy", specifier = ">=1.15.0"},
   {name = "prek", specifier = ">=0.4.3"},
   {name = "pytest", specifier = ">=9.0.3"},
   {name = "pytest-cov", specifier = ">=7.1.0"},
+  {name = "rich", specifier = ">=13.0.0"},
   {name = "ruff", specifier = ">=0.11.0"},
   {name = "ty", specifier = ">=0.0.42"},
   {name = "types-requests", specifier = ">=2.32.0"}
@@ -978,6 +995,19 @@ source = {registry = "https://pypi.org/simple"}
 version = "2.34.2"
 wheels = [
   {url = "https://files.pythonhosted.org/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a/requests-2.34.2-py3-none-any.whl", hash = "sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0", size = 73075, upload-time = "2026-05-14T19:25:26.443Z"}
+]
+
+[[package]]
+dependencies = [
+  {name = "markdown-it-py"},
+  {name = "pygments"}
+]
+name = "rich"
+sdist = {url = "https://files.pythonhosted.org/packages/c0/8f/0722ca900cc807c13a6a0c696dacf35430f72e0ec571c4275d2371fca3e9/rich-15.0.0.tar.gz", hash = "sha256:edd07a4824c6b40189fb7ac9bc4c52536e9780fbbfbddf6f1e2502c31b068c36", size = 230680, upload-time = "2026-04-12T08:24:00.75Z"}
+source = {registry = "https://pypi.org/simple"}
+version = "15.0.0"
+wheels = [
+  {url = "https://files.pythonhosted.org/packages/82/3b/64d4899d73f91ba49a8c18a8ff3f0ea8f1c1d75481760df8c68ef5235bf5/rich-15.0.0-py3-none-any.whl", hash = "sha256:33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb", size = 310654, upload-time = "2026-04-12T08:24:02.83Z"}
 ]
 
 [[package]]

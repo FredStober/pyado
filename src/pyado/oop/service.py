@@ -5,6 +5,10 @@
 import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, TypeVar, cast
+from urllib.parse import urlparse
+
+import requests
+import requests.auth
 
 from pyado.oop.organization import Organization
 from pyado.raw import ApiCall
@@ -16,6 +20,7 @@ if TYPE_CHECKING:
 __all__ = ["AzureDevOpsService"]
 
 _ADO_RESOURCE_ID = "499b84ac-1321-427f-aa17-267ca6975798"
+_ADO_BASE_URL = "https://dev.azure.com"
 _T = TypeVar("_T")
 
 
@@ -27,33 +32,38 @@ class _OopApi:
 
     Attributes:
         token: Resolved access token.
-        org_url: Organisation base URL (trailing slash stripped).
+        org_name: Organisation name (e.g. ``"myorg"``).
         org_base_api_call: Org-scoped ApiCall without the ``/_apis`` suffix.
     """
 
     def __init__(
         self,
         token: AccessToken,
-        org_url: str,
+        org_name: str,
         cache: "dict[str, Any]",
+        session: "requests.Session | None" = None,
     ) -> None:
         """Construct the proxy from extracted service state.
 
         Args:
             token: Resolved ADO access token.
-            org_url: Organisation base URL (trailing slash stripped).
+            org_name: Organisation name (e.g. ``"myorg"``).
             cache: Shared object cache reference from the service.
+            session: Optional custom requests.Session to use for all HTTP
+                requests made by this service instance.
         """
         self.token = token
-        self.org_url = org_url
+        self.org_name = org_name
         self._cache = cache
+        self._session = session
 
     @property
     def org_base_api_call(self) -> ApiCall:
         """Org-scoped API call without the ``/_apis`` suffix."""
         return ApiCall(
             access_token=self.token,
-            url=_ADO_URL_ADAPTER.validate_python(self.org_url),
+            session=self._session,
+            url=_ADO_URL_ADAPTER.validate_python(f"{_ADO_BASE_URL}/{self.org_name}"),
         )
 
     def get_or_cache(self, url: str, factory: Callable[[], _T]) -> _T:
@@ -77,11 +87,34 @@ class _OopApi:
             name: Project name as it appears in ADO (case-sensitive).
 
         Returns:
-            An ApiCall pointing at ``{org_url}/{name}/_apis``.
+            An ApiCall pointing at ``{org}/{name}/_apis``.
         """
         return ApiCall(
             access_token=self.token,
-            url=_ADO_URL_ADAPTER.validate_python(f"{self.org_url}/{name}/_apis"),
+            session=self._session,
+            url=_ADO_URL_ADAPTER.validate_python(
+                f"{_ADO_BASE_URL}/{self.org_name}/{name}/_apis"
+            ),
+        )
+
+    def make_team_api_call(self, project_name: str, team_name: str) -> ApiCall:
+        """Build a team-scoped API call.
+
+        ADO team endpoints use ``{org}/{project}/{team}/_apis/...``.
+
+        Args:
+            project_name: Project name as it appears in ADO (case-sensitive).
+            team_name: Team name as it appears in ADO (case-sensitive).
+
+        Returns:
+            An ApiCall pointing at ``{org}/{project}/{team}/_apis``.
+        """
+        return ApiCall(
+            access_token=self.token,
+            session=self._session,
+            url=_ADO_URL_ADAPTER.validate_python(
+                f"{_ADO_BASE_URL}/{self.org_name}/{project_name}/{team_name}/_apis"
+            ),
         )
 
     def clear_cache_prefix(self, prefix: str) -> None:
@@ -113,15 +146,15 @@ class AzureDevOpsService:
 
     ``pat`` and ``credential`` are mutually exclusive.
 
-    Org URL resolution order (when ``org`` is ``None``):
+    Org name resolution order (when ``org`` and ``org_url`` are both ``None``):
 
-    1. ``AZURE_DEVOPS_ORG`` environment variable.
-    2. ``SYSTEM_TEAMFOUNDATIONCOLLECTIONURI`` environment variable.
+    1. ``AZURE_DEVOPS_ORG`` environment variable (bare name or full URL).
+    2. ``SYSTEM_TEAMFOUNDATIONCOLLECTIONURI`` environment variable (full URL).
 
-    Raises ``ValueError`` when no org URL is found.
+    Raises ``ValueError`` when no org name is found.
 
     Attributes:
-        _org_url: Organisation base URL, trailing slash stripped.
+        _org_name: Organisation name (bare, e.g. ``"myorg"``).
         _token: Resolved ADO access token.
         _org_api_call: Organisation-level API call.
         _cache: URL-keyed object cache (Project, Repository, Pipeline).
@@ -132,43 +165,68 @@ class AzureDevOpsService:
         self,
         *,
         org: str | None = None,
+        org_url: str | None = None,
         pat: str | None = None,
         credential: "TokenCredential | None" = None,
+        session: requests.Session | None = None,
     ) -> None:
         """Construct the service.
 
         Args:
-            org: ADO organisation URL (e.g. ``"https://dev.azure.com/myorg"``).
-                Falls back to ``AZURE_DEVOPS_ORG``, then
-                ``SYSTEM_TEAMFOUNDATIONCOLLECTIONURI``.
+            org: ADO organisation name (e.g. ``"myorg"``).  Mutually
+                exclusive with *org_url*.
+            org_url: Full ADO organisation URL
+                (e.g. ``"https://dev.azure.com/myorg"``).  The org name is
+                extracted automatically from the last path component.  Mutually
+                exclusive with *org*.  Falls back to ``AZURE_DEVOPS_ORG`` or
+                ``SYSTEM_TEAMFOUNDATIONCOLLECTIONURI`` (both accept a full URL).
             pat: Personal access token. Falls back to
                 ``AZURE_DEVOPS_EXT_PAT``. Mutually exclusive with
                 ``credential``.
             credential: Any azure-identity ``TokenCredential``. A bearer token
                 is acquired immediately. Mutually exclusive with ``pat``.
+            session: Optional custom ``requests.Session`` to use for all HTTP
+                requests made by this service instance (e.g. to inject a
+                custom SSL adapter or trust-store configuration).  When
+                provided, basic-auth credentials are set on it automatically.
+                When ``None`` (default), the LRU-cached session is used.
 
         Raises:
-            ValueError: If both ``pat`` and ``credential`` are provided, if no
-                organisation URL can be resolved, or if no access token is
-                available.
+            ValueError: If both ``pat`` and ``credential`` are provided, if
+                both ``org`` and ``org_url`` are provided, if no organisation
+                name can be resolved, or if no access token is available.
         """
         if pat is not None and credential is not None:
             err_msg = "Provide either 'pat' or 'credential', not both."
             raise ValueError(err_msg)
+        if org is not None and org_url is not None:
+            err_msg = "Provide either 'org' or 'org_url', not both."
+            raise ValueError(err_msg)
 
-        resolved_org = (
-            org
+        raw_org = (
+            org_url
+            or org
             or os.environ.get("AZURE_DEVOPS_ORG")
             or os.environ.get("SYSTEM_TEAMFOUNDATIONCOLLECTIONURI")
         )
-        if not resolved_org:
+        if not raw_org:
             err_msg = (
-                "Organisation URL is required. Provide 'org' or set "
+                "Organisation name is required. Provide 'org' or 'org_url', or set "
                 "AZURE_DEVOPS_ORG (or SYSTEM_TEAMFOUNDATIONCOLLECTIONURI)."
             )
             raise ValueError(err_msg)
 
-        self._org_url = resolved_org.rstrip("/")
+        # Extract bare org name from a full URL if needed.
+        parsed = urlparse(raw_org)
+        if parsed.scheme:
+            resolved_org = parsed.path.strip("/").rsplit("/", 1)[-1]
+        else:
+            resolved_org = raw_org
+        if not resolved_org:
+            err_msg = f"Cannot extract organisation name from {raw_org!r}."
+            raise ValueError(err_msg)
+
+        self._org_name = resolved_org
 
         if credential is not None:
             token_result = credential.get_token(f"{_ADO_RESOURCE_ID}/.default")
@@ -182,9 +240,16 @@ class AzureDevOpsService:
                 raise ValueError(err_msg)
             self._token = resolved_pat
 
+        if session is not None:
+            session.auth = requests.auth.HTTPBasicAuth("", self._token)
+        self._session = session
+
         self._org_api_call = ApiCall(
             access_token=self._token,
-            url=_ADO_URL_ADAPTER.validate_python(f"{self._org_url}/_apis"),
+            session=self._session,
+            url=_ADO_URL_ADAPTER.validate_python(
+                f"{_ADO_BASE_URL}/{self._org_name}/_apis"
+            ),
         )
         self._cache: dict[str, Any] = {}
         self._org_view: Organization | None = None
@@ -213,7 +278,7 @@ class AzureDevOpsService:
             _OopApi proxy that exposes service internals to the OOP layer
             without polluting the public API with implementation details.
         """
-        return _OopApi(self._token, self._org_url, self._cache)
+        return _OopApi(self._token, self._org_name, self._cache, self._session)
 
     # ------------------------------------------------------------------
     # Public methods

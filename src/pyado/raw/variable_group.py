@@ -13,14 +13,18 @@ from pyado.raw._core import ApiCall
 
 __all__ = [
     "UserId",
+    "VariableGroupCreateRequest",
     "VariableGroupId",
     "VariableGroupInfo",
     "VariableGroupProjectReference",
     "VariableGroupUpdateRequest",
     "VariableGroupUserInfo",
     "VariableInfo",
+    "delete_variable_group",
     "get_variable_group_api_call",
+    "get_variable_group_details",
     "iter_variable_group_details",
+    "post_variable_group",
     "put_variable_group",
 ]
 
@@ -101,6 +105,19 @@ class VariableGroupUpdateRequest(BaseModel):
     provider_data: Any = Field(default=None, serialization_alias="providerData")
 
 
+class VariableGroupCreateRequest(BaseModel):
+    """Request body for creating a variable group."""
+
+    name: str
+    variables: dict[str, VariableInfo]
+    variable_group_project_references: list[VariableGroupProjectReference] = Field(
+        serialization_alias="variableGroupProjectReferences"
+    )
+    description: str | None = None
+    type: str = "Vsts"
+    provider_data: Any = Field(default=None, serialization_alias="providerData")
+
+
 def iter_variable_group_details(
     project_api_call: ApiCall,
 ) -> Iterator[VariableGroupInfo]:
@@ -139,6 +156,22 @@ def get_variable_group_api_call(
     )
 
 
+def get_variable_group_details(
+    variable_group_api_call: ApiCall,
+) -> VariableGroupInfo:
+    """Fetch the details of a single variable group by its API call.
+
+    Args:
+        variable_group_api_call: Variable-group-level ADO API call (from
+            get_variable_group_api_call).
+
+    Returns:
+        VariableGroupInfo for the requested variable group.
+    """
+    response = variable_group_api_call.get(version="7.1")
+    return VariableGroupInfo.model_validate(response)
+
+
 def put_variable_group(
     variable_group_api_call: ApiCall,
     request: VariableGroupUpdateRequest,
@@ -156,6 +189,46 @@ def put_variable_group(
     """
     response = variable_group_api_call.put(
         version="7.1",
-        json=request.model_dump(mode="json", by_alias=True),
+        json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
     )
     return VariableGroupInfo.model_validate(response)
+
+
+def post_variable_group(
+    project_api_call: ApiCall,
+    request: VariableGroupCreateRequest,
+) -> VariableGroupInfo:
+    """Create a new variable group in the project.
+
+    Args:
+        project_api_call: Project-level ADO API call.
+        request: Create request specifying the name, variables, project
+            references, and optional metadata fields.
+
+    Returns:
+        VariableGroupInfo for the newly created variable group.
+    """
+    response = project_api_call.post(
+        "distributedtask",
+        "variablegroups",
+        version="7.1",
+        json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
+    )
+    return VariableGroupInfo.model_validate(response)
+
+
+def delete_variable_group(variable_group_api_call: ApiCall) -> None:
+    """Delete a variable group.
+
+    Args:
+        variable_group_api_call: Variable-group-level ADO API call (from
+            get_variable_group_api_call).
+    """
+    variable_group_api_call.delete(version="7.1")
+
+
+def list_variable_group_details(
+    project_api_call: ApiCall,
+) -> list[VariableGroupInfo]:
+    """Return all variable groups for the project as a list."""
+    return list(iter_variable_group_details(project_api_call))

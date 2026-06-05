@@ -5,14 +5,17 @@
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from pyado import high, raw
+from pyado import raw
+from pyado.oop import _work_item
 from pyado.raw import (
     ApiCall,
     CommitId,
+    TextFormat,
     WorkItemAttachmentRef,
     WorkItemComment,
     WorkItemExpand,
     WorkItemField,
+    WorkItemFieldName,
     WorkItemId,
     WorkItemInfo,
     WorkItemRelation,
@@ -74,6 +77,7 @@ class WorkItem:
         project: "Project",
         work_item_api_call: ApiCall,
         info: WorkItemInfo,
+        expand: WorkItemExpand | None = None,
     ) -> None:
         """Construct a WorkItem wrapper.
 
@@ -82,10 +86,13 @@ class WorkItem:
             work_item_api_call: Work-item-level ADO API call (from
                 raw.get_work_item_api_call).
             info: Work item data as returned from the API.
+            expand: The expand mode used when fetching *info*, stored so that
+                :meth:`refresh` can re-use it by default.
         """
         self._project = project
         self._api_call = work_item_api_call
-        self._info = info
+        self._info: WorkItemInfo | None = info
+        self._expand = expand
 
     # ------------------------------------------------------------------
     # Properties
@@ -94,42 +101,44 @@ class WorkItem:
     @property
     def info(self) -> WorkItemInfo:
         """Work item data captured at construction time (or last refresh)."""
+        if self._info is None:
+            self._info = raw.get_work_item(self._api_call, expand=self._expand)
         return self._info
 
     @property
     def id(self) -> WorkItemId:
         """Numeric work item ID."""
-        return self._info.id
+        return self.info.id
 
     @property
     def title(self) -> str | None:
         """Value of the ``System.Title`` field, or ``None`` if absent."""
-        return self._info.fields.get("System.Title")
+        return self.info.fields.get("System.Title")
 
     @property
     def state(self) -> str | None:
         """Value of the ``System.State`` field, or ``None`` if absent."""
-        return self._info.fields.get("System.State")
+        return self.info.fields.get("System.State")
 
     @property
     def type(self) -> str | None:
         """Value of the ``System.WorkItemType`` field, or ``None`` if absent."""
-        return self._info.fields.get("System.WorkItemType")
+        return self.info.fields.get("System.WorkItemType")
 
     @property
     def assigned_to(self) -> Any:
         """Value of the ``System.AssignedTo`` field (identity dict), or ``None``."""
-        return self._info.fields.get("System.AssignedTo")
+        return self.info.fields.get("System.AssignedTo")
 
     @property
     def area_path(self) -> str | None:
         """Value of the ``System.AreaPath`` field, or ``None`` if absent."""
-        return self._info.fields.get("System.AreaPath")
+        return self.info.fields.get("System.AreaPath")
 
     @property
     def iteration_path(self) -> str | None:
         """Value of the ``System.IterationPath`` field, or ``None`` if absent."""
-        return self._info.fields.get("System.IterationPath")
+        return self.info.fields.get("System.IterationPath")
 
     @property
     def api_call(self) -> ApiCall:
@@ -155,15 +164,26 @@ class WorkItem:
         Returns:
             The field value, or ``None`` if the field is absent.
         """
-        return self._info.fields.get(field)
+        return self.info.fields.get(field)
 
     # ------------------------------------------------------------------
     # Refresh
     # ------------------------------------------------------------------
 
-    def refresh(self) -> None:
-        """Re-fetch work item info from the API immediately."""
-        self._info = raw.get_work_item(self._api_call, expand=WorkItemExpand.RELATIONS)
+    def refresh(self, expand: WorkItemExpand | None = None) -> None:
+        """Discard cached work item info.
+
+        The next access to :attr:`info` re-fetches from the API.
+
+        Args:
+            expand: Expand mode to use on the next fetch.  When ``None``
+                (default), re-uses the expand value from construction or the
+                last explicit refresh call.  When provided, updates the stored
+                expand so subsequent bare :meth:`refresh` calls use it.
+        """
+        if expand is not None:
+            self._expand = expand
+        self._info = None
 
     # ------------------------------------------------------------------
     # Mutations
@@ -173,7 +193,7 @@ class WorkItem:
         self,
         fields: dict[WorkItemField, Any],
         *,
-        multiline_fields_format: dict[WorkItemField, str] | None = None,
+        multiline_fields_format: dict[WorkItemField, TextFormat] | None = None,
     ) -> None:
         """Update work item fields.
 
@@ -182,7 +202,7 @@ class WorkItem:
             multiline_fields_format: Optional per-field format override
                 (``"html"`` or ``"markdown"``).
         """
-        self._info = high.update_work_item(
+        self._info = _work_item.update_work_item(
             self._api_call,
             fields,
             multiline_fields_format=multiline_fields_format,
@@ -192,13 +212,13 @@ class WorkItem:
     # Tags
     # ------------------------------------------------------------------
 
-    def get_tags(self) -> list[str]:
-        """Return the tags currently set on the work item.
+    def iter_tags(self) -> Iterator[str]:
+        """Iterate over the tags currently set on the work item.
 
-        Returns:
-            List of tag name strings; empty when no tags are set.
+        Yields:
+            Tag name strings; nothing when no tags are set.
         """
-        return high.get_work_item_tags(self._api_call)
+        yield from _work_item.get_work_item_tags(self._api_call)
 
     def add_tag(self, tag: str) -> list[str]:
         """Add a tag to the work item.
@@ -211,7 +231,7 @@ class WorkItem:
         Returns:
             Updated list of tag name strings.
         """
-        return high.add_work_item_tag(self._api_call, tag)
+        return _work_item.add_work_item_tag(self._api_call, tag)
 
     def remove_tag(self, tag: str) -> list[str]:
         """Remove a tag from the work item.
@@ -224,7 +244,19 @@ class WorkItem:
         Returns:
             Updated list of tag name strings.
         """
-        return high.remove_work_item_tag(self._api_call, tag)
+        return _work_item.remove_work_item_tag(self._api_call, tag)
+
+    def sync_tags(self, desired: set[str]) -> None:
+        """Synchronise work item tags to match *desired* exactly.
+
+        Adds missing tags and removes extras so the final set matches
+        *desired* exactly.  Does nothing when the current tags already match.
+
+        Args:
+            desired: The exact set of tag names the work item should have
+                after the call.
+        """
+        _work_item.sync_work_item_tags(self._api_call, desired)
 
     # ------------------------------------------------------------------
     # Comments
@@ -239,7 +271,7 @@ class WorkItem:
         yield from raw.iter_work_item_comments(self._api_call)
 
     def add_comment(
-        self, text: str, *, comment_format: str = "html"
+        self, text: str, *, comment_format: TextFormat = TextFormat.HTML
     ) -> WorkItemComment:
         """Add a comment to the work item.
 
@@ -269,9 +301,20 @@ class WorkItem:
         Returns:
             WorkItemAttachmentRef with the ID and URL of the uploaded file.
         """
-        return high.add_work_item_attachment(
-            self._project.api_call, self._info.id, filename, content
+        return _work_item.add_work_item_attachment(
+            self._project.api_call, self.info.id, filename, content
         )
+
+    def get_attachment_bytes(self, ref: WorkItemAttachmentRef) -> bytes:
+        """Download the raw bytes of an uploaded attachment.
+
+        Args:
+            ref: The WorkItemAttachmentRef returned by :meth:`add_attachment`.
+
+        Returns:
+            Raw file bytes.
+        """
+        return raw.get_work_item_attachment_bytes(self._project.api_call, ref.id)
 
     # ------------------------------------------------------------------
     # Linking
@@ -296,10 +339,46 @@ class WorkItem:
                 ``WorkItemRelationType.PARENT``).
             comment: Optional comment to attach to the relation.
         """
-        relation = high.WorkItemLink.wi_link(
+        relation = _work_item.WorkItemLink.wi_link(
             link_type, other.project.api_call, other.id, comment
         )
-        high.add_work_item_link(self._api_call, relation)
+        _work_item.add_work_item_link(self._api_call, relation)
+
+    def create_child(
+        self,
+        work_item_type: str,
+        title: str,
+        extra_fields: dict[WorkItemField, Any] | None = None,
+        *,
+        multiline_fields_format: dict[WorkItemField, TextFormat] | None = None,
+    ) -> "WorkItem":
+        """Create a new work item and link it as a child of this one.
+
+        Creates a new work item of *work_item_type*, sets *title* (and any
+        *extra_fields*), then adds a parent link from the new item back to
+        ``self``.
+
+        Args:
+            work_item_type: Work item type name (e.g. ``"Task"``).
+            title: Title for the new work item.
+            extra_fields: Additional fields to set on the new work item.
+            multiline_fields_format: Optional per-field format override
+                forwarded to :meth:`Project.create_work_item`.
+
+        Returns:
+            The newly created child :class:`WorkItem`.
+        """
+        fields: dict[WorkItemField, Any] = {
+            WorkItemFieldName.TITLE: title,
+            **(extra_fields or {}),
+        }
+        child = self._project.create_work_item(
+            work_item_type,
+            fields,
+            multiline_fields_format=multiline_fields_format,
+        )
+        child.add_link(self, WorkItemRelationType.PARENT)
+        return child
 
     def link_pull_request(
         self,
@@ -313,13 +392,13 @@ class WorkItem:
             pr: The PullRequest to link.
             comment: Optional comment to attach to the relation.
         """
-        relation = high.WorkItemLink.pull_request(
+        relation = _work_item.WorkItemLink.pull_request(
             pr.repo.info.project.id,
             pr.repo.id,
             pr.id,
             comment=comment,
         )
-        high.add_work_item_link(self._api_call, relation)
+        _work_item.add_work_item_link(self._api_call, relation)
 
     def link_build(
         self,
@@ -333,8 +412,8 @@ class WorkItem:
             build: The Build to link.
             comment: Optional comment to attach to the relation.
         """
-        relation = high.WorkItemLink.build(build.id, comment=comment)
-        high.add_work_item_link(self._api_call, relation)
+        relation = _work_item.WorkItemLink.build(build.id, comment=comment)
+        _work_item.add_work_item_link(self._api_call, relation)
 
     def link_commit(
         self,
@@ -350,17 +429,75 @@ class WorkItem:
             commit_id: Commit SHA string.
             comment: Optional comment to attach to the relation.
         """
-        relation = high.WorkItemLink.commit(
+        relation = _work_item.WorkItemLink.commit(
             repo.info.project.id,
             repo.id,
             commit_id,
             comment=comment,
         )
-        high.add_work_item_link(self._api_call, relation)
+        _work_item.add_work_item_link(self._api_call, relation)
 
     # ------------------------------------------------------------------
     # Relation navigation
     # ------------------------------------------------------------------
+
+    def iter_relations(
+        self,
+        rel_type: WorkItemRelationType | None = None,
+    ) -> Iterator[WorkItemRelation]:
+        """Iterate over all relations on this work item.
+
+        Returns every relation regardless of type — work item links,
+        artifact links (PRs, builds, commits), attached files, and
+        hyperlinks.  Filter by *rel_type* to narrow the result.
+
+        Requires the info to have been fetched with
+        ``expand=WorkItemExpand.RELATIONS`` (the default for
+        :meth:`Project.get_work_item`).
+
+        Args:
+            rel_type: When provided, only relations of this type are yielded.
+                When ``None``, all relation types are returned.
+
+        Yields:
+            WorkItemRelation for each matching relation.
+        """
+        for relation in self.info.relations:
+            if rel_type is None or relation.rel == rel_type:
+                yield relation
+
+    def iter_artifact_links(self) -> Iterator[WorkItemRelation]:
+        """Iterate over artifact link relations (PRs, builds, commits).
+
+        Convenience filter around :meth:`iter_relations` for
+        ``WorkItemRelationType.ARTIFACT_LINK``.
+
+        Yields:
+            WorkItemRelation for each artifact link.
+        """
+        yield from self.iter_relations(WorkItemRelationType.ARTIFACT_LINK)
+
+    def iter_attachments(self) -> Iterator[WorkItemRelation]:
+        """Iterate over attached-file relations.
+
+        Convenience filter around :meth:`iter_relations` for
+        ``WorkItemRelationType.ATTACHED_FILE``.
+
+        Yields:
+            WorkItemRelation for each attached file.
+        """
+        yield from self.iter_relations(WorkItemRelationType.ATTACHED_FILE)
+
+    def iter_revisions(self) -> Iterator[WorkItemInfo]:
+        """Iterate over all historical revisions of this work item, oldest first.
+
+        Each revision is a full snapshot of the work item at that point in
+        time.  Useful for audit trails and change tracking.
+
+        Yields:
+            :class:`~pyado.raw.WorkItemInfo` for each revision, oldest first.
+        """
+        yield from raw.iter_work_item_revisions(self._api_call)
 
     def iter_linked_work_items(
         self,
@@ -371,7 +508,7 @@ class WorkItem:
         Only work-item-to-work-item relations are returned.  Artifact links
         (PRs, commits, builds) are skipped automatically.  Ensure the info
         was fetched with ``expand=WorkItemExpand.RELATIONS`` (the default for
-        :meth:`Project.get_work_item` and :meth:`refresh`).
+        :meth:`Project.get_work_item`).
 
         Args:
             rel_type: When provided, only relations of this type are yielded
@@ -383,13 +520,13 @@ class WorkItem:
         """
         wi_relations = [
             r
-            for r in self._info.relations
+            for r in self.info.relations
             if _is_wi_relation(r) and (rel_type is None or r.rel == rel_type)
         ]
         ids = [_wi_id_from_url(r.url) for r in wi_relations]
-        for info in high.iter_work_item_details(self._project.api_call, ids):
+        for info in _work_item.iter_work_item_details(self._project.api_call, ids):
             wi_api_call = raw.get_work_item_api_call(self._project.api_call, info.id)
-            yield WorkItem(self._project, wi_api_call, info)
+            yield WorkItem(self._project, wi_api_call, info, WorkItemExpand.RELATIONS)
 
     def get_parent(self) -> "WorkItem | None":
         """Return the parent work item, or ``None`` if none exists.
@@ -413,12 +550,102 @@ class WorkItem:
         """
         yield from self.iter_linked_work_items(WorkItemRelationType.CHILD)
 
+    def get_child_ids(self) -> "list[WorkItemId]":
+        """Return the IDs of direct child work items without making API calls.
+
+        Parses the relation URLs from the already-fetched work item data.
+        Requires the info to have been fetched with
+        ``expand=WorkItemExpand.RELATIONS`` (the default for
+        :meth:`Project.get_work_item`).
+
+        Returns:
+            List of numeric child work item IDs.
+        """
+        return [
+            _wi_id_from_url(r.url)
+            for r in self.info.relations
+            if r.rel == WorkItemRelationType.CHILD
+        ]
+
+    def remove_link(self, relation: WorkItemRelation) -> None:
+        """Remove a specific relation from this work item.
+
+        Scans the current ``info.relations`` list for a matching entry by
+        ``rel`` type and ``url``, then removes it via a JSON Patch remove
+        operation.
+
+        Args:
+            relation: The WorkItemRelation to remove.  Must be one of the
+                relations returned by :meth:`iter_relations`.
+
+        Raises:
+            ValueError: If the relation is not found on the work item.
+        """
+        for idx, rel in enumerate(self.info.relations):
+            if rel.rel == relation.rel and rel.url == relation.url:
+                self._info = _work_item.remove_work_item_link(self._api_call, idx)
+                return
+        err_msg = f"Relation not found: rel={relation.rel!r}, url={relation.url!r}"
+        raise ValueError(err_msg)
+
+    def remove_work_item_links(self, other: "WorkItem") -> None:
+        """Remove all relations between this work item and *other*.
+
+        Iterates over all relations on this work item and removes every entry
+        whose URL refers to *other*.  Snapshots the matching relations before
+        the loop so that the index passed to each :meth:`remove_link` call is
+        always correct.
+
+        Args:
+            other: The work item whose links to this one should all be removed.
+        """
+        target_suffix = f"/{other.id}"
+        to_remove = [
+            rel
+            for rel in self.iter_relations()
+            if rel.url is not None and str(rel.url).endswith(target_suffix)
+        ]
+        for relation in to_remove:
+            self.remove_link(relation)
+
+    def move(
+        self,
+        *,
+        iteration_path: str | None = None,
+        area_path: str | None = None,
+    ) -> None:
+        r"""Move this work item to a different iteration and/or area path.
+
+        Args:
+            iteration_path: New iteration path (e.g.
+                ``"MyProject\\Sprint 2"``), or ``None`` to leave unchanged.
+            area_path: New area path (e.g. ``"MyProject\\Team A"``), or
+                ``None`` to leave unchanged.
+        """
+        fields: dict[WorkItemField, Any] = {}
+        if iteration_path is not None:
+            fields["System.IterationPath"] = iteration_path
+        if area_path is not None:
+            fields["System.AreaPath"] = area_path
+        if fields:
+            self.update(fields)
+
     def delete(self) -> None:
         """Soft-delete this work item.
 
         The item can be restored from the ADO Recycle Bin within 30 days.
         """
         raw.delete_work_item(self._api_call)
+
+    def restore(self) -> None:
+        """Restore this work item from the Recycle Bin.
+
+        Reverses a :meth:`delete` call.  The item is live again after this
+        returns.  :meth:`refresh` is called automatically so subsequent
+        accesses to :attr:`info` reflect the restored state.
+        """
+        raw.restore_work_item(self._project.api_call, self.id)
+        self.refresh()
 
     def update_comment(self, comment_id: int, text: str) -> WorkItemComment:
         """Update the text of an existing comment.
@@ -441,3 +668,41 @@ class WorkItem:
                 :meth:`iter_comments`.
         """
         raw.delete_work_item_comment(self._api_call, comment_id)
+
+    def list_tags(self) -> list[str]:
+        """Return all tags on this work item as a list."""
+        return list(self.iter_tags())
+
+    def list_comments(self) -> list[WorkItemComment]:
+        """Return all comments on this work item as a list."""
+        return list(self.iter_comments())
+
+    def list_relations(
+        self,
+        rel_type: WorkItemRelationType | None = None,
+    ) -> list[WorkItemRelation]:
+        """Return all relations on this work item as a list."""
+        return list(self.iter_relations(rel_type=rel_type))
+
+    def list_artifact_links(self) -> list[WorkItemRelation]:
+        """Return all artifact link relations as a list."""
+        return list(self.iter_artifact_links())
+
+    def list_attachments(self) -> list[WorkItemRelation]:
+        """Return all attached-file relations as a list."""
+        return list(self.iter_attachments())
+
+    def list_revisions(self) -> list[WorkItemInfo]:
+        """Return all historical revisions of this work item as a list."""
+        return list(self.iter_revisions())
+
+    def list_linked_work_items(
+        self,
+        rel_type: WorkItemRelationType | None = None,
+    ) -> "list[WorkItem]":
+        """Return all linked work items as a list."""
+        return list(self.iter_linked_work_items(rel_type=rel_type))
+
+    def list_children(self) -> "list[WorkItem]":
+        """Return all child work items as a list."""
+        return list(self.iter_children())

@@ -23,13 +23,11 @@ from pyado.raw.work_item import WorkItemRef, _WorkItemRefResults
 __all__ = [
     "CommitIdRef",
     "GitForkRef",
-    "GitPullRequestMergeStrategy",
     "IdentityIdRef",
     "PrIterationChange",
     "PrIterationChangeItem",
     "PullRequestCompletionOptions",
     "PullRequestCreateRequest",
-    "PullRequestCreated",
     "PullRequestId",
     "PullRequestIteration",
     "PullRequestIterationContext",
@@ -38,6 +36,8 @@ __all__ = [
     "PullRequestListItem",
     "PullRequestMergeFailureType",
     "PullRequestMergeStatus",
+    "PullRequestMergeStrategy",
+    "PullRequestResponse",
     "PullRequestReviewer",
     "PullRequestReviewerRequest",
     "PullRequestReviewerVoteRequest",
@@ -58,28 +58,29 @@ __all__ = [
     "PullRequestUpdateRequest",
     "PullRequestVote",
     "RepositoryRef",
-    "delete_pr_label",
-    "delete_pr_reviewer",
-    "get_pr_api_call",
-    "get_pr_details",
-    "get_pr_iteration_changes",
-    "get_pr_labels_details",
-    "get_pr_reviewers",
-    "iter_pr_commits",
-    "iter_pr_iterations",
-    "iter_pr_statuses",
-    "iter_pr_threads",
-    "iter_pr_work_item_ids",
-    "iter_prs",
-    "patch_pr",
-    "patch_pr_thread",
-    "post_pr_label",
-    "post_pr_new_thread",
-    "post_pr_status",
-    "post_pr_thread_comment",
+    "delete_pull_request_label",
+    "delete_pull_request_reviewer",
+    "get_pull_request_api_call",
+    "get_pull_request_details",
+    "get_pull_request_iteration_changes",
+    "get_pull_request_labels_details",
+    "get_pull_request_reviewers",
+    "get_pull_request_thread",
+    "iter_pull_request_commits",
+    "iter_pull_request_iterations",
+    "iter_pull_request_statuses",
+    "iter_pull_request_threads",
+    "iter_pull_request_work_item_ids",
+    "iter_pull_requests",
+    "patch_pull_request",
+    "patch_pull_request_thread",
     "post_pull_request",
-    "put_pr_reviewer",
-    "put_pr_reviewer_vote",
+    "post_pull_request_label",
+    "post_pull_request_new_thread",
+    "post_pull_request_status",
+    "post_pull_request_thread_comment",
+    "put_pull_request_reviewer",
+    "put_pull_request_reviewer_vote",
 ]
 
 PullRequestId = int
@@ -137,7 +138,7 @@ class PullRequestStatus(StrEnum):
     COMPLETED = "completed"
 
 
-class GitPullRequestMergeStrategy(StrEnum):
+class PullRequestMergeStrategy(StrEnum):
     """Merge strategies available when completing a pull request."""
 
     NO_FAST_FORWARD = "noFastForward"
@@ -266,7 +267,7 @@ class PullRequestListItem(BaseModel):
     target_ref_name: str | None = Field(alias="targetRefName", default=None)
     created_by: _IdentityRef | None = Field(alias="createdBy", default=None)
     creation_date: datetime | None = Field(alias="creationDate", default=None)
-    status: str | None = None
+    status: PullRequestStatus | None = None
     is_draft: bool = Field(alias="isDraft", default=False)
     merge_status: PullRequestMergeStatus | None = Field(
         alias="mergeStatus", default=None
@@ -323,6 +324,9 @@ class PullRequestSearchCriteria(BaseModel):
     repository_id: str | None = Field(default=None, serialization_alias="repositoryId")
     pull_request_id: int | None = Field(
         default=None, serialization_alias="pullRequestId"
+    )
+    source_version: str | None = Field(
+        default=None, serialization_alias="sourceVersion"
     )
     min_time: datetime | None = Field(default=None, serialization_alias="minTime")
     max_time: datetime | None = Field(default=None, serialization_alias="maxTime")
@@ -433,6 +437,12 @@ class PullRequestThreadRequest(BaseModel):
     )
 
 
+class _PullRequestThreadPatchRequest(BaseModel):
+    """Internal: request body for patching a PR review thread."""
+
+    status: PullRequestThreadStatus
+
+
 class _PullRequestThreadResults(BaseModel):
     """Internal: container for PR thread list results."""
 
@@ -446,7 +456,7 @@ class PullRequestCompletionOptions(BaseModel):
 
     squash_merge: bool = Field(default=True, alias="squashMerge")
     delete_source_branch: bool = Field(default=True, alias="deleteSourceBranch")
-    merge_strategy: GitPullRequestMergeStrategy | None = Field(
+    merge_strategy: PullRequestMergeStrategy | None = Field(
         default=None, alias="mergeStrategy"
     )
     merge_commit_message: str | None = Field(default=None, alias="mergeCommitMessage")
@@ -541,16 +551,20 @@ class GitForkRef(BaseModel):
     repository: RepositoryRef
 
 
-class PullRequestCreated(BaseModel):
-    """A pull request as returned by the create-PR endpoint.
+class PullRequestResponse(BaseModel):
+    """Full pull request resource, as returned by the ADO Git pull-requests API.
+
+    ADO uses a single ``PullRequestResponse`` schema for the responses of all three
+    operations: ``POST`` (create), ``GET`` (get details), and ``PATCH``
+    (update).  This class models that shared schema.
 
     Reference: https://learn.microsoft.com/en-us/rest/api/azure/devops/git/
-    pull-requests/create
+    pull-requests
     """
 
     pr_id: int = Field(alias="pullRequestId")
     repository: RepositoryRef
-    status: str
+    status: PullRequestStatus
     url: str
     title: str
     source_ref_name: str = Field(alias="sourceRefName")
@@ -559,6 +573,7 @@ class PullRequestCreated(BaseModel):
     created_by: _IdentityRef | None = Field(alias="createdBy", default=None)
     creation_date: datetime | None = Field(alias="creationDate", default=None)
     closed_date: datetime | None = Field(alias="closedDate", default=None)
+    closed_by: _IdentityRef | None = Field(alias="closedBy", default=None)
     reviewers: list[PullRequestReviewer] = []
     merge_status: str | None = Field(alias="mergeStatus", default=None)
     merge_id: str | None = Field(alias="mergeId", default=None)
@@ -623,20 +638,28 @@ class PrIterationChange(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def get_pr_details(pr_api_call: ApiCall) -> PullRequestCreated:
+def get_pull_request_details(
+    pr_api_call: ApiCall, *, expand: str | None = None
+) -> PullRequestResponse:
     """Return the full details of a single pull request.
 
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
+        expand: Optional ``$expand`` value (e.g. ``"labels"``,
+            ``"reviewers"``).  When provided, the corresponding data is
+            inlined in the response.
 
     Returns:
-        PullRequestCreated populated with the current PR state.
+        PullRequestResponse populated with the current PR state.
     """
-    response = pr_api_call.get(version="7.1-preview.1")
-    return PullRequestCreated.model_validate(response)
+    params: dict[str, int | str | bool] | None = (
+        {"$expand": expand} if expand is not None else None
+    )
+    response = pr_api_call.get(parameters=params, version="7.1-preview.1")
+    return PullRequestResponse.model_validate(response)
 
 
-def get_pr_api_call(
+def get_pull_request_api_call(
     project_api_call: ApiCall,
     repository_id: RepositoryId,
     pr_id: PullRequestId,
@@ -655,7 +678,7 @@ def get_pr_api_call(
     )
 
 
-def post_pr_status(
+def post_pull_request_status(
     pr_api_call: ApiCall,
     request: PullRequestStatusRequest,
 ) -> None:
@@ -672,10 +695,10 @@ def post_pr_status(
     )
 
 
-def iter_prs(
+def iter_pull_requests(
     project_api_call: ApiCall,
-    search_criteria: PullRequestSearchCriteria | None = None,
     *,
+    search_criteria: PullRequestSearchCriteria | None = None,
     expand: str | None = None,
 ) -> Iterator[PullRequestListItem]:
     """Iterate over pull requests in the project matching the given criteria.
@@ -718,11 +741,11 @@ def iter_prs(
         skip += len(results.value)
 
 
-def post_pr_label(pr_api_call: ApiCall, label_name: str) -> None:
+def post_pull_request_label(pr_api_call: ApiCall, label_name: str) -> None:
     """Add a label to a pull request.
 
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
         label_name: Name of the label to add.
     """
     pr_api_call.post(
@@ -732,21 +755,29 @@ def post_pr_label(pr_api_call: ApiCall, label_name: str) -> None:
     )
 
 
-def delete_pr_label(pr_api_call: ApiCall, label_name: str) -> None:
+def delete_pull_request_label(pr_api_call: ApiCall, label_name: str) -> None:
     """Remove a label from a pull request.
 
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
         label_name: Name of the label to remove.
     """
     pr_api_call.delete("labels", label_name, version="7.1-preview.1")
 
 
-def iter_pr_threads(pr_api_call: ApiCall) -> Iterator[PullRequestThreadResponse]:
+def iter_pull_request_threads(
+    pr_api_call: ApiCall,
+) -> Iterator[PullRequestThreadResponse]:
     """Iterate over all review threads on a pull request.
 
+    Note:
+        Issues a single HTTP request — the ADO threads endpoint returns all
+        threads in one response.  The ``$iteration`` and ``$baseIteration``
+        query params control which diff context is included in each thread but
+        do not act as pagination parameters.
+
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
 
     Yields:
         PullRequestThreadResponse objects for each thread.
@@ -755,7 +786,23 @@ def iter_pr_threads(pr_api_call: ApiCall) -> Iterator[PullRequestThreadResponse]
     yield from _PullRequestThreadResults.model_validate(response).value
 
 
-def post_pr_thread_comment(
+def get_pull_request_thread(
+    pr_api_call: ApiCall, thread_id: int
+) -> PullRequestThreadResponse:
+    """Return a single review thread by ID.
+
+    Args:
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
+        thread_id: Numeric ID of the thread to fetch.
+
+    Returns:
+        PullRequestThreadResponse for the requested thread.
+    """
+    response = pr_api_call.get("threads", thread_id, version="7.1-preview.1")
+    return PullRequestThreadResponse.model_validate(response)
+
+
+def post_pull_request_thread_comment(
     pr_api_call: ApiCall,
     thread_id: int,
     comment: PullRequestThreadCommentRequest,
@@ -780,9 +827,9 @@ def post_pr_thread_comment(
     return PullRequestThreadCommentResponse.model_validate(response)
 
 
-def patch_pr(
+def patch_pull_request(
     pr_api_call: ApiCall, update: PullRequestUpdateRequest
-) -> PullRequestCreated:
+) -> PullRequestResponse:
     """Update fields on a pull request.
 
     Args:
@@ -790,16 +837,16 @@ def patch_pr(
         update: Fields to update; None values are omitted from the request.
 
     Returns:
-        PullRequestCreated populated with the PR state after the update.
+        PullRequestResponse populated with the PR state after the update.
     """
     response = pr_api_call.patch(
         version="7.1-preview.1",
         json=update.model_dump(mode="json", by_alias=True, exclude_none=True),
     )
-    return PullRequestCreated.model_validate(response)
+    return PullRequestResponse.model_validate(response)
 
 
-def iter_pr_iterations(
+def iter_pull_request_iterations(
     pr_api_call: ApiCall,
 ) -> Iterator[PullRequestIterationRecord]:
     """Iterate over the iterations (commit pushes) of a pull request.
@@ -814,14 +861,14 @@ def iter_pr_iterations(
     yield from _PullRequestIterationResults.model_validate(response).value
 
 
-def get_pr_iteration_changes(
+def get_pull_request_iteration_changes(
     pr_api_call: ApiCall,
     iteration_id: PullRequestIteration,
 ) -> list[PrIterationChange]:
     """Return the file changes introduced by a specific PR iteration.
 
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
         iteration_id: The iteration number to query.
 
     Returns:
@@ -839,7 +886,7 @@ def get_pr_iteration_changes(
     ]
 
 
-def put_pr_reviewer_vote(
+def put_pull_request_reviewer_vote(
     pr_api_call: ApiCall,
     reviewer_id: str,
     request: PullRequestReviewerVoteRequest,
@@ -859,7 +906,7 @@ def put_pr_reviewer_vote(
     )
 
 
-def put_pr_reviewer(
+def put_pull_request_reviewer(
     pr_api_call: ApiCall,
     reviewer_id: str,
     request: PullRequestReviewerRequest,
@@ -867,7 +914,7 @@ def put_pr_reviewer(
     """Add or update a reviewer on a pull request.
 
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
         reviewer_id: Identity (object) ID of the reviewer.
         request: Reviewer request specifying vote, required flag, and reapprove
             flag.
@@ -880,21 +927,21 @@ def put_pr_reviewer(
     )
 
 
-def delete_pr_reviewer(pr_api_call: ApiCall, reviewer_id: str) -> None:
+def delete_pull_request_reviewer(pr_api_call: ApiCall, reviewer_id: str) -> None:
     """Remove a reviewer from a pull request.
 
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
         reviewer_id: Identity (object) ID of the reviewer to remove.
     """
     pr_api_call.delete("reviewers", reviewer_id, version="7.1-preview.1")
 
 
-def get_pr_reviewers(pr_api_call: ApiCall) -> list[PullRequestReviewer]:
+def get_pull_request_reviewers(pr_api_call: ApiCall) -> list[PullRequestReviewer]:
     """Return all reviewers on a pull request.
 
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
 
     Returns:
         List of PullRequestReviewer entries.
@@ -903,11 +950,11 @@ def get_pr_reviewers(pr_api_call: ApiCall) -> list[PullRequestReviewer]:
     return _PullRequestReviewerResults.model_validate(response).value
 
 
-def iter_pr_commits(pr_api_call: ApiCall) -> Iterator[GitCommitRef]:
+def iter_pull_request_commits(pr_api_call: ApiCall) -> Iterator[GitCommitRef]:
     """Iterate over commits included in a pull request.
 
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
 
     Yields:
         GitCommitRef for each commit reachable from the pull request.
@@ -916,11 +963,11 @@ def iter_pr_commits(pr_api_call: ApiCall) -> Iterator[GitCommitRef]:
     yield from _GitCommitRefResults.model_validate(response).value
 
 
-def iter_pr_work_item_ids(pr_api_call: ApiCall) -> Iterator[WorkItemRef]:
+def iter_pull_request_work_item_ids(pr_api_call: ApiCall) -> Iterator[WorkItemRef]:
     """Iterate over work items linked to a pull request.
 
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
 
     Yields:
         WorkItemRef for each work item associated with the pull request.
@@ -940,11 +987,11 @@ def iter_pr_work_item_ids(pr_api_call: ApiCall) -> Iterator[WorkItemRef]:
         skip += len(results.value)
 
 
-def get_pr_labels_details(pr_api_call: ApiCall) -> list[PullRequestLabel]:
+def get_pull_request_labels_details(pr_api_call: ApiCall) -> list[PullRequestLabel]:
     """Return all labels currently set on a pull request.
 
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
 
     Returns:
         List of PullRequestLabel objects.
@@ -953,14 +1000,14 @@ def get_pr_labels_details(pr_api_call: ApiCall) -> list[PullRequestLabel]:
     return _PullRequestLabelResults.model_validate(response).value
 
 
-def post_pr_new_thread(
+def post_pull_request_new_thread(
     pr_api_call: ApiCall,
     request: PullRequestThreadRequest,
 ) -> PullRequestThreadResponse:
     """Create a new review thread on a pull request.
 
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
         request: Thread creation request specifying comments, status, and
             optional file context.
 
@@ -978,7 +1025,7 @@ def post_pr_new_thread(
 def post_pull_request(
     repository_api_call: ApiCall,
     request: PullRequestCreateRequest,
-) -> PullRequestCreated:
+) -> PullRequestResponse:
     """Create a new pull request.
 
     Args:
@@ -988,17 +1035,17 @@ def post_pull_request(
             completion options.
 
     Returns:
-        PullRequestCreated for the newly created pull request.
+        PullRequestResponse for the newly created pull request.
     """
     response = repository_api_call.post(
         "pullrequests",
         version="7.1-preview.1",
         json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
     )
-    return PullRequestCreated.model_validate(response)
+    return PullRequestResponse.model_validate(response)
 
 
-def patch_pr_thread(
+def patch_pull_request_thread(
     pr_api_call: ApiCall,
     thread_id: int,
     status: PullRequestThreadStatus,
@@ -1006,7 +1053,7 @@ def patch_pr_thread(
     """Update the status of an existing PR review thread.
 
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
         thread_id: Numeric ID of the thread to update.
         status: New thread status (e.g. ``PullRequestThreadStatus.FIXED``).
 
@@ -1017,19 +1064,61 @@ def patch_pr_thread(
         "threads",
         thread_id,
         version="7.1-preview.1",
-        json={"status": status},
+        json=_PullRequestThreadPatchRequest(status=status).model_dump(mode="json"),
     )
     return PullRequestThreadResponse.model_validate(response)
 
 
-def iter_pr_statuses(pr_api_call: ApiCall) -> Iterator[PullRequestStatusInfo]:
+def iter_pull_request_statuses(pr_api_call: ApiCall) -> Iterator[PullRequestStatusInfo]:
     """Iterate over status checks posted on a pull request.
 
     Args:
-        pr_api_call: PR-level ADO API call (from get_pr_api_call).
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
 
     Yields:
         PullRequestStatusInfo for each status item on the PR.
     """
     response = pr_api_call.get("statuses", version="7.1-preview.1")
     yield from _PullRequestStatusResults.model_validate(response).value
+
+
+def list_pull_requests(
+    project_api_call: ApiCall,
+    search_criteria: PullRequestSearchCriteria | None = None,
+    expand: str | None = None,
+) -> list[PullRequestListItem]:
+    """Return all pull requests matching the given criteria as a list."""
+    return list(
+        iter_pull_requests(
+            project_api_call, search_criteria=search_criteria, expand=expand
+        )
+    )
+
+
+def list_pull_request_threads(
+    pr_api_call: ApiCall,
+) -> list[PullRequestThreadResponse]:
+    """Return all review threads for a pull request as a list."""
+    return list(iter_pull_request_threads(pr_api_call))
+
+
+def list_pull_request_iterations(
+    pr_api_call: ApiCall,
+) -> list[PullRequestIterationRecord]:
+    """Return all iterations for a pull request as a list."""
+    return list(iter_pull_request_iterations(pr_api_call))
+
+
+def list_pull_request_commits(pr_api_call: ApiCall) -> list[GitCommitRef]:
+    """Return all commits for a pull request as a list."""
+    return list(iter_pull_request_commits(pr_api_call))
+
+
+def list_pull_request_work_item_ids(pr_api_call: ApiCall) -> list[WorkItemRef]:
+    """Return all work item IDs linked to a pull request as a list."""
+    return list(iter_pull_request_work_item_ids(pr_api_call))
+
+
+def list_pull_request_statuses(pr_api_call: ApiCall) -> list[PullRequestStatusInfo]:
+    """Return all statuses for a pull request as a list."""
+    return list(iter_pull_request_statuses(pr_api_call))

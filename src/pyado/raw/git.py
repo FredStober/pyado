@@ -32,6 +32,7 @@ __all__ = [
     "GitCommitChangeItem",
     "GitCommitRef",
     "GitCommitSearchCriteria",
+    "GitItem",
     "GitPushChange",
     "GitPushChangeItem",
     "GitPushCommit",
@@ -46,11 +47,14 @@ __all__ = [
     "GitStatus",
     "GitStatusState",
     "PullRequestStatusContext",
+    "RecursionLevel",
     "RepositoryId",
     "RepositoryInfo",
     "RepositoryName",
     "SshUrl",
     "VersionDescriptorType",
+    "create_tag",
+    "delete_tag",
     "get_commit_by_id",
     "get_commit_diff_page",
     "get_git_acl",
@@ -61,6 +65,9 @@ __all__ = [
     "get_repository_statistics",
     "iter_refs",
     "iter_repository_details",
+    "iter_repository_items",
+    "iter_tags",
+    "list_repository_items",
     "make_git_acl_token",
     "make_ref_update",
     "post_push",
@@ -149,7 +156,7 @@ class GitCommitChangeItem(BaseModel):
 class GitCommitChange(BaseModel):
     """A single change entry in a commit diff."""
 
-    change_type: GitChangeType = Field(alias="changeType")
+    change_type: str = Field(alias="changeType")
     item: GitCommitChangeItem
 
 
@@ -491,6 +498,8 @@ def get_commit_diff_page(
 def get_commit_by_id(
     repository_api_call: ApiCall,
     commit_id: CommitId,
+    *,
+    search_criteria: GitCommitSearchCriteria | None = None,
 ) -> GitCommitRef:
     """Return a single commit by its SHA.
 
@@ -498,11 +507,26 @@ def get_commit_by_id(
         repository_api_call: Repository-level ADO API call (from
             get_repository_api_call).
         commit_id: Commit SHA string.
+        search_criteria: Optional search criteria model; only non-None
+            fields are forwarded as ``searchCriteria.*`` query parameters.
 
     Returns:
         GitCommitRef for the requested commit.
     """
-    response = repository_api_call.get("commits", commit_id, version="7.1-preview.1")
+    criteria_dict = (
+        search_criteria.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if search_criteria
+        else {}
+    )
+    parameters: dict[str, int | str] = {
+        f"searchCriteria.{key}": value for key, value in criteria_dict.items()
+    }
+    response = repository_api_call.get(
+        "commits",
+        commit_id,
+        parameters=parameters or None,
+        version="7.1-preview.1",
+    )
     return GitCommitRef.model_validate(response)
 
 
@@ -580,6 +604,65 @@ def iter_refs(
         version="7.1-preview.1",
     )
     yield from _GitRefResults.model_validate(response).value
+
+
+def iter_tags(repository_api_call: ApiCall) -> Iterator[GitRef]:
+    """Iterate over all git tags in the repository.
+
+    Args:
+        repository_api_call: Repository-level ADO API call (from
+            get_repository_api_call).
+
+    Yields:
+        GitRef for each tag.
+    """
+    yield from iter_refs(
+        repository_api_call,
+        GitRefFilter(name_filter="tags/"),
+    )
+
+
+def create_tag(
+    repository_api_call: ApiCall,
+    name: str,
+    commit_id: CommitId,
+) -> None:
+    """Create a lightweight tag pointing at an existing commit.
+
+    Args:
+        repository_api_call: Repository-level ADO API call (from
+            get_repository_api_call).
+        name: Short tag name (e.g. ``"v1.0"``).  A ``refs/tags/`` prefix is
+            added automatically if absent.
+        commit_id: Commit SHA the tag should point at.
+    """
+    full_name = name if name.startswith("refs/tags/") else f"refs/tags/{name}"
+    post_repository_refs(
+        repository_api_call,
+        [GitRefUpdate(name=full_name, new_object_id=commit_id, old_object_id=ZERO_SHA)],
+    )
+
+
+def delete_tag(
+    repository_api_call: ApiCall,
+    name: str,
+    commit_id: CommitId,
+) -> None:
+    """Delete a tag from the repository.
+
+    Args:
+        repository_api_call: Repository-level ADO API call (from
+            get_repository_api_call).
+        name: Short tag name (e.g. ``"v1.0"``).  A ``refs/tags/`` prefix is
+            added automatically if absent.
+        commit_id: Current object ID of the tag (used for the optimistic-
+            concurrency check).
+    """
+    full_name = name if name.startswith("refs/tags/") else f"refs/tags/{name}"
+    post_repository_refs(
+        repository_api_call,
+        [GitRefUpdate(name=full_name, new_object_id=ZERO_SHA, old_object_id=commit_id)],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -754,3 +837,96 @@ def make_ref_update(branch: str, old_commit: CommitId) -> GitPushRefUpdate:
     """
     full_name = branch if branch.startswith("refs/heads/") else f"refs/heads/{branch}"
     return GitPushRefUpdate(name=full_name, old_object_id=old_commit)
+
+
+class RecursionLevel(StrEnum):
+    """Recursion depth for repository items listing."""
+
+    NONE = "none"
+    ONE_LEVEL = "oneLevel"
+    FULL = "full"
+
+
+class GitItem(BaseModel):
+    """A single file or folder entry returned by the items endpoint."""
+
+    object_id: str = Field(alias="objectId")
+    git_object_type: str = Field(alias="gitObjectType")
+    path: str
+    url: str | None = None
+    is_folder: bool = Field(alias="isFolder", default=False)
+    is_sym_link: bool = Field(alias="isSymLink", default=False)
+    commit_id: str | None = Field(alias="commitId", default=None)
+
+
+class _GitItemResults(BaseModel):
+    """Internal: container for repository items list results."""
+
+    value: list[GitItem]
+
+
+def iter_repository_items(
+    repository_api_call: ApiCall,
+    scope_path: str = "/",
+    *,
+    branch: str | None = None,
+    recursion_level: RecursionLevel = RecursionLevel.ONE_LEVEL,
+) -> Iterator[GitItem]:
+    """Iterate over items at *scope_path* in the repository.
+
+    Args:
+        repository_api_call: Repository-level API call.
+        scope_path: Directory path to list (default: root ``"/"``).
+        branch: Short branch name or full ref; the ``refs/heads/`` prefix is
+            stripped automatically.  When ``None``, the repository default
+            branch is used.
+        recursion_level: Depth of recursion (default: one level).
+
+    Yields:
+        GitItem for each file or folder entry.
+    """
+    parameters: dict[str, str | bool | int] = {
+        "scopePath": scope_path,
+        "recursionLevel": recursion_level,
+    }
+    if branch is not None:
+        parameters["versionDescriptor.version"] = branch.removeprefix("refs/heads/")
+        parameters["versionDescriptor.versionType"] = VersionDescriptorType.BRANCH
+    response = repository_api_call.get("items", parameters=parameters, version="7.1")
+    yield from _GitItemResults.model_validate(response).value
+
+
+def list_repository_items(
+    repository_api_call: ApiCall,
+    scope_path: str = "/",
+    *,
+    branch: str | None = None,
+    recursion_level: RecursionLevel = RecursionLevel.ONE_LEVEL,
+) -> list[GitItem]:
+    """Return items at *scope_path* as a list."""
+    return list(
+        iter_repository_items(
+            repository_api_call,
+            scope_path,
+            branch=branch,
+            recursion_level=recursion_level,
+        )
+    )
+
+
+def list_repository_details(project_api_call: ApiCall) -> list[RepositoryInfo]:
+    """Return all repositories in the project as a list."""
+    return list(iter_repository_details(project_api_call))
+
+
+def list_refs(
+    repository_api_call: ApiCall,
+    ref_filter: GitRefFilter | None = None,
+) -> list[GitRef]:
+    """Return all refs matching the filter as a list."""
+    return list(iter_refs(repository_api_call, ref_filter=ref_filter))
+
+
+def list_tags(repository_api_call: ApiCall) -> list[GitRef]:
+    """Return all tags in the repository as a list."""
+    return list(iter_tags(repository_api_call))

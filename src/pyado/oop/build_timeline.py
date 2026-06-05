@@ -260,6 +260,10 @@ class BuildPhase:
             ):
                 yield BuildJob(record, self._all_records, stage=self._stage, phase=self)
 
+    def list_jobs(self) -> "list[BuildJob]":
+        """Return all jobs within this phase as a list."""
+        return list(self.iter_jobs())
+
 
 class BuildJob:
     """A job within a build stage.
@@ -385,6 +389,10 @@ class BuildJob:
                 and record.parent_id == self._record.id
             ):
                 yield BuildTask(record, job=self)
+
+    def list_tasks(self) -> list[BuildTask]:
+        """Return all task steps within this job as a list."""
+        return list(self.iter_tasks())
 
     def get_log_text(self) -> str | None:
         """Fetch the plain-text log content for this job.
@@ -551,3 +559,11 @@ class BuildStage:
         if log_info is None:
             return None
         return self._build.get_log_text(log_info.id)
+
+    def list_phases(self) -> list[BuildPhase]:
+        """Return all phases within this stage as a list."""
+        return list(self.iter_phases())
+
+    def list_jobs(self) -> list[BuildJob]:
+        """Return all jobs within this stage as a list."""
+        return list(self.iter_jobs())

@@ -4,13 +4,22 @@
 
 from datetime import date
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from pyado import raw
-from pyado.raw import ClassificationNode
+from pyado.oop._classification import _relative_path
+from pyado.raw import (
+    ClassificationNode,
+    ClassificationNodeAttributes,
+    ClassificationNodePatchRequest,
+    ClassificationNodeRequest,
+    ClassificationNodeUrlType,
+)
 
 if TYPE_CHECKING:
     from pyado.oop.organization import Organization
     from pyado.oop.project import Project
+    from pyado.oop.team import Team
 
 __all__ = ["Iteration"]
 
@@ -27,25 +36,6 @@ def _parse_date(value: str | None) -> date | None:
     if value is None:
         return None
     return date.fromisoformat(value[:10])
-
-
-def _relative_path(full_path: str | None) -> str | None:
-    r"""Strip the leading project-name prefix from a classification node path.
-
-    ADO returns paths like ``"\\\\ProjectName\\\\Sprint 1"``.
-    The raw API expects only the relative portion, e.g. ``"Sprint 1"``.
-
-    Args:
-        full_path: Full path string from the API response, or None.
-
-    Returns:
-        Relative path string, or None for a root node.
-    """
-    if not full_path:
-        return None
-    parts = full_path.lstrip("\\").split("\\")
-    relative = "\\".join(parts[1:])  # drop the project-name segment
-    return relative or None
 
 
 class Iteration:
@@ -74,7 +64,8 @@ class Iteration:
             info: ClassificationNode data as returned from the API.
         """
         self._project = project
-        self._info = info
+        self._relative_path = _relative_path(info.path)
+        self._info: ClassificationNode | None = info
 
     # ------------------------------------------------------------------
     # Properties
@@ -83,36 +74,42 @@ class Iteration:
     @property
     def info(self) -> ClassificationNode:
         """Raw node data captured at construction time."""
+        if self._info is None:
+            self._info = raw.get_classification_node(
+                self._project.api_call,
+                self._relative_path,
+                node_type=ClassificationNodeUrlType.ITERATIONS,
+            )
         return self._info
 
     @property
     def id(self) -> int:
         """Numeric node ID."""
-        return self._info.id
+        return self.info.id
 
     @property
     def name(self) -> str:
         """Node name (e.g. ``"Sprint 1"``)."""
-        return self._info.name
+        return self.info.name
 
     @property
     def path(self) -> str | None:
         r"""Full path as returned by the API (e.g. ``"\\\\Proj\\\\Sprint 1"``)."""
-        return self._info.path
+        return self.info.path
 
     @property
     def start_date(self) -> date | None:
         """Iteration start date, or ``None`` if not set."""
-        if self._info.attributes is None:
+        if self.info.attributes is None:
             return None
-        return _parse_date(self._info.attributes.start_date)
+        return _parse_date(self.info.attributes.start_date)
 
     @property
     def finish_date(self) -> date | None:
         """Iteration finish (end) date, or ``None`` if not set."""
-        if self._info.attributes is None:
+        if self.info.attributes is None:
             return None
-        return _parse_date(self._info.attributes.finish_date)
+        return _parse_date(self.info.attributes.finish_date)
 
     @property
     def children(self) -> "list[Iteration]":
@@ -123,9 +120,9 @@ class Iteration:
         :meth:`Project.get_iteration_node` with a higher *depth* to populate
         children.
         """
-        if self._info.children is None:
+        if self.info.children is None:
             return []
-        return [Iteration(self._project, child) for child in self._info.children]
+        return [Iteration(self._project, child) for child in self.info.children]
 
     @property
     def project(self) -> "Project":
@@ -138,25 +135,94 @@ class Iteration:
         return self._project.org
 
     # ------------------------------------------------------------------
+    # Refresh
+    # ------------------------------------------------------------------
+
+    def refresh(self) -> None:
+        """Discard cached iteration node info.
+
+        The next access to :attr:`info` re-fetches from the API.
+        """
+        self._info = None
+
+    # ------------------------------------------------------------------
     # Mutations
     # ------------------------------------------------------------------
 
-    def patch(
+    def update(
         self,
         *,
+        name: str | None = None,
         start_date: date | None = None,
         finish_date: date | None = None,
     ) -> None:
-        """Update the start and/or finish dates of this iteration node.
+        """Update the name and/or dates of this iteration node.
 
         Args:
+            name: New name for the iteration node, or ``None`` to leave
+                unchanged.
             start_date: New start date, or ``None`` to leave unchanged.
             finish_date: New finish (end) date, or ``None`` to leave unchanged.
         """
-        relative = _relative_path(self._info.path)
+        relative = self._relative_path
+        attrs = None
+        if start_date or finish_date:
+            attrs = ClassificationNodeAttributes.model_validate(
+                {
+                    "startDate": start_date.isoformat() + "T00:00:00Z"
+                    if start_date
+                    else None,
+                    "finishDate": finish_date.isoformat() + "T00:00:00Z"
+                    if finish_date
+                    else None,
+                }
+            )
         self._info = raw.patch_classification_node(
             self._project.api_call,
             relative,
-            start_date=start_date,
-            finish_date=finish_date,
+            ClassificationNodePatchRequest(name=name, attributes=attrs),
+            node_type=ClassificationNodeUrlType.ITERATIONS,
         )
+        self._relative_path = _relative_path(self._info.path)
+
+    def delete(self) -> None:
+        """Delete this iteration node."""
+        raw.delete_classification_node(
+            self._project.api_call,
+            self._relative_path,
+            node_type=ClassificationNodeUrlType.ITERATIONS,
+        )
+
+    def create_child(self, name: str) -> "Iteration":
+        """Create a child iteration node under this node.
+
+        Args:
+            name: Name of the new child iteration node.
+
+        Returns:
+            Iteration wrapping the newly created child iteration node.
+        """
+        node = raw.create_classification_node(
+            self._project.api_call,
+            ClassificationNodeRequest(name=name),
+            self._relative_path,
+            node_type=ClassificationNodeUrlType.ITERATIONS,
+        )
+        return Iteration(self._project, node)
+
+    def add_to_team(self, team: "Team") -> None:
+        """Assign this iteration node to a team.
+
+        Args:
+            team: The Team to assign this iteration to.
+
+        Raises:
+            ValueError: If the iteration node has no ``identifier`` (UUID).
+        """
+        if self.info.identifier is None:
+            err_msg = (
+                f"Iteration {self.info.name!r} has no identifier; "
+                "cannot assign to team."
+            )
+            raise ValueError(err_msg)
+        team.add_iteration(UUID(self.info.identifier))

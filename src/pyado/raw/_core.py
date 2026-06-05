@@ -2,8 +2,6 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-import json
-import pathlib
 from contextlib import suppress
 from functools import lru_cache
 from html.parser import HTMLParser
@@ -12,7 +10,7 @@ from uuid import UUID
 
 import requests
 import requests.auth
-from pydantic import BaseModel, Field, PositiveInt, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, TypeAdapter
 from pydantic.networks import HttpUrl, UrlConstraints
 
 __all__ = [
@@ -21,8 +19,8 @@ __all__ = [
     "ApiCall",
     "HTMLTextFilter",
     "JsonPatchAdd",
+    "JsonPatchRemove",
     "get_session",
-    "get_test_api_call",
 ]
 
 
@@ -80,6 +78,13 @@ class JsonPatchAdd(BaseModel):
     value: Any
 
 
+class JsonPatchRemove(BaseModel):
+    """Type to store JSON patch information to remove data."""
+
+    op: Literal["remove"] = "remove"
+    path: str
+
+
 def _is_json_patch(value: Any | list[Any] | list[dict[str, str]]) -> bool:
     """Check if the value is a JSON patch.
 
@@ -127,8 +132,11 @@ def _get_content_type(*, has_data: bool, json_value: Any) -> str:
 class ApiCall(BaseModel):
     """Class to call Azure DevOps APIs."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     access_token: AccessToken
     parameters: dict[str, int | str | bool] = {}
+    session: requests.Session | None = None
     timeout: PositiveInt = 10
     url: ADOUrl
 
@@ -152,6 +160,7 @@ class ApiCall(BaseModel):
         return ApiCall(
             access_token=self.access_token,
             parameters=parameters | self.parameters,
+            session=self.session,
             timeout=self.timeout,
             url=_ADO_URL_ADAPTER.validate_python(new_url),
         )
@@ -226,7 +235,11 @@ class ApiCall(BaseModel):
             kwargs = {"json": json}
         if data is not None:
             kwargs = {"data": data}
-        session = _get_session(api_call.access_token)
+        session = (
+            api_call.session
+            if api_call.session is not None
+            else _get_session(api_call.access_token)
+        )
         max_retries = 3
         for retry in range(max_retries, 0, -1):  # max_retries, ..., 1
             try:
@@ -347,21 +360,6 @@ def get_session(access_token: AccessToken) -> requests.Session:
         The requests.Session that pyado uses for all calls with this token.
     """
     return _get_session(access_token)
-
-
-def get_test_api_call() -> tuple[ApiCall, Any]:
-    """Get API call object for testing.
-
-    Returns:
-        A tuple of the configured ApiCall and the raw test config dict.
-    """
-    test_config_file = pathlib.Path(__file__).resolve().parent / "test.json"
-    test_config = json.load(test_config_file.open(encoding="utf-8"))
-    test_api_call = ApiCall(
-        access_token=test_config["access_token"],
-        url=test_config["url"],
-    )
-    return test_api_call, test_config
 
 
 class _IdentityRef(BaseModel):

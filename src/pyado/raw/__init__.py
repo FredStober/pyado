@@ -16,6 +16,7 @@ __all__ = [
     "BuildArtifactResource",
     "BuildAttemptInfo",
     "BuildDetails",
+    "BuildExpand",
     "BuildId",
     "BuildIssue",
     "BuildIssueType",
@@ -33,7 +34,10 @@ __all__ = [
     "BuildStatus",
     "ClassificationNode",
     "ClassificationNodeAttributes",
+    "ClassificationNodePatchRequest",
+    "ClassificationNodeRequest",
     "ClassificationNodeType",
+    "ClassificationNodeUrlType",
     "CommitDiffPage",
     "CommitId",
     "CommitIdRef",
@@ -45,7 +49,7 @@ __all__ = [
     "GitCommitRef",
     "GitCommitSearchCriteria",
     "GitForkRef",
-    "GitPullRequestMergeStrategy",
+    "GitItem",
     "GitPushChange",
     "GitPushChangeItem",
     "GitPushCommit",
@@ -69,11 +73,13 @@ __all__ = [
     "JobFeedPayload",
     "JobId",
     "JsonPatchAdd",
+    "JsonPatchRemove",
     "PipelineApproval",
     "PipelineApprovalStatus",
     "PipelineApprovalStep",
     "PipelineApprovalUpdateRequest",
     "PipelineDefinitionInfo",
+    "PipelineId",
     "PipelineInfo",
     "PipelinePermissionEntry",
     "PipelineResourcePermissions",
@@ -92,14 +98,16 @@ __all__ = [
     "ProjectVisibility",
     "PullRequestCompletionOptions",
     "PullRequestCreateRequest",
-    "PullRequestCreated",
     "PullRequestId",
     "PullRequestIteration",
     "PullRequestIterationContext",
     "PullRequestIterationRecord",
+    "PullRequestLabel",
     "PullRequestListItem",
     "PullRequestMergeFailureType",
     "PullRequestMergeStatus",
+    "PullRequestMergeStrategy",
+    "PullRequestResponse",
     "PullRequestReviewer",
     "PullRequestReviewerRequest",
     "PullRequestReviewerVoteRequest",
@@ -121,6 +129,7 @@ __all__ = [
     "PullRequestUpdateRequest",
     "PullRequestVote",
     "QueueId",
+    "RecursionLevel",
     "RepositoryId",
     "RepositoryInfo",
     "RepositoryName",
@@ -134,10 +143,13 @@ __all__ = [
     "TaskId",
     "TeamFieldValue",
     "TeamInfo",
+    "TeamMember",
+    "TextFormat",
     "TimelineId",
     "TimelineRecordsUpdatePayload",
     "UserId",
     "UserProfile",
+    "VariableGroupCreateRequest",
     "VariableGroupId",
     "VariableGroupInfo",
     "VariableGroupProjectReference",
@@ -163,15 +175,19 @@ __all__ = [
     "WorkItemType",
     "WorkItemsBatchRequest",
     "add_team_iteration",
-    "create_area_node",
     "create_classification_node",
+    "create_tag",
     "delete_build_tag",
-    "delete_pr_label",
-    "delete_pr_reviewer",
+    "delete_classification_node",
+    "delete_pull_request_label",
+    "delete_pull_request_reviewer",
+    "delete_tag",
+    "delete_team_iteration",
+    "delete_variable_group",
     "delete_work_item",
     "delete_work_item_comment",
-    "get_area_node",
     "get_build_api_call",
+    "get_build_artifact_bytes",
     "get_build_details",
     "get_build_log",
     "get_classification_node",
@@ -185,13 +201,14 @@ __all__ = [
     "get_pipeline",
     "get_pipeline_run",
     "get_plan_api_call",
-    "get_pr_api_call",
-    "get_pr_details",
-    "get_pr_iteration_changes",
-    "get_pr_labels_details",
-    "get_pr_reviewers",
     "get_profile_api_call",
     "get_project",
+    "get_pull_request_api_call",
+    "get_pull_request_details",
+    "get_pull_request_iteration_changes",
+    "get_pull_request_labels_details",
+    "get_pull_request_reviewers",
+    "get_pull_request_thread",
     "get_query_folder",
     "get_query_tree",
     "get_repository_api_call",
@@ -202,14 +219,16 @@ __all__ = [
     "get_session",
     "get_team",
     "get_team_field_values",
-    "get_test_api_call",
     "get_timeline_api_call",
     "get_variable_group_api_call",
+    "get_variable_group_details",
     "get_vssps_api_call",
     "get_work_item",
     "get_work_item_api_call",
+    "get_work_item_attachment_bytes",
     "iter_approvals",
     "iter_build_artifacts",
+    "iter_build_logs",
     "iter_build_tags",
     "iter_build_work_item_ids",
     "iter_builds",
@@ -217,29 +236,62 @@ __all__ = [
     "iter_pipeline_definitions",
     "iter_pipeline_runs",
     "iter_pipelines",
-    "iter_pr_commits",
-    "iter_pr_iterations",
-    "iter_pr_statuses",
-    "iter_pr_threads",
-    "iter_pr_work_item_ids",
     "iter_projects",
-    "iter_prs",
+    "iter_pull_request_commits",
+    "iter_pull_request_iterations",
+    "iter_pull_request_statuses",
+    "iter_pull_request_threads",
+    "iter_pull_request_work_item_ids",
+    "iter_pull_requests",
     "iter_refs",
     "iter_repository_details",
+    "iter_repository_items",
     "iter_sprint_iterations",
+    "iter_tags",
+    "iter_team_members",
     "iter_teams",
     "iter_timeline_records",
     "iter_variable_group_details",
     "iter_work_item_comments",
+    "iter_work_item_revisions",
     "iter_work_items_between_builds",
+    "list_approvals",
+    "list_build_artifacts",
+    "list_build_logs",
+    "list_build_tags",
+    "list_build_work_item_ids",
+    "list_builds",
+    "list_graph_groups",
+    "list_pipeline_definitions",
+    "list_pipeline_runs",
+    "list_pipelines",
+    "list_projects",
+    "list_pull_request_commits",
+    "list_pull_request_iterations",
+    "list_pull_request_statuses",
+    "list_pull_request_threads",
+    "list_pull_request_work_item_ids",
+    "list_pull_requests",
+    "list_refs",
+    "list_repository_details",
+    "list_repository_items",
+    "list_sprint_iterations",
+    "list_tags",
+    "list_team_members",
+    "list_teams",
+    "list_timeline_records",
+    "list_variable_group_details",
+    "list_work_item_comments",
+    "list_work_item_revisions",
+    "list_work_items_between_builds",
     "make_git_acl_token",
     "make_ref_update",
     "patch_approvals",
     "patch_build",
     "patch_classification_node",
-    "patch_pipeline_run",
-    "patch_pr",
-    "patch_pr_thread",
+    "patch_pipeline_permission",
+    "patch_pull_request",
+    "patch_pull_request_thread",
     "patch_timeline_records",
     "patch_work_item",
     "patch_work_item_comment",
@@ -248,23 +300,24 @@ __all__ = [
     "post_job_event",
     "post_job_feed",
     "post_job_logs",
-    "post_pipeline_permission",
     "post_pipeline_run",
-    "post_pr_label",
-    "post_pr_new_thread",
-    "post_pr_status",
-    "post_pr_thread_comment",
     "post_pull_request",
+    "post_pull_request_label",
+    "post_pull_request_new_thread",
+    "post_pull_request_status",
+    "post_pull_request_thread_comment",
     "post_push",
     "post_repository_refs",
+    "post_variable_group",
     "post_wiql",
     "post_work_item",
     "post_work_item_attachment_upload",
     "post_work_item_comment",
     "post_work_items_batch",
-    "put_pr_reviewer",
-    "put_pr_reviewer_vote",
+    "put_pull_request_reviewer",
+    "put_pull_request_reviewer_vote",
     "put_variable_group",
+    "restore_work_item",
 ]
 
 from pyado.raw._core import (
@@ -283,10 +336,10 @@ from pyado.raw._core import (
     JsonPatchAdd as JsonPatchAdd,
 )
 from pyado.raw._core import (
-    get_session as get_session,
+    JsonPatchRemove as JsonPatchRemove,
 )
 from pyado.raw._core import (
-    get_test_api_call as get_test_api_call,
+    get_session as get_session,
 )
 from pyado.raw.build import (
     BuildArtifact as BuildArtifact,
@@ -299,6 +352,9 @@ from pyado.raw.build import (
 )
 from pyado.raw.build import (
     BuildDetails as BuildDetails,
+)
+from pyado.raw.build import (
+    BuildExpand as BuildExpand,
 )
 from pyado.raw.build import (
     BuildId as BuildId,
@@ -367,6 +423,9 @@ from pyado.raw.build import (
     get_build_api_call as get_build_api_call,
 )
 from pyado.raw.build import (
+    get_build_artifact_bytes as get_build_artifact_bytes,
+)
+from pyado.raw.build import (
     get_build_details as get_build_details,
 )
 from pyado.raw.build import (
@@ -374,6 +433,9 @@ from pyado.raw.build import (
 )
 from pyado.raw.build import (
     iter_build_artifacts as iter_build_artifacts,
+)
+from pyado.raw.build import (
+    iter_build_logs as iter_build_logs,
 )
 from pyado.raw.build import (
     iter_build_tags as iter_build_tags,
@@ -392,6 +454,30 @@ from pyado.raw.build import (
 )
 from pyado.raw.build import (
     iter_work_items_between_builds as iter_work_items_between_builds,
+)
+from pyado.raw.build import (
+    list_build_artifacts as list_build_artifacts,
+)
+from pyado.raw.build import (
+    list_build_logs as list_build_logs,
+)
+from pyado.raw.build import (
+    list_build_tags as list_build_tags,
+)
+from pyado.raw.build import (
+    list_build_work_item_ids as list_build_work_item_ids,
+)
+from pyado.raw.build import (
+    list_builds as list_builds,
+)
+from pyado.raw.build import (
+    list_pipeline_definitions as list_pipeline_definitions,
+)
+from pyado.raw.build import (
+    list_timeline_records as list_timeline_records,
+)
+from pyado.raw.build import (
+    list_work_items_between_builds as list_work_items_between_builds,
 )
 from pyado.raw.build import (
     patch_build as patch_build,
@@ -442,6 +528,9 @@ from pyado.raw.git import (
     GitCommitSearchCriteria as GitCommitSearchCriteria,
 )
 from pyado.raw.git import (
+    GitItem as GitItem,
+)
+from pyado.raw.git import (
     GitPushChange as GitPushChange,
 )
 from pyado.raw.git import (
@@ -484,6 +573,9 @@ from pyado.raw.git import (
     PullRequestStatusContext as PullRequestStatusContext,
 )
 from pyado.raw.git import (
+    RecursionLevel as RecursionLevel,
+)
+from pyado.raw.git import (
     RepositoryId as RepositoryId,
 )
 from pyado.raw.git import (
@@ -497,6 +589,12 @@ from pyado.raw.git import (
 )
 from pyado.raw.git import (
     VersionDescriptorType as VersionDescriptorType,
+)
+from pyado.raw.git import (
+    create_tag as create_tag,
+)
+from pyado.raw.git import (
+    delete_tag as delete_tag,
 )
 from pyado.raw.git import (
     get_commit_by_id as get_commit_by_id,
@@ -529,6 +627,24 @@ from pyado.raw.git import (
     iter_repository_details as iter_repository_details,
 )
 from pyado.raw.git import (
+    iter_repository_items as iter_repository_items,
+)
+from pyado.raw.git import (
+    iter_tags as iter_tags,
+)
+from pyado.raw.git import (
+    list_refs as list_refs,
+)
+from pyado.raw.git import (
+    list_repository_details as list_repository_details,
+)
+from pyado.raw.git import (
+    list_repository_items as list_repository_items,
+)
+from pyado.raw.git import (
+    list_tags as list_tags,
+)
+from pyado.raw.git import (
     make_git_acl_token as make_git_acl_token,
 )
 from pyado.raw.git import (
@@ -554,6 +670,9 @@ from pyado.raw.identity import (
 )
 from pyado.raw.identity import (
     iter_graph_groups as iter_graph_groups,
+)
+from pyado.raw.identity import (
+    list_graph_groups as list_graph_groups,
 )
 from pyado.raw.pipeline import (
     JobEventName as JobEventName,
@@ -581,6 +700,9 @@ from pyado.raw.pipeline import (
 )
 from pyado.raw.pipeline import (
     PipelineApprovalUpdateRequest as PipelineApprovalUpdateRequest,
+)
+from pyado.raw.pipeline import (
+    PipelineId as PipelineId,
 )
 from pyado.raw.pipeline import (
     PipelineInfo as PipelineInfo,
@@ -637,10 +759,19 @@ from pyado.raw.pipeline import (
     iter_pipelines as iter_pipelines,
 )
 from pyado.raw.pipeline import (
+    list_approvals as list_approvals,
+)
+from pyado.raw.pipeline import (
+    list_pipeline_runs as list_pipeline_runs,
+)
+from pyado.raw.pipeline import (
+    list_pipelines as list_pipelines,
+)
+from pyado.raw.pipeline import (
     patch_approvals as patch_approvals,
 )
 from pyado.raw.pipeline import (
-    patch_pipeline_run as patch_pipeline_run,
+    patch_pipeline_permission as patch_pipeline_permission,
 )
 from pyado.raw.pipeline import (
     patch_timeline_records as patch_timeline_records,
@@ -653,9 +784,6 @@ from pyado.raw.pipeline import (
 )
 from pyado.raw.pipeline import (
     post_job_logs as post_job_logs,
-)
-from pyado.raw.pipeline import (
-    post_pipeline_permission as post_pipeline_permission,
 )
 from pyado.raw.pipeline import (
     post_pipeline_run as post_pipeline_run,
@@ -699,14 +827,14 @@ from pyado.raw.project import (
 from pyado.raw.project import (
     iter_projects as iter_projects,
 )
+from pyado.raw.project import (
+    list_projects as list_projects,
+)
 from pyado.raw.pull_request import (
     CommitIdRef as CommitIdRef,
 )
 from pyado.raw.pull_request import (
     GitForkRef as GitForkRef,
-)
-from pyado.raw.pull_request import (
-    GitPullRequestMergeStrategy as GitPullRequestMergeStrategy,
 )
 from pyado.raw.pull_request import (
     IdentityIdRef as IdentityIdRef,
@@ -719,9 +847,6 @@ from pyado.raw.pull_request import (
 )
 from pyado.raw.pull_request import (
     PullRequestCompletionOptions as PullRequestCompletionOptions,
-)
-from pyado.raw.pull_request import (
-    PullRequestCreated as PullRequestCreated,
 )
 from pyado.raw.pull_request import (
     PullRequestCreateRequest as PullRequestCreateRequest,
@@ -739,6 +864,9 @@ from pyado.raw.pull_request import (
     PullRequestIterationRecord as PullRequestIterationRecord,
 )
 from pyado.raw.pull_request import (
+    PullRequestLabel as PullRequestLabel,
+)
+from pyado.raw.pull_request import (
     PullRequestListItem as PullRequestListItem,
 )
 from pyado.raw.pull_request import (
@@ -746,6 +874,12 @@ from pyado.raw.pull_request import (
 )
 from pyado.raw.pull_request import (
     PullRequestMergeStatus as PullRequestMergeStatus,
+)
+from pyado.raw.pull_request import (
+    PullRequestMergeStrategy as PullRequestMergeStrategy,
+)
+from pyado.raw.pull_request import (
+    PullRequestResponse as PullRequestResponse,
 )
 from pyado.raw.pull_request import (
     PullRequestReviewer as PullRequestReviewer,
@@ -808,82 +942,118 @@ from pyado.raw.pull_request import (
     RepositoryRef as RepositoryRef,
 )
 from pyado.raw.pull_request import (
-    delete_pr_label as delete_pr_label,
+    delete_pull_request_label as delete_pull_request_label,
 )
 from pyado.raw.pull_request import (
-    delete_pr_reviewer as delete_pr_reviewer,
+    delete_pull_request_reviewer as delete_pull_request_reviewer,
 )
 from pyado.raw.pull_request import (
-    get_pr_api_call as get_pr_api_call,
+    get_pull_request_api_call as get_pull_request_api_call,
 )
 from pyado.raw.pull_request import (
-    get_pr_details as get_pr_details,
+    get_pull_request_details as get_pull_request_details,
 )
 from pyado.raw.pull_request import (
-    get_pr_iteration_changes as get_pr_iteration_changes,
+    get_pull_request_iteration_changes as get_pull_request_iteration_changes,
 )
 from pyado.raw.pull_request import (
-    get_pr_labels_details as get_pr_labels_details,
+    get_pull_request_labels_details as get_pull_request_labels_details,
 )
 from pyado.raw.pull_request import (
-    get_pr_reviewers as get_pr_reviewers,
+    get_pull_request_reviewers as get_pull_request_reviewers,
 )
 from pyado.raw.pull_request import (
-    iter_pr_commits as iter_pr_commits,
+    get_pull_request_thread as get_pull_request_thread,
 )
 from pyado.raw.pull_request import (
-    iter_pr_iterations as iter_pr_iterations,
+    iter_pull_request_commits as iter_pull_request_commits,
 )
 from pyado.raw.pull_request import (
-    iter_pr_statuses as iter_pr_statuses,
+    iter_pull_request_iterations as iter_pull_request_iterations,
 )
 from pyado.raw.pull_request import (
-    iter_pr_threads as iter_pr_threads,
+    iter_pull_request_statuses as iter_pull_request_statuses,
 )
 from pyado.raw.pull_request import (
-    iter_pr_work_item_ids as iter_pr_work_item_ids,
+    iter_pull_request_threads as iter_pull_request_threads,
 )
 from pyado.raw.pull_request import (
-    iter_prs as iter_prs,
+    iter_pull_request_work_item_ids as iter_pull_request_work_item_ids,
 )
 from pyado.raw.pull_request import (
-    patch_pr as patch_pr,
+    iter_pull_requests as iter_pull_requests,
 )
 from pyado.raw.pull_request import (
-    patch_pr_thread as patch_pr_thread,
+    list_pull_request_commits as list_pull_request_commits,
 )
 from pyado.raw.pull_request import (
-    post_pr_label as post_pr_label,
+    list_pull_request_iterations as list_pull_request_iterations,
 )
 from pyado.raw.pull_request import (
-    post_pr_new_thread as post_pr_new_thread,
+    list_pull_request_statuses as list_pull_request_statuses,
 )
 from pyado.raw.pull_request import (
-    post_pr_status as post_pr_status,
+    list_pull_request_threads as list_pull_request_threads,
 )
 from pyado.raw.pull_request import (
-    post_pr_thread_comment as post_pr_thread_comment,
+    list_pull_request_work_item_ids as list_pull_request_work_item_ids,
+)
+from pyado.raw.pull_request import (
+    list_pull_requests as list_pull_requests,
+)
+from pyado.raw.pull_request import (
+    patch_pull_request as patch_pull_request,
+)
+from pyado.raw.pull_request import (
+    patch_pull_request_thread as patch_pull_request_thread,
 )
 from pyado.raw.pull_request import (
     post_pull_request as post_pull_request,
 )
 from pyado.raw.pull_request import (
-    put_pr_reviewer as put_pr_reviewer,
+    post_pull_request_label as post_pull_request_label,
 )
 from pyado.raw.pull_request import (
-    put_pr_reviewer_vote as put_pr_reviewer_vote,
+    post_pull_request_new_thread as post_pull_request_new_thread,
+)
+from pyado.raw.pull_request import (
+    post_pull_request_status as post_pull_request_status,
+)
+from pyado.raw.pull_request import (
+    post_pull_request_thread_comment as post_pull_request_thread_comment,
+)
+from pyado.raw.pull_request import (
+    put_pull_request_reviewer as put_pull_request_reviewer,
+)
+from pyado.raw.pull_request import (
+    put_pull_request_reviewer_vote as put_pull_request_reviewer_vote,
 )
 from pyado.raw.team import (
     TeamInfo as TeamInfo,
 )
 from pyado.raw.team import (
+    TeamMember as TeamMember,
+)
+from pyado.raw.team import (
     get_team as get_team,
+)
+from pyado.raw.team import (
+    iter_team_members as iter_team_members,
 )
 from pyado.raw.team import (
     iter_teams as iter_teams,
 )
+from pyado.raw.team import (
+    list_team_members as list_team_members,
+)
+from pyado.raw.team import (
+    list_teams as list_teams,
+)
 from pyado.raw.variable_group import (
     UserId as UserId,
+)
+from pyado.raw.variable_group import (
+    VariableGroupCreateRequest as VariableGroupCreateRequest,
 )
 from pyado.raw.variable_group import (
     VariableGroupId as VariableGroupId,
@@ -904,10 +1074,22 @@ from pyado.raw.variable_group import (
     VariableInfo as VariableInfo,
 )
 from pyado.raw.variable_group import (
+    delete_variable_group as delete_variable_group,
+)
+from pyado.raw.variable_group import (
     get_variable_group_api_call as get_variable_group_api_call,
 )
 from pyado.raw.variable_group import (
+    get_variable_group_details as get_variable_group_details,
+)
+from pyado.raw.variable_group import (
     iter_variable_group_details as iter_variable_group_details,
+)
+from pyado.raw.variable_group import (
+    list_variable_group_details as list_variable_group_details,
+)
+from pyado.raw.variable_group import (
+    post_variable_group as post_variable_group,
 )
 from pyado.raw.variable_group import (
     put_variable_group as put_variable_group,
@@ -919,7 +1101,16 @@ from pyado.raw.work_item import (
     ClassificationNodeAttributes as ClassificationNodeAttributes,
 )
 from pyado.raw.work_item import (
+    ClassificationNodePatchRequest as ClassificationNodePatchRequest,
+)
+from pyado.raw.work_item import (
+    ClassificationNodeRequest as ClassificationNodeRequest,
+)
+from pyado.raw.work_item import (
     ClassificationNodeType as ClassificationNodeType,
+)
+from pyado.raw.work_item import (
+    ClassificationNodeUrlType as ClassificationNodeUrlType,
 )
 from pyado.raw.work_item import (
     SprintIterationAttributes as SprintIterationAttributes,
@@ -938,6 +1129,9 @@ from pyado.raw.work_item import (
 )
 from pyado.raw.work_item import (
     TeamFieldValue as TeamFieldValue,
+)
+from pyado.raw.work_item import (
+    TextFormat as TextFormat,
 )
 from pyado.raw.work_item import (
     WorkItemArtifactUrlPrefix as WorkItemArtifactUrlPrefix,
@@ -994,19 +1188,19 @@ from pyado.raw.work_item import (
     add_team_iteration as add_team_iteration,
 )
 from pyado.raw.work_item import (
-    create_area_node as create_area_node,
+    create_classification_node as create_classification_node,
 )
 from pyado.raw.work_item import (
-    create_classification_node as create_classification_node,
+    delete_classification_node as delete_classification_node,
+)
+from pyado.raw.work_item import (
+    delete_team_iteration as delete_team_iteration,
 )
 from pyado.raw.work_item import (
     delete_work_item as delete_work_item,
 )
 from pyado.raw.work_item import (
     delete_work_item_comment as delete_work_item_comment,
-)
-from pyado.raw.work_item import (
-    get_area_node as get_area_node,
 )
 from pyado.raw.work_item import (
     get_classification_node as get_classification_node,
@@ -1027,10 +1221,25 @@ from pyado.raw.work_item import (
     get_work_item_api_call as get_work_item_api_call,
 )
 from pyado.raw.work_item import (
+    get_work_item_attachment_bytes as get_work_item_attachment_bytes,
+)
+from pyado.raw.work_item import (
     iter_sprint_iterations as iter_sprint_iterations,
 )
 from pyado.raw.work_item import (
     iter_work_item_comments as iter_work_item_comments,
+)
+from pyado.raw.work_item import (
+    iter_work_item_revisions as iter_work_item_revisions,
+)
+from pyado.raw.work_item import (
+    list_sprint_iterations as list_sprint_iterations,
+)
+from pyado.raw.work_item import (
+    list_work_item_comments as list_work_item_comments,
+)
+from pyado.raw.work_item import (
+    list_work_item_revisions as list_work_item_revisions,
 )
 from pyado.raw.work_item import (
     patch_classification_node as patch_classification_node,
@@ -1055,4 +1264,7 @@ from pyado.raw.work_item import (
 )
 from pyado.raw.work_item import (
     post_work_items_batch as post_work_items_batch,
+)
+from pyado.raw.work_item import (
+    restore_work_item as restore_work_item,
 )
