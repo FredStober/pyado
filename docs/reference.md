@@ -1,13 +1,16 @@
 # Reference
 
-pyado provides three layers, all re-exported from the top-level `pyado` package:
+pyado provides two layers:
 
 - **OOP API** (`pyado.oop`) — object-oriented resource wrappers; the
   recommended entry point for most applications.
-- **High-level API** (`pyado.high`) — functional wrappers with pagination,
-  payload construction, and multi-step operations.
 - **Raw API** (`pyado.raw`) — one thin HTTP wrapper per ADO endpoint; useful
-  for advanced use-cases or when a high-level helper does not yet exist.
+  for advanced use-cases or scripting without the OOP layer.
+
+**See also:**
+[Usage guide with worked examples](usage.md) ·
+[Alternatives comparison](alternatives.md) ·
+[Contributor guide](contributing.md)
 
 ---
 
@@ -127,45 +130,6 @@ pyado provides three layers, all re-exported from the top-level `pyado` package:
 
 ---
 
-## High-level API
-
-### Build
-
-```{eval-rst}
-.. automodule:: pyado.high.build
-   :members:
-```
-
-### Git
-
-```{eval-rst}
-.. automodule:: pyado.high.git
-   :members:
-```
-
-### Pull Request
-
-```{eval-rst}
-.. automodule:: pyado.high.pull_request
-   :members:
-```
-
-### Variable Group
-
-```{eval-rst}
-.. automodule:: pyado.high.variable_group
-   :members:
-```
-
-### Work Item
-
-```{eval-rst}
-.. automodule:: pyado.high.work_item
-   :members:
-```
-
----
-
 ## Raw API
 
 ### Core
@@ -186,6 +150,13 @@ pyado provides three layers, all re-exported from the top-level `pyado` package:
 
 ```{eval-rst}
 .. automodule:: pyado.raw.git
+   :members:
+```
+
+### Identity
+
+```{eval-rst}
+.. automodule:: pyado.raw.identity
    :members:
 ```
 
@@ -214,6 +185,13 @@ pyado provides three layers, all re-exported from the top-level `pyado` package:
 
 ```{eval-rst}
 .. automodule:: pyado.raw.pull_request
+   :members:
+```
+
+### Team
+
+```{eval-rst}
+.. automodule:: pyado.raw.team
    :members:
 ```
 

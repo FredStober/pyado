@@ -9,6 +9,19 @@ feature requests, and pull requests.
 - [Issue Tracker]
 - [Code of Conduct]
 
+**Quick links for development:**
+[Usage guide](docs/usage.md) ·
+[Quick reference](docs/quick_reference.md) ·
+[API reference](https://pyado.readthedocs.io/) ·
+[Architecture](#package-architecture) ·
+[Coding standards](#coding-standards) ·
+[Adding new functionality](#adding-new-functionality)
+
+pyado uses Python 3.11, [uv] for dependency management, [ruff] for linting
+and formatting, [mypy] in strict mode for type checking, and [pytest] with
+100 % branch coverage enforced. All of these are configured in
+`pyproject.toml`; no tool needs a separate config file.
+
 [mit license]: https://opensource.org/licenses/MIT
 [source code]: https://github.com/fredstober/pyado
 [documentation]: https://pyado.readthedocs.io/
@@ -190,28 +203,41 @@ Raw `dict` is never returned from any public function.
 
 ## Package architecture
 
-pyado is split into two subpackages that are both re-exported through the
-top-level `pyado` namespace, so callers only ever need `import pyado`.
+pyado has two layers.  All raw functions are re-exported through the top-level
+`pyado` namespace.  The OOP layer is a preview API imported from `pyado.oop`.
 
 ```
 src/pyado/
-├── __init__.py       ← re-exports everything from raw/ and high/
-├── raw/              ← one function per ADO REST endpoint
-│   ├── _core.py      ← ApiCall, shared primitive types
+├── __init__.py         ← re-exports everything from raw/
+├── raw/                ← one function per ADO REST endpoint
+│   ├── _core.py        ← ApiCall, shared primitive types, HTTP machinery
 │   ├── build.py
 │   ├── git.py
+│   ├── identity.py
 │   ├── pipeline.py
 │   ├── profile.py
 │   ├── project.py
 │   ├── pull_request.py
 │   ├── variable_group.py
 │   └── work_item.py
-└── high/             ← higher-level helpers built on top of raw/
-    ├── build.py
-    ├── git.py
+└── oop/                ← OOP resource objects (preview layer)
+    ├── service.py      ← AzureDevOpsService, entry point
+    ├── organization.py
+    ├── project.py
+    ├── repository.py
     ├── pull_request.py
+    ├── work_item.py
+    ├── build.py
+    ├── pipeline.py
     ├── variable_group.py
-    └── work_item.py
+    ├── team.py
+    ├── iteration.py
+    ├── area.py
+    ├── _build.py       ← private helpers: payload construction + multi-step logic
+    ├── _git.py
+    ├── _pull_request.py
+    ├── _variable_group.py
+    └── _work_item.py
 ```
 
 ### The two layers
@@ -219,7 +245,7 @@ src/pyado/
 | Layer | Responsibility |
 |---|---|
 | `pyado.raw` | One function per ADO REST endpoint. Accepts fully-built Pydantic request models; returns Pydantic response models. No payload construction, no pagination, no multi-step logic. |
-| `pyado.high` | Higher-level wrappers. Takes plain Python values (strings, ints, enums), constructs request models, owns pagination loops, and orchestrates multi-step operations. Delegates all HTTP to `pyado.raw`. |
+| `pyado.oop` | OOP resource objects (`AzureDevOpsService → Organization → Project → …`). Private helpers (`oop/_*.py`) accept plain Python values, construct request models, own pagination loops, and orchestrate multi-step operations. All HTTP goes through `pyado.raw`. |
 
 ### Rules for `raw/`
 
@@ -230,7 +256,11 @@ src/pyado/
 4. **Public request models.** Multi-field request models must be public (no
    `_` prefix) so callers can reference them if needed.
 
-### Rules for `high/`
+### Rules for `oop/` private helpers
+
+The private modules (`oop/_build.py`, `oop/_git.py`, `oop/_pull_request.py`,
+`oop/_variable_group.py`, `oop/_work_item.py`) bridge the OOP objects and the
+`raw/` layer.
 
 1. **Accept primitive arguments.** Strings, ints, enums — no Pydantic models
    at the call site unless there is no simpler alternative.
@@ -239,10 +269,8 @@ src/pyado/
 3. **Own pagination.** `iter_*` functions yield individual items and page
    through results internally — callers should never need to manage `skip`/`top`.
 4. **Delegate all HTTP to `raw/`.** Never call `api_call.get()` / `.post()` /
-   `.patch()` / `.delete()` directly from `high/`.
-5. **No re-exports from `raw/`.** Every public symbol in `high/` must be a
-   function *defined* in that module.
-6. **Intent-expressing names are allowed.** `push_commits` wrapping `post_push`,
+   `.patch()` / `.delete()` directly from `oop/` modules.
+5. **Intent-expressing names are allowed.** `push_commits` wrapping `post_push`,
    or `start_build` wrapping `post_build`, is fine.
 
 ---
@@ -367,11 +395,11 @@ through case difference.
 ### Branch name normalisation
 
 Several functions accept a branch name as either a short name (`"main"`) or a
-full ref (`"refs/heads/main"`).  The private `_full_ref` helper in `high/git.py`
-canonicalises both forms to `"refs/heads/<name>"` because ADO's ref mutation
-APIs require the full path.  Functions that only *read* refs (e.g. `iter_refs`)
-do not apply this normalisation because the `nameFilter` query parameter accepts
-a prefix without the `refs/` root.
+full ref (`"refs/heads/main"`).  The private `_full_ref` helper in
+`oop/_pull_request.py` canonicalises both forms to `"refs/heads/<name>"` because
+ADO's ref mutation APIs require the full path.  Functions that only *read* refs
+(e.g. `iter_refs`) do not apply this normalisation because the `nameFilter`
+query parameter accepts a prefix without the `refs/` root.
 
 ---
 
@@ -384,18 +412,17 @@ new higher-level helper:
    to the appropriate domain module (e.g. `raw/git.py`). If the endpoint needs
    a new multi-field request model, make it public.
 
-2. **Export from `raw/`.** Add new public symbols to `raw/__init__.py`.
+2. **Export from `raw/`.** Add new public symbols to `raw/__init__.py` and
+   `pyado/__init__.py`.
 
-3. **`high/` if needed.** If the new endpoint benefits from payload construction,
-   pagination, or multi-step orchestration, add a wrapper in the matching
-   `high/` module (e.g. `high/git.py`). Export from `high/__init__.py`.
+3. **`oop/_*.py` if needed.** If the new endpoint benefits from payload
+   construction, pagination, or multi-step orchestration, add a helper in the
+   matching private module (e.g. `oop/_git.py`) and expose a method on the
+   relevant OOP class (e.g. `Repository`).
 
-4. **Export from `pyado/__init__.py`.** Add the new symbol to the top-level
-   `__all__` list and the corresponding `from pyado.raw/high import …` line.
+4. **Tests.** Add unit tests. Coverage must remain at 100%.
 
-5. **Tests.** Add unit tests. Coverage must remain at 100%.
-
-6. **Docs.** Add an example to `docs/usage.md` if the new function is
+5. **Docs.** Add an example to `docs/usage.md` if the new function is
    user-facing.
 
 ### Example: adding a new `raw/` function
@@ -453,9 +480,14 @@ $ uv run --group docs --with sphinx-autobuild sphinx-autobuild docs docs/_build/
 |---|---|
 | `docs/conf.py` | Sphinx configuration (extensions, theme) |
 | `docs/index.md` | Landing page; pulls top section of `README.md` via `{include}` |
-| `docs/usage.md` | Full usage guide with worked examples |
+| `docs/usage.md` | Full usage guide with worked examples — see also [Usage Guide] |
 | `docs/reference.md` | API reference — auto-generated from module docstrings |
+| `docs/AGENT.md` | Compact API reference for agent/LLM consumption |
+| `docs/quick_reference.md` | One-page signature summary |
+| `docs/alternatives.md` | Comparison with `azure-devops` and raw `requests` |
 | `docs/contributing.md` | This contributor guide, rendered on the docs site |
+
+[Usage Guide]: docs/usage.md
 
 [Sphinx]: https://www.sphinx-doc.org/
 [MyST Parser]: https://myst-parser.readthedocs.io/

@@ -5,8 +5,9 @@
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
-from pyado import high, raw
-from pyado.high.git import _full_ref as _make_full_ref
+from pyado import raw
+from pyado.oop import _git, _pull_request
+from pyado.oop._git import _full_ref as _make_full_ref
 from pyado.oop.commit import Commit
 from pyado.oop.file_change import AddFile, DeleteFile, EditFile, RenameFile
 from pyado.oop.pull_request import PullRequest
@@ -19,6 +20,7 @@ from pyado.raw import (
     CommitId,
     GitCommitChange,
     GitCommitSearchCriteria,
+    GitItem,
     GitPushCommit,
     GitPushRefUpdate,
     GitPushResult,
@@ -28,6 +30,7 @@ from pyado.raw import (
     PullRequestId,
     PullRequestSearchCriteria,
     PullRequestStatus,
+    RecursionLevel,
     RepositoryId,
     RepositoryInfo,
     VersionDescriptorType,
@@ -79,7 +82,7 @@ class Repository:
         self._project = project
         self._service = service
         self._api_call = repository_api_call
-        self._info = info
+        self._info: RepositoryInfo | None = info
 
     # ------------------------------------------------------------------
     # Properties
@@ -88,27 +91,29 @@ class Repository:
     @property
     def info(self) -> RepositoryInfo:
         """Repository data captured at construction time (or last refresh)."""
+        if self._info is None:
+            self._info = raw.get_repository_info(self._api_call)
         return self._info
 
     @property
     def id(self) -> RepositoryId:
         """Repository UUID."""
-        return self._info.id
+        return self.info.id
 
     @property
     def name(self) -> str:
         """Repository name."""
-        return self._info.name
+        return self.info.name
 
     @property
     def default_branch(self) -> BranchName | None:
         """Default branch name (e.g. ``"refs/heads/main"``), or ``None`` if unset."""
-        return self._info.default_branch
+        return self.info.default_branch
 
     @property
     def web_url(self) -> ADOUrl:
         """Web URL of the repository in the ADO portal."""
-        return self._info.web_url
+        return self.info.web_url
 
     @property
     def api_call(self) -> ApiCall:
@@ -130,52 +135,72 @@ class Repository:
     # ------------------------------------------------------------------
 
     def refresh(self) -> None:
-        """Re-fetch repository info from the API immediately."""
-        self._info = raw.get_repository_info(self._api_call)
+        """Discard cached repository info.
+
+        The next access to :attr:`info` re-fetches from the API.
+        """
+        self._info = None
 
     # ------------------------------------------------------------------
     # Pull requests
     # ------------------------------------------------------------------
 
-    def get_pr(self, pr_id: PullRequestId) -> PullRequest:
+    def get_pull_request(self, pull_request_id: PullRequestId) -> PullRequest:
         """Return a wrapper for a specific pull request.
 
         Args:
-            pr_id: Numeric ID of the pull request.
+            pull_request_id: Numeric ID of the pull request.
 
         Returns:
             PullRequest wrapping the requested PR.
         """
-        pr_api_call = raw.get_pr_api_call(self._project.api_call, self._info.id, pr_id)
-        info = raw.get_pr_details(pr_api_call)
+        pr_api_call = raw.get_pull_request_api_call(
+            self._project.api_call, self.info.id, pull_request_id
+        )
+        info = raw.get_pull_request_details(pr_api_call)
         return PullRequest(self, pr_api_call, info)
 
-    def iter_prs(
+    def iter_pull_requests(
         self,
-        status: PullRequestStatus = PullRequestStatus.ACTIVE,
+        status: PullRequestStatus | None = None,
+        *,
+        criteria: PullRequestSearchCriteria | None = None,
+        expand: str | None = None,
     ) -> Iterator[PullRequest]:
         """Iterate over pull requests in this repository.
 
         Args:
-            status: Filter by PR lifecycle status (default: ``"active"``).
-                Pass ``PullRequestStatus.ALL`` to return PRs of every status.
+            status: Filter by PR lifecycle status.  When ``None`` (default),
+                all PRs are returned regardless of status.  Ignored when
+                *criteria* is provided.
+            criteria: Full search criteria; ``repository_id`` is always
+                overridden to this repository's ID.  Use this to apply
+                date-range filters (``min_time``/``max_time``) or other
+                ``PullRequestSearchCriteria`` fields.
+            expand: Optional ``$expand`` value (e.g. ``"labels"``,
+                ``"reviewers"``).
 
         Yields:
             PullRequest for each matching PR, in API-returned order.
         """
-        for item in raw.iter_prs(
-            self._project.api_call,
-            PullRequestSearchCriteria(
-                repository_id=str(self._info.id),
+        if criteria is not None:
+            effective = criteria.model_copy(update={"repository_id": str(self.info.id)})
+        else:
+            effective = PullRequestSearchCriteria(
+                repository_id=str(self.info.id),
                 status=status,
-            ),
-        ):
-            pr_api_call = raw.get_pr_api_call(
-                self._project.api_call, self._info.id, item.pr_id
             )
-            yield PullRequest(self, pr_api_call, item)
+        for item in raw.iter_pull_requests(
+            self._project.api_call,
+            search_criteria=effective,
+            expand=expand,
+        ):
+            pr_api_call = raw.get_pull_request_api_call(
+                self._project.api_call, self.info.id, item.pr_id
+            )
+            yield PullRequest(self, pr_api_call, item, expand)
 
-    def create_pr(
+    def create_pull_request(
         self,
         title: str,
         source_branch: str,
@@ -198,7 +223,7 @@ class Repository:
         Returns:
             PullRequest wrapping the newly created PR.
         """
-        created = high.create_pr(
+        created = _pull_request.create_pull_request(
             self._api_call,
             title,
             source_branch,
@@ -206,8 +231,8 @@ class Repository:
             description=description,
             completion_options=completion_options,
         )
-        pr_api_call = raw.get_pr_api_call(
-            self._project.api_call, self._info.id, created.pr_id
+        pr_api_call = raw.get_pull_request_api_call(
+            self._project.api_call, self.info.id, created.pr_id
         )
         return PullRequest(self, pr_api_call, created)
 
@@ -225,7 +250,7 @@ class Repository:
         Returns:
             File content as a UTF-8 string, or ``""`` if the file is absent.
         """
-        return high.get_file_content_at_branch(self._api_call, path, branch)
+        return _git.get_file_content_at_branch(self._api_call, path, branch)
 
     def get_file_at_commit(self, path: str, commit: CommitId) -> str:
         """Return the content of a file at a specific commit.
@@ -237,7 +262,7 @@ class Repository:
         Returns:
             File content as a UTF-8 string, or ``""`` if the file is absent.
         """
-        return high.get_file_content_at_commit(self._api_call, path, commit)
+        return _git.get_file_content_at_commit(self._api_call, path, commit)
 
     def get_file_bytes_at_branch(self, path: str, branch: BranchName) -> bytes | None:
         """Return the raw bytes of a file from the tip of a branch.
@@ -298,6 +323,18 @@ class Repository:
             GitRefFilter(name_filter=name_filter, name_contains=name_contains),
         )
 
+    def iter_branches(self) -> Iterator[GitRef]:
+        """Iterate over all branches (``refs/heads/…``) in the repository.
+
+        Convenience wrapper over :meth:`iter_refs` that pre-applies the
+        ``heads/`` name filter so callers do not need to know the ADO ref
+        filter format.
+
+        Yields:
+            :class:`~pyado.raw.GitRef` for each branch.
+        """
+        yield from self.iter_refs(name_filter="heads/")
+
     def create_branch(self, name: BranchName, from_commit: CommitId) -> None:
         """Create a new branch pointing at an existing commit.
 
@@ -306,7 +343,7 @@ class Repository:
                 ``refs/heads/`` prefix is added automatically if absent.
             from_commit: Commit SHA the new branch should point at.
         """
-        high.create_branch(self._api_call, name, from_commit)
+        _git.create_branch(self._api_call, name, from_commit)
 
     def delete_branch(self, name: BranchName, current_commit: CommitId) -> None:
         """Delete a branch from the repository.
@@ -316,7 +353,36 @@ class Repository:
             current_commit: Current HEAD SHA of the branch (used for the
                 optimistic-concurrency check).
         """
-        high.delete_branch(self._api_call, name, current_commit)
+        _git.delete_branch(self._api_call, name, current_commit)
+
+    def iter_tags(self) -> Iterator[GitRef]:
+        """Iterate over all git tags in the repository.
+
+        Yields:
+            :class:`~pyado.raw.GitRef` for each tag.
+        """
+        yield from raw.iter_tags(self._api_call)
+
+    def create_tag(self, name: str, commit_id: CommitId) -> None:
+        """Create a lightweight tag pointing at an existing commit.
+
+        Args:
+            name: Short tag name (e.g. ``"v1.0"``).  A ``refs/tags/`` prefix
+                is added automatically if absent.
+            commit_id: Commit SHA the tag should point at.
+        """
+        raw.create_tag(self._api_call, name, commit_id)
+
+    def delete_tag(self, name: str, commit_id: CommitId) -> None:
+        """Delete a tag from the repository.
+
+        Args:
+            name: Short tag name (e.g. ``"v1.0"``).  A ``refs/tags/`` prefix
+                is added automatically if absent.
+            commit_id: Current object ID of the tag (optimistic-concurrency
+                check).
+        """
+        raw.delete_tag(self._api_call, name, commit_id)
 
     # ------------------------------------------------------------------
     # Commits and diffs
@@ -340,7 +406,7 @@ class Repository:
         Returns:
             Commit SHA of the most recent touching commit, or *before_commit*.
         """
-        return high.get_last_commit_touching_file(self._api_call, path, before_commit)
+        return _git.get_last_commit_touching_file(self._api_call, path, before_commit)
 
     def iter_commit_diff(
         self,
@@ -359,7 +425,7 @@ class Repository:
         Yields:
             GitCommitChange for each changed file.
         """
-        yield from high.iter_commit_diff(self._api_call, base_commit, target_commit)
+        yield from _git.iter_commit_diff(self._api_call, base_commit, target_commit)
 
     def iter_commits(
         self,
@@ -403,6 +469,31 @@ class Repository:
         """
         return Commit(self, raw.get_commit_by_id(self._api_call, sha))
 
+    def get_default_branch_commit(self) -> Commit:
+        """Return the HEAD commit of the default branch.
+
+        Convenience shortcut that avoids a separate :meth:`iter_refs` call
+        followed by :meth:`get_commit`.
+
+        Returns:
+            :class:`Commit` at the tip of the default branch.
+
+        Raises:
+            ValueError: If the repository has no default branch configured.
+            KeyError: If the default branch ref is not found in the
+                repository (e.g. empty repository).
+        """
+        branch = self.info.default_branch
+        if branch is None:
+            err_msg = f"Repository {self.info.name!r} has no default branch."
+            raise ValueError(err_msg)
+        short = branch.removeprefix("refs/")
+        ref = next(raw.iter_refs(self._api_call, GitRefFilter(name_filter=short)), None)
+        if ref is None:
+            err_msg = f"Default branch ref {branch!r} not found."
+            raise KeyError(err_msg)
+        return self.get_commit(ref.object_id)
+
     # ------------------------------------------------------------------
     # Access control
     # ------------------------------------------------------------------
@@ -417,7 +508,7 @@ class Repository:
             List of AccessControlList objects for this repository.
         """
         org_base_call = self._service.oop_api.org_base_api_call
-        return raw.get_git_acl(org_base_call, self._project.id, self._info.id)
+        return raw.get_git_acl(org_base_call, self._project.id, self.info.id)
 
     # ------------------------------------------------------------------
     # Pushes
@@ -426,7 +517,7 @@ class Repository:
     def make_ref_update(self, branch: BranchName) -> GitPushRefUpdate:
         """Return a ref-update entry for a branch, fetching its current SHA.
 
-        Convenience wrapper around :func:`~pyado.high.create_ref_update` that
+        Convenience wrapper around :func:`~pyado._git.create_ref_update` that
         supplies the repository API call automatically.  Use this when building
         a push manually via :meth:`push_commits`.
 
@@ -438,7 +529,7 @@ class Repository:
             GitPushRefUpdate with the branch's current commit SHA as
             ``old_object_id``.
         """
-        return high.create_ref_update(self._api_call, branch)
+        return _git.create_ref_update(self._api_call, branch)
 
     def commit(
         self,
@@ -469,9 +560,43 @@ class Repository:
                 DeleteFile("/old_config.json"),
             ])
         """
-        ref_update = high.create_ref_update(self._api_call, branch)
-        push_commit = high.make_commit(message, [c.to_git_change() for c in changes])
-        return high.push_commits(self._api_call, [ref_update], [push_commit])
+        ref_update = _git.create_ref_update(self._api_call, branch)
+        push_commit = _git.make_commit(message, [c.to_git_change() for c in changes])
+        return _git.push_commits(self._api_call, [ref_update], [push_commit])
+
+    def delete_file(self, branch: BranchName, path: str, message: str) -> GitPushResult:
+        """Delete a file from a branch in a single commit.
+
+        Args:
+            branch: Short branch name (e.g. ``"main"``).
+            path: Absolute file path within the repository (e.g.
+                ``"/config.json"``).
+            message: Commit message.
+
+        Returns:
+            GitPushResult containing the new push ID and commit references.
+        """
+        return self.commit(branch, message, [DeleteFile(path)])
+
+    def rename_file(
+        self,
+        branch: BranchName,
+        old_path: str,
+        new_path: str,
+        message: str,
+    ) -> GitPushResult:
+        """Rename (move) a file on a branch in a single commit.
+
+        Args:
+            branch: Short branch name (e.g. ``"main"``).
+            old_path: Current absolute file path within the repository.
+            new_path: New absolute file path within the repository.
+            message: Commit message.
+
+        Returns:
+            GitPushResult containing the new push ID and commit references.
+        """
+        return self.commit(branch, message, [RenameFile(old_path, new_path)])
 
     def push_commits(
         self,
@@ -485,12 +610,59 @@ class Repository:
                 :data:`~pyado.raw.ZERO_SHA` as ``old_object_id`` for new
                 branches.  Build entries with :func:`~pyado.raw.make_ref_update`.
             commits: Commits to include in the push.  Build entries with
-                :func:`~pyado.high.make_commit`.
+                :func:`~pyado._git.make_commit`.
 
         Returns:
             GitPushResult containing the new push ID and commit references.
         """
-        return high.push_commits(self._api_call, ref_updates, commits)
+        return _git.push_commits(self._api_call, ref_updates, commits)
+
+    def iter_items(
+        self,
+        scope_path: str = "/",
+        *,
+        branch: BranchName | None = None,
+        recursion_level: RecursionLevel = RecursionLevel.ONE_LEVEL,
+    ) -> Iterator[GitItem]:
+        """Iterate over files and folders at *scope_path*.
+
+        Args:
+            scope_path: Directory path to list (default: root ``"/"``).
+            branch: Short branch name or full ref.  When ``None``, the
+                repository default branch is used.
+            recursion_level: Depth of recursion (default: one level).
+
+        Yields:
+            GitItem for each file or folder entry.
+        """
+        yield from raw.iter_repository_items(
+            self._api_call,
+            scope_path,
+            branch=branch,
+            recursion_level=recursion_level,
+        )
+
+    def list_items(
+        self,
+        scope_path: str = "/",
+        *,
+        branch: BranchName | None = None,
+        recursion_level: RecursionLevel = RecursionLevel.ONE_LEVEL,
+    ) -> list[GitItem]:
+        """Return all items at *scope_path* as a list.
+
+        Args:
+            scope_path: Directory path to list (default: root ``"/"``).
+            branch: Short branch name or full ref.  When ``None``, the
+                repository default branch is used.
+            recursion_level: Depth of recursion (default: one level).
+
+        Returns:
+            List of GitItem for each file or folder entry.
+        """
+        return list(
+            self.iter_items(scope_path, branch=branch, recursion_level=recursion_level)
+        )
 
     def get_statistics(self, branch: str) -> BranchStatistics:
         """Return ahead/behind commit counts for a branch.
@@ -504,6 +676,33 @@ class Repository:
         """
         return raw.get_repository_statistics(self._api_call, branch)
 
+    def get_pr_for_commit(self, sha: CommitId) -> "PullRequest | None":
+        """Return the first active PR whose source branch contains *sha*, or ``None``.
+
+        Uses ``searchCriteria.sourceVersion`` to restrict the search to PRs
+        that include the given commit.
+
+        Args:
+            sha: Commit SHA string to search for.
+
+        Returns:
+            PullRequest for the first active PR whose source version matches
+            *sha*, or ``None`` if no such PR exists.
+        """
+        for item in raw.iter_pull_requests(
+            self._project.api_call,
+            search_criteria=PullRequestSearchCriteria(
+                repository_id=str(self.info.id),
+                source_version=sha,
+                status=PullRequestStatus.ACTIVE,
+            ),
+        ):
+            pr_api_call = raw.get_pull_request_api_call(
+                self._project.api_call, self.info.id, item.pr_id
+            )
+            return PullRequest(self, pr_api_call, item)
+        return None
+
     def get_pr_for_branch(self, source_branch: str) -> "PullRequest | None":
         """Return the first active PR for the given source branch, or ``None``.
 
@@ -516,16 +715,64 @@ class Repository:
             ``None`` if none exists.
         """
         full_ref = _make_full_ref(source_branch)
-        for item in raw.iter_prs(
+        for item in raw.iter_pull_requests(
             self._project.api_call,
-            PullRequestSearchCriteria(
-                repository_id=str(self._info.id),
+            search_criteria=PullRequestSearchCriteria(
+                repository_id=str(self.info.id),
                 source_ref_name=full_ref,
                 status=PullRequestStatus.ACTIVE,
             ),
         ):
-            pr_api_call = raw.get_pr_api_call(
-                self._project.api_call, self._info.id, item.pr_id
+            pr_api_call = raw.get_pull_request_api_call(
+                self._project.api_call, self.info.id, item.pr_id
             )
             return PullRequest(self, pr_api_call, item)
         return None
+
+    def list_pull_requests(
+        self,
+        status: PullRequestStatus | None = None,
+        *,
+        criteria: PullRequestSearchCriteria | None = None,
+        expand: str | None = None,
+    ) -> list[PullRequest]:
+        """Return all pull requests in this repository as a list."""
+        return list(
+            self.iter_pull_requests(status=status, criteria=criteria, expand=expand)
+        )
+
+    def list_refs(
+        self,
+        name_filter: str | None = None,
+        name_contains: str | None = None,
+    ) -> list[GitRef]:
+        """Return all refs matching the filter as a list."""
+        return list(
+            self.iter_refs(name_filter=name_filter, name_contains=name_contains)
+        )
+
+    def list_branches(self) -> list[GitRef]:
+        """Return all branches in this repository as a list."""
+        return list(self.iter_branches())
+
+    def list_tags(self) -> list[GitRef]:
+        """Return all tags in this repository as a list."""
+        return list(self.iter_tags())
+
+    def list_commit_diff(
+        self,
+        base_commit: CommitId,
+        target_commit: CommitId,
+    ) -> list[GitCommitChange]:
+        """Return all file changes between two commits as a list."""
+        return list(self.iter_commit_diff(base_commit, target_commit))
+
+    def list_commits(
+        self,
+        *,
+        item_path: str | None = None,
+        top: int | None = None,
+        branch: str | None = None,
+    ) -> list[Commit]:
+        """Return all commits matching the given criteria as a list."""
+        return list(self.iter_commits(item_path=item_path, top=top, branch=branch))

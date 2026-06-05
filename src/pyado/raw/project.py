@@ -100,3 +100,8 @@ def iter_projects(base_api_call: ApiCall) -> Iterator[ProjectInfo]:
         if len(results.value) < page_size:
             break
         skip += len(results.value)
+
+
+def list_projects(base_api_call: ApiCall) -> list[ProjectInfo]:
+    """Return all projects as a list."""
+    return list(iter_projects(base_api_call))

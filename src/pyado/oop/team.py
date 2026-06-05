@@ -12,13 +12,14 @@ from pyado.raw import (
     SprintIterationInfo,
     SprintIterationTimeframe,
     TeamFieldValue,
+    TeamMember,
 )
-from pyado.raw._core import _ADO_URL_ADAPTER
 from pyado.raw.team import TeamInfo
 
 if TYPE_CHECKING:
     from pyado.oop.organization import Organization
     from pyado.oop.project import Project
+    from pyado.oop.service import AzureDevOpsService
 
 __all__ = ["Team"]
 
@@ -38,30 +39,43 @@ class Team:
         _info: TeamInfo data returned by the API.
     """
 
-    def __init__(self, project: "Project", info: TeamInfo) -> None:
+    def __init__(
+        self,
+        project: "Project",
+        info: TeamInfo,
+        service: "AzureDevOpsService",
+    ) -> None:
         """Construct a Team wrapper.
 
         Args:
             project: The Project this team belongs to.
             info: TeamInfo returned by the ADO teams endpoint.
+            service: The owning AzureDevOpsService (for API call construction).
         """
         self._project = project
-        self._info = info
+        self._id = info.id
+        self._name = info.name
+        self._info: TeamInfo | None = info
+        self._service = service
 
     @property
     def info(self) -> TeamInfo:
         """Full team data as returned by the API."""
+        if self._info is None:
+            self._info = raw.get_team(
+                self._project.org.api_call, self._project.name, self._id
+            )
         return self._info
 
     @property
     def id(self) -> str:
         """Team UUID string."""
-        return self._info.id
+        return self._id
 
     @property
     def name(self) -> str:
         """Team name."""
-        return self._info.name
+        return self._name
 
     @property
     def api_call(self) -> ApiCall:
@@ -71,13 +85,7 @@ class Team:
         ``{org}/{project}/{team}/_apis/...``, so the team name must sit
         *before* ``/_apis``, not after it.
         """
-        proj_base = self._project.api_call.url.unicode_string().removesuffix("/_apis")
-        return ApiCall(
-            access_token=self._project.api_call.access_token,
-            url=_ADO_URL_ADAPTER.validate_python(
-                f"{proj_base}/{self._info.name}/_apis"
-            ),
-        )
+        return self._service.oop_api.make_team_api_call(self._project.name, self._name)
 
     @property
     def project(self) -> "Project":
@@ -88,6 +96,17 @@ class Team:
     def org(self) -> "Organization":
         """Organisation this team belongs to — zero-cost."""
         return self._project.org
+
+    # ------------------------------------------------------------------
+    # Refresh
+    # ------------------------------------------------------------------
+
+    def refresh(self) -> None:
+        """Discard cached team info.
+
+        The next access to :attr:`info` re-fetches from the API.
+        """
+        self._info = None
 
     # ------------------------------------------------------------------
     # Sprint iterations
@@ -128,3 +147,36 @@ class Team:
             iteration_id: UUID of the iteration classification node to assign.
         """
         raw.add_team_iteration(self.api_call, iteration_id)
+
+    def remove_iteration(self, iteration_id: SprintIterationId) -> None:
+        """Remove an iteration from this team's sprint backlog.
+
+        Args:
+            iteration_id: UUID of the iteration classification node to remove.
+        """
+        raw.delete_team_iteration(self.api_call, iteration_id)
+
+    # ------------------------------------------------------------------
+    # Members
+    # ------------------------------------------------------------------
+
+    def iter_members(self) -> Iterator[TeamMember]:
+        """Iterate over all members of this team.
+
+        Yields:
+            :class:`~pyado.raw.TeamMember` for each team member.
+        """
+        yield from raw.iter_team_members(
+            self._project.org.api_call, self._project.name, self._id
+        )
+
+    def list_sprint_iterations(
+        self,
+        timeframe_filter: "SprintIterationTimeframe | None" = None,
+    ) -> list[SprintIterationInfo]:
+        """Return all sprint iterations for this team as a list."""
+        return list(self.iter_sprint_iterations(timeframe_filter=timeframe_filter))
+
+    def list_members(self) -> list[TeamMember]:
+        """Return all members of this team as a list."""
+        return list(self.iter_members())

@@ -3,26 +3,30 @@
 # SPDX-License-Identifier: MIT
 
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, cast
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.networks import AnyUrl
 
-from pyado.raw._core import ApiCall, _IdentityRef
+from pyado.raw._core import ApiCall, JsonPatchAdd, JsonPatchRemove, _IdentityRef
 
 __all__ = [
     "ClassificationNode",
     "ClassificationNodeAttributes",
+    "ClassificationNodePatchRequest",
+    "ClassificationNodeRequest",
     "ClassificationNodeType",
+    "ClassificationNodeUrlType",
     "SprintIterationAttributes",
     "SprintIterationId",
     "SprintIterationInfo",
     "SprintIterationPath",
     "SprintIterationTimeframe",
     "TeamFieldValue",
+    "TextFormat",
     "WorkItemArtifactUrlPrefix",
     "WorkItemAttachmentRef",
     "WorkItemComment",
@@ -41,19 +45,21 @@ __all__ = [
     "WorkItemType",
     "WorkItemsBatchRequest",
     "add_team_iteration",
-    "create_area_node",
     "create_classification_node",
+    "delete_classification_node",
+    "delete_team_iteration",
     "delete_work_item",
     "delete_work_item_comment",
-    "get_area_node",
     "get_classification_node",
     "get_query_folder",
     "get_query_tree",
     "get_team_field_values",
     "get_work_item",
     "get_work_item_api_call",
+    "get_work_item_attachment_bytes",
     "iter_sprint_iterations",
     "iter_work_item_comments",
+    "iter_work_item_revisions",
     "patch_classification_node",
     "patch_work_item",
     "patch_work_item_comment",
@@ -62,12 +68,25 @@ __all__ = [
     "post_work_item_attachment_upload",
     "post_work_item_comment",
     "post_work_items_batch",
+    "restore_work_item",
 ]
 
 SprintIterationId = UUID
 SprintIterationPath = str
 WorkItemField = str
 WorkItemId = int
+
+
+class TextFormat(StrEnum):
+    """Content format for multiline work item fields.
+
+    Pass as values in the ``multiline_fields_format`` argument to
+    ``create_work_item`` / ``update_work_item`` to control how ADO renders
+    the field's content.
+    """
+
+    HTML = "html"
+    MARKDOWN = "markdown"
 
 
 class WorkItemFieldName(StrEnum):
@@ -100,6 +119,7 @@ class WorkItemFieldName(StrEnum):
     AREA_ID = "System.AreaId"
     ITERATION_PATH = "System.IterationPath"
     ITERATION_ID = "System.IterationId"
+    NODE_NAME = "System.NodeName"
     REV = "System.Rev"
     HISTORY = "System.History"
     ATTACHED_FILE_COUNT = "System.AttachedFileCount"
@@ -114,6 +134,8 @@ class WorkItemFieldName(StrEnum):
     BOARD_COLUMN_DONE = "System.BoardColumnDone"
     BOARD_LANE = "System.BoardLane"
     PARENT = "System.Parent"
+    # IsDeleted is set when a work item is soft-deleted (moved to recycle bin).
+    IS_DELETED = "System.IsDeleted"
     # --- Microsoft.VSTS.Common fields ---
     PRIORITY = "Microsoft.VSTS.Common.Priority"
     SEVERITY = "Microsoft.VSTS.Common.Severity"
@@ -139,6 +161,10 @@ class WorkItemFieldName(StrEnum):
     TRIAGE = "Microsoft.VSTS.Common.Triage"
     # Resolution describes how a Scrum Impediment was resolved.
     RESOLUTION = "Microsoft.VSTS.Common.Resolution"
+    # Rating is used on Code Review Response items (1-5 scale).
+    RATING = "Microsoft.VSTS.Common.Rating"
+    # ClosedStatus is used on Code Review Response items.
+    CLOSED_STATUS = "Microsoft.VSTS.Common.ClosedStatus"
     # --- Microsoft.VSTS.Scheduling fields ---
     REMAINING_WORK = "Microsoft.VSTS.Scheduling.RemainingWork"
     COMPLETED_WORK = "Microsoft.VSTS.Scheduling.CompletedWork"
@@ -155,6 +181,24 @@ class WorkItemFieldName(StrEnum):
     # --- Microsoft.VSTS.Build fields ---
     INTEGRATION_BUILD = "Microsoft.VSTS.Build.IntegrationBuild"
     FOUND_IN = "Microsoft.VSTS.Build.FoundIn"
+    # --- Microsoft.VSTS.CodeReview fields ---
+    # Used on Code Review Request / Code Review Response work items.
+    CODE_REVIEW_CONTEXT = "Microsoft.VSTS.CodeReview.Context"
+    CODE_REVIEW_CONTEXT_OWNER = "Microsoft.VSTS.CodeReview.ContextOwner"
+    CODE_REVIEW_CONTEXT_TYPE = "Microsoft.VSTS.CodeReview.ContextType"
+    CODE_REVIEW_REBASED_SHA = "Microsoft.VSTS.CodeReview.RebasedSha"
+    # --- Microsoft.VSTS.Feedback fields ---
+    # Used on Feedback Request / Feedback Response work items.
+    FEEDBACK_APPLICATION_ID = "Microsoft.VSTS.Feedback.ApplicationId"
+    FEEDBACK_APPLICATION_LAUNCH_INSTRUCTIONS = (
+        "Microsoft.VSTS.Feedback.ApplicationLaunchInstructions"
+    )
+    FEEDBACK_APPLICATION_START_INFORMATION = (
+        "Microsoft.VSTS.Feedback.ApplicationStartInformation"
+    )
+    FEEDBACK_APPLICATION_TYPE = "Microsoft.VSTS.Feedback.ApplicationType"
+    FEEDBACK_RATING = "Microsoft.VSTS.Feedback.Rating"
+    FEEDBACK_USER_TEXT = "Microsoft.VSTS.Feedback.UserText"
     # --- Microsoft.VSTS.TCM fields ---
     REPRO_STEPS = "Microsoft.VSTS.TCM.ReproSteps"
     # SystemInfo captures the OS/browser environment recorded at repro time
@@ -163,6 +207,18 @@ class WorkItemFieldName(StrEnum):
     # AutomationStatus tracks whether a test case is automated
     # (Automated / Not Automated / Planned).
     AUTOMATION_STATUS = "Microsoft.VSTS.TCM.AutomationStatus"
+    AUTOMATED_TEST_ID = "Microsoft.VSTS.TCM.AutomatedTestId"
+    AUTOMATED_TEST_NAME = "Microsoft.VSTS.TCM.AutomatedTestName"
+    AUTOMATED_TEST_STORAGE = "Microsoft.VSTS.TCM.AutomatedTestStorage"
+    AUTOMATED_TEST_TYPE = "Microsoft.VSTS.TCM.AutomatedTestType"
+    # IssueUrl links a test case to an associated bug/issue URL.
+    TCM_ISSUE_URL = "Microsoft.VSTS.TCM.IssueUrl"
+    LOCAL_DATA_SOURCE = "Microsoft.VSTS.TCM.LocalDataSource"
+    TEST_PARAMETERS = "Microsoft.VSTS.TCM.Parameters"
+    TEST_STEPS = "Microsoft.VSTS.TCM.Steps"
+    TEST_SUITE_AUDIT = "Microsoft.VSTS.TCM.TestSuiteAudit"
+    TEST_SUITE_TYPE = "Microsoft.VSTS.TCM.TestSuiteType"
+    TEST_SUITE_TYPE_ID = "Microsoft.VSTS.TCM.TestSuiteTypeId"
     # --- Microsoft.VSTS.CMMI fields ---
     # Note: despite the CMMI namespace, BLOCKED is also used by Scrum Tasks
     # (same reference name across both process templates).
@@ -170,6 +226,35 @@ class WorkItemFieldName(StrEnum):
     # Committed and Escalate are CMMI-only.
     COMMITTED = "Microsoft.VSTS.CMMI.Committed"
     ESCALATE = "Microsoft.VSTS.CMMI.Escalate"
+    CMMI_ACTION_PATH = "Microsoft.VSTS.CMMI.ActionPath"
+    CMMI_APPROVED = "Microsoft.VSTS.CMMI.Approved"
+    CMMI_CALLED_BY = "Microsoft.VSTS.CMMI.CalledBy"
+    CMMI_CALLED_DATE = "Microsoft.VSTS.CMMI.CalledDate"
+    CMMI_CHANGE_REQUEST_VALIDATED = "Microsoft.VSTS.CMMI.ChangeRequestValidated"
+    CMMI_FOUND_IN_ENVIRONMENT = "Microsoft.VSTS.CMMI.FoundInEnvironment"
+    CMMI_HOW_FOUND_CATEGORY = "Microsoft.VSTS.CMMI.HowFoundCategory"
+    CMMI_IMPACT = "Microsoft.VSTS.CMMI.Impact"
+    CMMI_IMPACT_ON_ARCHITECTURE = "Microsoft.VSTS.CMMI.ImpactOnArchitecture"
+    CMMI_IMPACT_ON_DEVELOPMENT = "Microsoft.VSTS.CMMI.ImpactOnDevelopment"
+    CMMI_IMPACT_ON_TECHNICAL_PUBLICATIONS = (
+        "Microsoft.VSTS.CMMI.ImpactOnTechnicalPublications"
+    )
+    CMMI_IMPACT_ON_TEST = "Microsoft.VSTS.CMMI.ImpactOnTest"
+    CMMI_IMPACT_ON_USER_EXPERIENCE = "Microsoft.VSTS.CMMI.ImpactOnUserExperience"
+    CMMI_ISSUE = "Microsoft.VSTS.CMMI.Issue"
+    CMMI_MINUTES = "Microsoft.VSTS.CMMI.Minutes"
+    CMMI_MITIGATION_PLAN = "Microsoft.VSTS.CMMI.MitigationPlan"
+    CMMI_MITIGATION_TRIGGERS = "Microsoft.VSTS.CMMI.MitigationTriggers"
+    CMMI_PROBABILITY = "Microsoft.VSTS.CMMI.Probability"
+    CMMI_PROPOSED_FIX = "Microsoft.VSTS.CMMI.ProposedFix"
+    CMMI_PURPOSE = "Microsoft.VSTS.CMMI.Purpose"
+    CMMI_ROOT_CAUSE = "Microsoft.VSTS.CMMI.RootCause"
+    CMMI_SUBJECT_MATTER_EXPERT1 = "Microsoft.VSTS.CMMI.SubjectMatterExpert1"
+    CMMI_SUBJECT_MATTER_EXPERT2 = "Microsoft.VSTS.CMMI.SubjectMatterExpert2"
+    CMMI_SUBJECT_MATTER_EXPERT3 = "Microsoft.VSTS.CMMI.SubjectMatterExpert3"
+    CMMI_TARGET_RESOLVE_DATE = "Microsoft.VSTS.CMMI.TargetResolveDate"
+    CMMI_TASK_TYPE = "Microsoft.VSTS.CMMI.TaskType"
+    CMMI_USER_ACCEPTANCE_TEST = "Microsoft.VSTS.CMMI.UserAcceptanceTest"
 
 
 class WorkItemState(StrEnum):
@@ -435,8 +520,21 @@ class ClassificationNodeType(StrEnum):
     AREA = "area"
 
 
+class ClassificationNodeUrlType(StrEnum):
+    """URL path segment used to select the classification node tree type.
+
+    Used as the ``node_type`` argument to ``get_classification_node``,
+    ``create_classification_node``, and ``patch_classification_node``.
+    """
+
+    ITERATIONS = "iterations"
+    AREAS = "areas"
+
+
 class ClassificationNodeAttributes(BaseModel):
     """Date attributes of a classification node (sprint iteration)."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     start_date: str | None = Field(alias="startDate", default=None)
     finish_date: str | None = Field(alias="finishDate", default=None)
@@ -482,24 +580,18 @@ class _WorkItemCommentRequest(BaseModel):
     text: str
 
 
-class _ClassificationNodeAttributes(BaseModel):
-    """Internal: date attributes for a classification node request."""
-
-    start_date: str | None = Field(default=None, serialization_alias="startDate")
-    finish_date: str | None = Field(default=None, serialization_alias="finishDate")
-
-
-class _ClassificationNodeRequest(BaseModel):
-    """Internal: request body for creating a classification node."""
+class ClassificationNodeRequest(BaseModel):
+    """Request body for creating a classification node."""
 
     name: str
-    attributes: _ClassificationNodeAttributes | None = None
+    attributes: ClassificationNodeAttributes | None = None
 
 
-class _ClassificationNodePatchRequest(BaseModel):
-    """Internal: request body for patching a classification node."""
+class ClassificationNodePatchRequest(BaseModel):
+    """Request body for patching a classification node (rename and/or date update)."""
 
-    attributes: _ClassificationNodeAttributes
+    name: str | None = None
+    attributes: ClassificationNodeAttributes | None = None
 
 
 class _TeamIterationRef(BaseModel):
@@ -576,6 +668,12 @@ def iter_work_item_comments(
 ) -> Iterator[WorkItemComment]:
     """Iterate over comments on a work item.
 
+    Note:
+        Uses cursor-based pagination via ``continuationToken`` — this is an
+        intentional ADO WIT Comments endpoint design.  The endpoint does not
+        support the standard ``$skip``/``$top`` offset pagination used by
+        other ADO endpoints.
+
     Args:
         work_item_api_call: Work-item-level ADO API call (from
             get_work_item_api_call).
@@ -599,6 +697,22 @@ def iter_work_item_comments(
         continuation_token = results.continuation_token
         if not continuation_token:
             break
+
+
+def iter_work_item_revisions(
+    work_item_api_call: ApiCall,
+) -> Iterator[WorkItemInfo]:
+    """Iterate over all historical revisions of a work item, oldest first.
+
+    Args:
+        work_item_api_call: Work-item-level ADO API call (from
+            get_work_item_api_call).
+
+    Yields:
+        WorkItemInfo snapshot for each revision, oldest first.
+    """
+    response = work_item_api_call.get("revisions", version="7.1")
+    yield from _WorkItemInfoResults.model_validate(response).value
 
 
 def get_work_item(
@@ -651,7 +765,7 @@ def post_work_items_batch(
 def post_work_item(
     project_api_call: ApiCall,
     ticket_type: str,
-    json_patches: list[dict[str, Any]],
+    json_patches: list[JsonPatchAdd | JsonPatchRemove],
 ) -> WorkItemInfo:
     """Create a new work item of the given type.
 
@@ -669,14 +783,14 @@ def post_work_item(
         "workitems",
         f"${ticket_type}",
         version="7.1",
-        json=json_patches,
+        json=[op.model_dump(mode="json") for op in json_patches],
     )
     return WorkItemInfo.model_validate(response)
 
 
 def patch_work_item(
     work_item_api_call: ApiCall,
-    json_patches: list[dict[str, Any]],
+    json_patches: list[JsonPatchAdd | JsonPatchRemove],
 ) -> WorkItemInfo:
     """Update a work item via JSON Patch operations.
 
@@ -689,7 +803,10 @@ def patch_work_item(
     Returns:
         Updated WorkItemInfo.
     """
-    response = work_item_api_call.patch(version="7.1", json=json_patches)
+    response = work_item_api_call.patch(
+        version="7.1",
+        json=[op.model_dump(mode="json") for op in json_patches],
+    )
     return WorkItemInfo.model_validate(response)
 
 
@@ -718,168 +835,143 @@ def post_work_item_attachment_upload(
     return WorkItemAttachmentRef.model_validate(response)
 
 
-def get_classification_node(
-    project_call: ApiCall,
-    path: str | None = None,
-    *,
-    depth: int = 1,
-) -> ClassificationNode:
-    """Return the classification node tree for a project's iterations.
+def get_work_item_attachment_bytes(
+    project_api_call: ApiCall,
+    attachment_id: str,
+) -> bytes:
+    """Download the raw bytes of an uploaded work item attachment.
 
     Args:
-        project_call: Project-level ADO API call.
-        path: Path within the iteration tree (e.g. ``"Sprint 42"``), or None
-            for the root.
+        project_api_call: Project-level ADO API call.
+        attachment_id: The UUID string from WorkItemAttachmentRef.id.
+
+    Returns:
+        Raw attachment bytes.
+    """
+    return cast(
+        "bytes",
+        project_api_call.get_raw("wit", "attachments", attachment_id, version="7.1"),
+    )
+
+
+def get_classification_node(
+    project_api_call: ApiCall,
+    path: str | None = None,
+    *,
+    node_type: ClassificationNodeUrlType,
+    depth: int = 1,
+) -> ClassificationNode:
+    """Return the classification node tree for a project.
+
+    Args:
+        project_api_call: Project-level ADO API call.
+        path: Path within the tree (e.g. ``"Sprint 42"`` or ``"Team A"``), or
+            None for the root.
+        node_type: Whether to fetch from the iterations or areas tree.
         depth: Number of levels to fetch below the requested node (default: 1).
 
     Returns:
         ClassificationNode for the requested path.
     """
-    args: list[str] = ["wit", "classificationnodes", "iterations"]
+    args: list[str] = ["wit", "classificationnodes", node_type]
     if path:
         args.append(path)
-    response = project_call.get(*args, parameters={"$depth": depth}, version="7.0")
+    response = project_api_call.get(*args, parameters={"$depth": depth}, version="7.0")
     return ClassificationNode.model_validate(response)
 
 
 def create_classification_node(
-    project_call: ApiCall,
-    name: str,
+    project_api_call: ApiCall,
+    request: ClassificationNodeRequest,
     parent_path: str | None = None,
     *,
-    start_date: date | None = None,
-    finish_date: date | None = None,
-) -> str:
-    """Create a classification node (sprint iteration) under a parent path.
+    node_type: ClassificationNodeUrlType,
+) -> ClassificationNode:
+    """Create a classification node under a parent path.
 
     Args:
-        project_call: Project-level ADO API call.
-        name: Name of the new iteration node.
-        parent_path: Path of the parent node within the iteration tree, or
-            None to create at the root.
-        start_date: Optional start date for the iteration.
-        finish_date: Optional end date for the iteration.
+        project_api_call: Project-level ADO API call.
+        request: Request body carrying the node name and optional date
+            attributes.
+        parent_path: Path of the parent node within the tree, or None to
+            create at the root.
+        node_type: Whether to create in the iterations or areas tree.
 
     Returns:
-        The GUID identifier string of the created node.
+        The newly created ClassificationNode.
     """
-    args: list[str] = ["wit", "classificationnodes", "iterations"]
+    args: list[str] = ["wit", "classificationnodes", node_type]
     if parent_path:
         args.append(parent_path)
-    node_attrs = _ClassificationNodeAttributes(
-        start_date=start_date.isoformat() + "T00:00:00Z" if start_date else None,
-        finish_date=finish_date.isoformat() + "T00:00:00Z" if finish_date else None,
-    )
-    body = _ClassificationNodeRequest(
-        name=name,
-        attributes=node_attrs if (start_date or finish_date) else None,
-    )
-    response = project_call.post(
+    response = project_api_call.post(
         *args,
         version="7.0",
-        json=body.model_dump(mode="json", by_alias=True, exclude_none=True),
+        json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
     )
-    return cast("str", response["identifier"])
+    return ClassificationNode.model_validate(response)
 
 
 def patch_classification_node(
-    project_call: ApiCall,
+    project_api_call: ApiCall,
     path: str | None,
+    request: ClassificationNodePatchRequest,
     *,
-    start_date: date | None = None,
-    finish_date: date | None = None,
+    node_type: ClassificationNodeUrlType,
 ) -> ClassificationNode:
-    """Update the dates of a classification node (sprint iteration).
+    """Update a classification node (rename and/or change dates).
 
     Args:
-        project_call: Project-level ADO API call.
-        path: Path of the iteration node to update (e.g. ``"Sprint 42"``), or
-            None for the root node.
-        start_date: New start date, or None to leave unchanged.
-        finish_date: New end date, or None to leave unchanged.
+        project_api_call: Project-level ADO API call.
+        path: Path of the node to update (e.g. ``"Sprint 42"`` or
+            ``"Team A"``), or None for the root node.
+        request: Patch body carrying the optional new name and/or date
+            attributes.
+        node_type: Whether to patch in the iterations or areas tree.
 
     Returns:
         Updated ClassificationNode from the ADO API.
     """
-    args: list[str] = ["wit", "classificationnodes", "iterations"]
+    args: list[str] = ["wit", "classificationnodes", node_type]
     if path:
         args.append(path)
-    patch_body = _ClassificationNodePatchRequest(
-        attributes=_ClassificationNodeAttributes(
-            start_date=start_date.isoformat() + "T00:00:00Z" if start_date else None,
-            finish_date=finish_date.isoformat() + "T00:00:00Z" if finish_date else None,
-        )
-    )
-    response = project_call.patch(
+    response = project_api_call.patch(
         *args,
         version="7.0",
-        json=patch_body.model_dump(mode="json", by_alias=True, exclude_none=True),
+        json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
     )
     return ClassificationNode.model_validate(response)
 
 
-def get_area_node(
-    project_call: ApiCall,
-    path: str | None = None,
+def delete_classification_node(
+    project_api_call: ApiCall,
+    path: str | None,
     *,
-    depth: int = 1,
-) -> ClassificationNode:
-    """Return the area classification node tree for a project.
+    node_type: ClassificationNodeUrlType,
+) -> None:
+    """Delete a classification node (iteration or area).
 
     Args:
-        project_call: Project-level ADO API call.
-        path: Path within the area tree (e.g. ``"Team A"``), or None for the
-            root.
-        depth: Number of levels to fetch below the requested node (default: 1).
-
-    Returns:
-        ClassificationNode for the requested area path.
+        project_api_call: Project-level ADO API call.
+        path: Relative path of the node to delete (e.g. ``"Sprint 42"``),
+            or None for the root node.
+        node_type: Whether to delete from the iterations or areas tree.
     """
-    args: list[str] = ["wit", "classificationnodes", "areas"]
+    args: list[str] = ["wit", "classificationnodes", node_type]
     if path:
         args.append(path)
-    response = project_call.get(*args, parameters={"$depth": depth}, version="7.0")
-    return ClassificationNode.model_validate(response)
+    project_api_call.delete(*args, version="7.0")
 
 
-def create_area_node(
-    project_call: ApiCall,
-    name: str,
-    parent_path: str | None = None,
-) -> str:
-    """Create an area classification node under a parent path.
-
-    Args:
-        project_call: Project-level ADO API call.
-        name: Name of the new area node.
-        parent_path: Path of the parent node within the area tree, or None to
-            create at the root.
-
-    Returns:
-        The GUID identifier string of the created node.
-    """
-    args: list[str] = ["wit", "classificationnodes", "areas"]
-    if parent_path:
-        args.append(parent_path)
-    body = _ClassificationNodeRequest(name=name, attributes=None)
-    response = project_call.post(
-        *args,
-        version="7.0",
-        json=body.model_dump(mode="json", by_alias=True, exclude_none=True),
-    )
-    return cast("str", response["identifier"])
-
-
-def get_team_field_values(team_call: ApiCall) -> list[TeamFieldValue]:
+def get_team_field_values(team_api_call: ApiCall) -> list[TeamFieldValue]:
     """Return the team area-path field values configuration.
 
     Args:
-        team_call: Team-level ADO API call (URL includes the team segment).
+        team_api_call: Team-level ADO API call (URL includes the team segment).
 
     Returns:
         List of TeamFieldValue from the ``values`` key of the API response.
     """
-    response = team_call.get(
+    response = team_api_call.get(
         "work",
         "teamsettings",
         "teamfieldvalues",
@@ -888,17 +980,38 @@ def get_team_field_values(team_call: ApiCall) -> list[TeamFieldValue]:
     return [TeamFieldValue.model_validate(v) for v in response.get("values", [])]
 
 
+def delete_team_iteration(
+    team_api_call: ApiCall,
+    iteration_id: SprintIterationId,
+) -> None:
+    """Remove an iteration from a team's sprint backlog.
+
+    ADO: DELETE {team}/_apis/work/teamsettings/iterations/{iterationId}
+
+    Args:
+        team_api_call: Team-scoped API call.
+        iteration_id: UUID of the iteration to remove.
+    """
+    team_api_call.delete(
+        "work",
+        "teamsettings",
+        "iterations",
+        str(iteration_id),
+        version="7.1",
+    )
+
+
 def add_team_iteration(
-    team_call: ApiCall,
+    team_api_call: ApiCall,
     iteration_id: SprintIterationId,
 ) -> None:
     """Assign an existing iteration to a team.
 
     Args:
-        team_call: Team-level ADO API call (URL includes the team segment).
+        team_api_call: Team-level ADO API call (URL includes the team segment).
         iteration_id: UUID of the iteration to assign.
     """
-    team_call.post(
+    team_api_call.post(
         "work",
         "teamsettings",
         "iterations",
@@ -944,7 +1057,7 @@ WorkItemQuery.model_rebuild()
 
 
 def get_query_tree(
-    project_call: ApiCall,
+    project_api_call: ApiCall,
     *,
     depth: int = 2,
     expand: WorkItemQueryExpand = WorkItemQueryExpand.ALL,
@@ -956,7 +1069,7 @@ def get_query_tree(
     :func:`get_query_folder` to fetch a specific folder's contents by GUID.
 
     Args:
-        project_call: Project-level ADO API call.
+        project_api_call: Project-level ADO API call.
         depth: Number of folder levels to expand below the root folders.
             ``2`` is sufficient for the standard Shared Queries structure
             (folder → queries).  Avoid ``3`` or higher unless you know the
@@ -975,7 +1088,7 @@ def get_query_tree(
         even when ``hasChildren`` is ``true``.  This function always sends
         the correctly-spelled parameter.
     """
-    response = project_call.get(
+    response = project_api_call.get(
         "wit",
         "queries",
         parameters={"$depth": depth, "$expand": expand},
@@ -985,7 +1098,7 @@ def get_query_tree(
 
 
 def get_query_folder(
-    project_call: ApiCall,
+    project_api_call: ApiCall,
     folder_id: str,
     *,
     depth: int = 1,
@@ -997,7 +1110,7 @@ def get_query_folder(
     fetching the entire tree.
 
     Args:
-        project_call: Project-level ADO API call.
+        project_api_call: Project-level ADO API call.
         folder_id: GUID of the query folder.
         depth: Number of levels to expand below the requested folder.
             ``1`` is sufficient when starting directly at a folder (you are
@@ -1007,7 +1120,7 @@ def get_query_folder(
     Returns:
         WorkItemQuery for the folder with its children populated.
     """
-    response = project_call.get(
+    response = project_api_call.get(
         "wit",
         "queries",
         folder_id,
@@ -1021,7 +1134,7 @@ def post_work_item_comment(
     work_item_api_call: ApiCall,
     text: str,
     *,
-    comment_format: str = "html",
+    comment_format: TextFormat = TextFormat.HTML,
 ) -> WorkItemComment:
     """Add a comment to a work item.
 
@@ -1029,8 +1142,8 @@ def post_work_item_comment(
         work_item_api_call: Work-item-level ADO API call (from
             get_work_item_api_call).
         text: Comment text.
-        comment_format: Content format — "html" (default) or "markdown". When
-            "markdown", ADO renders the markdown server-side.
+        comment_format: Content format (default: HTML). When MARKDOWN, ADO
+            renders the markdown server-side.
 
     Returns:
         The created WorkItemComment.
@@ -1052,6 +1165,27 @@ def delete_work_item(work_item_api_call: ApiCall) -> None:
             get_work_item_api_call).
     """
     work_item_api_call.delete(version="7.1")
+
+
+def restore_work_item(
+    project_api_call: ApiCall,
+    work_item_id: WorkItemId,
+) -> None:
+    """Restore a soft-deleted work item from the Recycle Bin.
+
+    ADO: PATCH {project}/_apis/wit/recycleBin/{id}
+
+    Args:
+        project_api_call: Project-level API call.
+        work_item_id: Numeric ID of the work item to restore.
+    """
+    project_api_call.patch(
+        "wit",
+        "recycleBin",
+        str(work_item_id),
+        version="7.0",
+        json={"isDeleted": False},
+    )
 
 
 def patch_work_item_comment(
@@ -1091,3 +1225,27 @@ def delete_work_item_comment(
         comment_id: Numeric ID of the comment to delete.
     """
     work_item_api_call.delete("comments", comment_id, version="7.1-preview.4")
+
+
+def list_sprint_iterations(
+    team_api_call: ApiCall,
+    timeframe_filter: SprintIterationTimeframe | None = None,
+) -> list[SprintIterationInfo]:
+    """Return all sprint iterations for a team as a list."""
+    return list(
+        iter_sprint_iterations(team_api_call, timeframe_filter=timeframe_filter)
+    )
+
+
+def list_work_item_comments(
+    work_item_api_call: ApiCall,
+) -> list[WorkItemComment]:
+    """Return all comments on a work item as a list."""
+    return list(iter_work_item_comments(work_item_api_call))
+
+
+def list_work_item_revisions(
+    work_item_api_call: ApiCall,
+) -> list[WorkItemInfo]:
+    """Return all revisions of a work item as a list."""
+    return list(iter_work_item_revisions(work_item_api_call))

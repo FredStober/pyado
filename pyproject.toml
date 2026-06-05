@@ -5,10 +5,12 @@ requires = ["uv_build>=0.9.8,<1.0.0"]
 [dependency-groups]
 dev = [
   "azure-core>=1.41.0",
+  "detect-secrets>=1.5.0",
   "mypy>=1.15.0",
   "prek>=0.4.3",
   "pytest>=9.0.3",
   "pytest-cov>=7.1.0",
+  "rich>=13.0.0",
   "ruff>=0.11.0",
   "ty>=0.0.42",
   "types-requests>=2.32.0"
@@ -45,7 +47,7 @@ license = "MIT"
 name = "pyado"
 readme = "README.md"
 requires-python = ">=3.11"
-version = "0.4.0"
+version = "0.5.0"
 
 [project.optional-dependencies]
 azure = ["azure-core>=1.41.0"]
@@ -72,10 +74,7 @@ show_missing = true
 
 [tool.coverage.run]
 branch = true
-omit = [
-  "*/pyado/raw/coverage.py",
-  "*/pyado/high/coverage.py"
-]
+omit = ["*/pyado/*/smoke_test/*"]
 source = ["pyado", "scripts"]
 
 [tool.mypy]
@@ -87,8 +86,13 @@ show_error_context = true
 strict = true
 warn_unreachable = true
 
+[[tool.mypy.overrides]]
+ignore_errors = true
+module = ["pyado.raw.smoke_test.*", "pyado.oop.smoke_test.*"]
+
 [tool.pytest.ini_options]
 addopts = "--cov=pyado --cov=tests --cov-report=term-missing"
+testpaths = ["tests"]
 
 [tool.ruff.lint]
 ignore = [
@@ -101,35 +105,7 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/pyado/high/pull_request.py" = [
-  "PLR0913"  # create_pr legitimately needs 4 positional + 2 keyword-only params
-]
-"src/pyado/high/variable_group.py" = [
-  "PLR0913"  # update_variable_group passes through all VariableGroupUpdateRequest fields
-]
-"src/pyado/oop/active_build_task.py" = [
-  "ERA001",  # section dividers look like commented code to ruff
-  "PLR0913"  # __init__ takes 5 keyword-only params matching ADO runtime variables
-]
-"src/pyado/oop/build.py" = [
-  "PLR0904"  # Build exposes the full ADO build API surface
-]
-"src/pyado/oop/project.py" = [
-  "B023",  # lambdas in iter_* are invoked immediately; loop capture is not a bug
-  "E501",  # long URL in module docstring
-  "PLR0904"  # Project exposes the full ADO project API surface
-]
-"src/pyado/oop/pull_request.py" = [
-  "PLR0904",  # PullRequest exposes the full ADO PR API surface
-  "PLR0913"  # set_status legitimately needs 2 positional + 4 keyword-only params
-]
-"src/pyado/oop/repository.py" = [
-  "PLR0904"  # Repository exposes the full ADO git API surface
-]
-"src/pyado/oop/work_item.py" = [
-  "PLR0904"  # WorkItem exposes the full ADO work item API surface
-]
-"tests/**" = [
+"**/*test*/**" = [
   "D101",  # Test classes don't need class-level docstrings
   "D102",  # Test methods are self-documenting via their names
   "PLR2004",  # Magic values in test assertions are self-explanatory
@@ -144,8 +120,43 @@ select = [
   "FBT001",  # Boolean flags are acceptable in test helpers
   "FBT002",  # Boolean defaults are acceptable in test helpers
   "DOC201",  # Test helper Returns are self-evident from the type annotation
-  "ERA001"  # Section dividers look like commented code to ruff
+  "BLE001",  # Smoke tests legitimately catch broad exceptions for skip/fail reporting
+  "S311"  # RNG is used for test seed selection, not cryptography
+]
+"src/pyado/oop/_pull_request.py" = [
+  "PLR0913"  # create_pr legitimately needs 4 positional + 2 keyword-only params
+]
+"src/pyado/oop/_variable_group.py" = [
+  "PLR0913"  # update_variable_group passes through all VariableGroupUpdateRequest fields
+]
+"src/pyado/oop/active_build_task.py" = [
+  "PLR0913"  # __init__ takes 5 keyword-only params matching ADO runtime variables
+]
+"src/pyado/oop/build.py" = [
+  "PLR0904"  # Build exposes the full ADO build API surface
+]
+"src/pyado/oop/project.py" = [
+  "PLR0904"  # Project exposes the full ADO project API surface
+]
+"src/pyado/oop/pull_request.py" = [
+  "PLR0904",  # PullRequest exposes the full ADO PR API surface
+  "PLR0913"  # set_status legitimately needs 2 positional + 4 keyword-only params
+]
+"src/pyado/oop/repository.py" = [
+  "PLR0904"  # Repository exposes the full ADO git API surface
+]
+"src/pyado/oop/work_item.py" = [
+  "PLR0904"  # WorkItem exposes the full ADO work item API surface
+]
+"src/pyado/raw/work_item.py" = [
+  "PLR0913"  # patch_classification_node legitimately needs 2 positional + 4 keyword-only params
 ]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ty.src]
+exclude = ["src/pyado/raw/smoke_test", "src/pyado/oop/smoke_test"]
+
+[tool.uv.build-backend]
+exclude = ["src/pyado/raw/smoke_test", "src/pyado/oop/smoke_test"]

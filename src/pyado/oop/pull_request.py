@@ -8,19 +8,21 @@ from typing import TYPE_CHECKING
 from pydantic import TypeAdapter
 from pydantic.networks import AnyUrl
 
-from pyado import high, raw
+from pyado import raw
+from pyado.oop import _pull_request, _work_item
+from pyado.oop.commit import Commit
 from pyado.raw import (
     ApiCall,
     CommitId,
-    GitCommitRef,
     IdentityIdRef,
     PrIterationChange,
     PullRequestCompletionOptions,
-    PullRequestCreated,
     PullRequestId,
     PullRequestIteration,
     PullRequestIterationRecord,
+    PullRequestLabel,
     PullRequestListItem,
+    PullRequestResponse,
     PullRequestReviewer,
     PullRequestStatus,
     PullRequestStatusContext,
@@ -48,14 +50,15 @@ class PullRequest:
     """An Azure DevOps pull request resource.
 
     Wraps a single ADO pull request and exposes its operations as instance
-    methods.  Instances are obtained from :meth:`Repository.get_pr`,
-    :meth:`Repository.iter_prs`, or :meth:`Repository.create_pr`.
+    methods.  Instances are obtained from :meth:`Repository.get_pull_request`,
+    :meth:`Repository.iter_pull_requests`, or
+    :meth:`Repository.create_pull_request`.
 
     Pull requests are not cached — each factory call returns a fresh instance.
     Call :meth:`refresh` to re-fetch the info from the API at any time.
 
     The ``info`` attribute holds either a :class:`~pyado.raw.PullRequestListItem`
-    (when obtained via a list endpoint) or a :class:`~pyado.raw.PullRequestCreated`
+    (when obtained via a list endpoint) or a :class:`~pyado.raw.PullRequestResponse`
     (when freshly created), reflecting the data available at construction time.
 
     Attributes:
@@ -68,57 +71,65 @@ class PullRequest:
         self,
         repo: "Repository",
         pr_api_call: ApiCall,
-        info: PullRequestListItem | PullRequestCreated,
+        info: PullRequestListItem | PullRequestResponse,
+        expand: str | None = None,
     ) -> None:
         """Construct a PullRequest wrapper.
 
         Args:
             repo: The Repository that owns this pull request.
-            pr_api_call: PR-level ADO API call (from raw.get_pr_api_call).
-            info: PR data; either PullRequestListItem or PullRequestCreated.
+            pr_api_call: PR-level ADO API call (from raw.get_pull_request_api_call).
+            info: PR data; either PullRequestListItem or PullRequestResponse.
+            expand: The ``$expand`` value used when fetching *info*, stored so
+                that :meth:`refresh` can re-use it by default.
         """
         self._repo = repo
         self._api_call = pr_api_call
-        self._info = info
+        self._info: PullRequestListItem | PullRequestResponse | None = info
+        self._expand = expand
 
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
 
     @property
-    def info(self) -> PullRequestListItem | PullRequestCreated:
+    def info(self) -> PullRequestListItem | PullRequestResponse:
         """PR data captured at construction time (or last refresh)."""
+        if self._info is None:
+            self._info = raw.get_pull_request_details(
+                self._api_call, expand=self._expand
+            )
         return self._info
 
     @property
     def id(self) -> PullRequestId:
         """Numeric pull request ID."""
-        return self._info.pr_id
+        return self.info.pr_id
 
     @property
     def title(self) -> str | None:
         """Pull request title."""
-        return self._info.title
+        return self.info.title
 
     @property
-    def status(self) -> str | None:
+    def status(self) -> PullRequestStatus | None:
         """Pull request lifecycle status (e.g. ``"active"``, ``"completed"``)."""
-        return self._info.status
+        return self.info.status
 
     @property
     def source_branch(self) -> str | None:
         """Source ref name (e.g. ``"refs/heads/feature/my-branch"``)."""
-        return self._info.source_ref_name
+        return self.info.source_ref_name
 
     @property
     def target_branch(self) -> str | None:
         """Target ref name (e.g. ``"refs/heads/main"``)."""
-        return self._info.target_ref_name
+        return self.info.target_ref_name
 
     @property
     def description(self) -> str | None:
         """Pull request description body, or ``None`` if not set."""
-        return self._info.description
+        return self.info.description
 
     @property
     def created_by(self) -> str | None:
@@ -126,7 +137,7 @@ class PullRequest:
 
         For the full identity (id, unique name), use ``pr.info.created_by``.
         """
-        return self._info.created_by.display_name if self._info.created_by else None
+        return self.info.created_by.display_name if self.info.created_by else None
 
     @property
     def api_call(self) -> ApiCall:
@@ -152,9 +163,20 @@ class PullRequest:
     # Refresh
     # ------------------------------------------------------------------
 
-    def refresh(self) -> None:
-        """Re-fetch pull request info from the API immediately."""
-        self._info = raw.get_pr_details(self._api_call)
+    def refresh(self, expand: str | None = None) -> None:
+        """Discard cached pull request info.
+
+        The next access to :attr:`info` re-fetches from the API.
+
+        Args:
+            expand: ``$expand`` value to use on the next fetch.  When ``None``
+                (default), re-uses the expand value from construction or the
+                last explicit refresh call.  When provided, updates the stored
+                expand so subsequent bare :meth:`refresh` calls use it.
+        """
+        if expand is not None:
+            self._expand = expand
+        self._info = None
 
     # ------------------------------------------------------------------
     # Work item linking
@@ -175,41 +197,87 @@ class PullRequest:
             work_item: The WorkItem to link to this pull request.
             comment: Optional comment to attach to the relation.
         """
-        relation = high.WorkItemLink.pull_request(
+        relation = _work_item.WorkItemLink.pull_request(
             self._repo.info.project.id,
             self._repo.id,
-            self._info.pr_id,
+            self.info.pr_id,
             comment=comment,
         )
-        high.add_work_item_link(work_item.api_call, relation)
+        _work_item.add_work_item_link(work_item.api_call, relation)
 
     # ------------------------------------------------------------------
-    # Labels
+    # Tags
     # ------------------------------------------------------------------
 
-    def get_labels(self) -> list[str]:
-        """Return the names of all labels set on the pull request.
+    def get_tags(self) -> list[str]:
+        """Return the names of all tags set on the pull request.
 
         Returns:
-            List of label name strings; empty when no labels are set.
+            List of tag name strings; empty when no tags are set.
         """
-        return high.get_pr_labels(self._api_call)
+        return _pull_request.get_pull_request_tags(self._api_call)
 
-    def add_label(self, name: str) -> None:
-        """Add a label to the pull request.
+    def get_tag_details(self) -> list[PullRequestLabel]:
+        """Return full tag objects for all tags set on the pull request.
+
+        Use this instead of :meth:`get_tags` when you need the tag ID,
+        URL, or active status, not just the name string.
+
+        Returns:
+            List of PullRequestLabel objects; empty when no tags are set.
+        """
+        return raw.get_pull_request_labels_details(self._api_call)
+
+    def add_tag(self, name: str) -> None:
+        """Add a tag to the pull request.
 
         Args:
-            name: Label name to add.
-        """
-        raw.post_pr_label(self._api_call, name)
+            name: Tag name to add.
 
-    def remove_label(self, name: str) -> None:
-        """Remove a label from the pull request.
+        Note:
+            The ADO tag endpoints return no body, so this method returns
+            ``None``.  Call :meth:`get_tags` afterwards if you need the
+            updated tag list.
+        """
+        raw.post_pull_request_label(self._api_call, name)
+
+    def remove_tag(self, name: str) -> None:
+        """Remove a tag from the pull request.
 
         Args:
-            name: Label name to remove.
+            name: Tag name to remove.
+
+        Note:
+            The ADO tag endpoints return no body, so this method returns
+            ``None``.  Call :meth:`get_tags` afterwards if you need the
+            updated tag list.
         """
-        raw.delete_pr_label(self._api_call, name)
+        raw.delete_pull_request_label(self._api_call, name)
+
+    def sync_tags(self, desired: set[str]) -> None:
+        """Synchronise the PR tags to match *desired*.
+
+        Adds missing tags and removes extras so the final set matches
+        *desired* exactly.  When the object was constructed or last refreshed
+        with an ``expand`` that includes ``"labels"``, the tags cached in
+        ``_info`` are used and the GET /labels call is skipped entirely.
+
+        Args:
+            desired: The exact set of tag names the PR should have after
+                the call.
+        """
+        if self._expand and "labels" in self._expand.split(","):
+            current = {label.name for label in self.info.labels}
+        else:
+            current = set(self.get_tags())
+        to_add = desired - current
+        to_remove = current - desired
+        if not to_add and not to_remove:
+            return
+        for tag in to_add:
+            self.add_tag(tag)
+        for tag in to_remove:
+            self.remove_tag(tag)
 
     # ------------------------------------------------------------------
     # Threads and comments
@@ -221,7 +289,7 @@ class PullRequest:
         Yields:
             PullRequestThreadResponse for each thread.
         """
-        yield from raw.iter_pr_threads(self._api_call)
+        yield from raw.iter_pull_request_threads(self._api_call)
 
     def add_thread(
         self,
@@ -244,7 +312,7 @@ class PullRequest:
         Returns:
             The created PullRequestThreadResponse.
         """
-        return high.create_pr_thread(
+        return _pull_request.create_pull_request_thread(
             self._api_call,
             content,
             file_path=file_path,
@@ -270,7 +338,7 @@ class PullRequest:
         Returns:
             The created PullRequestThreadCommentResponse.
         """
-        return high.reply_to_pr_thread(
+        return _pull_request.reply_to_pull_request_thread(
             self._api_call,
             thread_id,
             content,
@@ -287,7 +355,7 @@ class PullRequest:
         Returns:
             List of PullRequestReviewer entries.
         """
-        return raw.get_pr_reviewers(self._api_call)
+        return raw.get_pull_request_reviewers(self._api_call)
 
     def add_reviewer(
         self,
@@ -304,7 +372,7 @@ class PullRequest:
             is_reapprove: When ``True``, the approval is processed even if
                 the vote has not changed.
         """
-        high.add_pr_reviewer(
+        _pull_request.add_pull_request_reviewer(
             self._api_call,
             reviewer_id,
             is_required=is_required,
@@ -317,7 +385,7 @@ class PullRequest:
         Args:
             reviewer_id: Identity (object) ID of the reviewer.
         """
-        raw.delete_pr_reviewer(self._api_call, reviewer_id)
+        raw.delete_pull_request_reviewer(self._api_call, reviewer_id)
 
     def vote(
         self,
@@ -334,7 +402,7 @@ class PullRequest:
             is_reapprove: When ``True``, the approval is processed even if
                 the vote has not changed.
         """
-        high.set_pr_reviewer_vote(
+        _pull_request.set_pull_request_reviewer_vote(
             self._api_call, reviewer_id, vote, is_reapprove=is_reapprove
         )
 
@@ -361,7 +429,7 @@ class PullRequest:
                 ``"completed"``).
             is_draft: Set or clear the draft flag.
         """
-        raw.patch_pr(
+        self._info = raw.patch_pull_request(
             self._api_call,
             PullRequestUpdateRequest(
                 title=title,
@@ -387,7 +455,7 @@ class PullRequest:
             completion_options: Merge strategy and post-completion options.
                 Defaults to squash merge with source-branch deletion.
         """
-        self._info = high.complete_pr(
+        self._info = _pull_request.complete_pull_request(
             self._api_call,
             last_merge_source_commit,
             completion_options=completion_options,
@@ -395,7 +463,7 @@ class PullRequest:
 
     def abandon(self) -> None:
         """Abandon the pull request."""
-        self._info = high.abandon_pr(self._api_call)
+        self._info = _pull_request.abandon_pull_request(self._api_call)
 
     def set_work_item_refs(self, work_item_ids: list[WorkItemId]) -> None:
         """Set the work items visible on the pull request page.
@@ -407,7 +475,7 @@ class PullRequest:
         Args:
             work_item_ids: Numeric IDs of the work items to associate.
         """
-        high.update_pr_work_item_refs(self._api_call, work_item_ids)
+        _pull_request.update_pull_request_work_item_refs(self._api_call, work_item_ids)
 
     def set_status(
         self,
@@ -433,7 +501,7 @@ class PullRequest:
         url_value = (
             TypeAdapter(AnyUrl).validate_python(target_url) if target_url else None
         )
-        raw.post_pr_status(
+        raw.post_pull_request_status(
             self._api_call,
             PullRequestStatusRequest(
                 context=PullRequestStatusContext(name=context_name, genre=genre),
@@ -448,13 +516,14 @@ class PullRequest:
     # Iteration access
     # ------------------------------------------------------------------
 
-    def iter_commits(self) -> Iterator[GitCommitRef]:
+    def iter_commits(self) -> Iterator[Commit]:
         """Iterate over commits included in the pull request.
 
         Yields:
-            GitCommitRef for each commit reachable from the PR.
+            Commit for each commit reachable from the PR.
         """
-        yield from raw.iter_pr_commits(self._api_call)
+        for ref in raw.iter_pull_request_commits(self._api_call):
+            yield Commit(self._repo, ref)
 
     def iter_work_item_ids(self) -> Iterator[WorkItemId]:
         """Iterate over work item IDs linked to the pull request.
@@ -462,7 +531,21 @@ class PullRequest:
         Yields:
             Integer work item IDs associated with the PR.
         """
-        yield from high.iter_pr_work_item_ids(self._api_call)
+        yield from _pull_request.iter_pull_request_work_item_ids(self._api_call)
+
+    def iter_work_items(self) -> "Iterator[WorkItem]":
+        """Iterate over work items linked to the pull request.
+
+        Convenience wrapper that resolves the linked IDs via
+        :meth:`iter_work_item_ids` and then fetches the work item details in
+        a single batch call.
+
+        Yields:
+            WorkItem for each linked work item.
+        """
+        ids = list(self.iter_work_item_ids())
+        if ids:
+            yield from self._repo.project.get_work_items(ids)
 
     def iter_iterations(self) -> Iterator[PullRequestIterationRecord]:
         """Iterate over the push iterations of this pull request.
@@ -474,7 +557,7 @@ class PullRequest:
         Yields:
             PullRequestIterationRecord for each iteration, oldest first.
         """
-        yield from raw.iter_pr_iterations(self._api_call)
+        yield from raw.iter_pull_request_iterations(self._api_call)
 
     def get_iteration_changes(
         self,
@@ -489,11 +572,28 @@ class PullRequest:
         Returns:
             List of PrIterationChange entries for the iteration.
         """
-        return raw.get_pr_iteration_changes(self._api_call, iteration_id)
+        return raw.get_pull_request_iteration_changes(self._api_call, iteration_id)
+
+    def iter_files_changed(self) -> Iterator[PrIterationChange]:
+        """Iterate over files changed in this pull request.
+
+        Fetches the latest iteration (one API call) and then returns its
+        changes, which represent the full diff from the merge base to the
+        current source branch HEAD.  This is the equivalent of the "Files"
+        tab in the ADO pull request UI.
+
+        Yields:
+            PrIterationChange for each changed file.
+        """
+        iterations = list(self.iter_iterations())
+        if not iterations:
+            return
+        last_id = max(it.id for it in iterations)
+        yield from self.get_iteration_changes(last_id)
 
     def enable_auto_complete(
         self,
-        identity_id: str,
+        identity_id: str | None = None,
         *,
         completion_options: PullRequestCompletionOptions | None = None,
     ) -> None:
@@ -505,15 +605,38 @@ class PullRequest:
 
         Args:
             identity_id: Object ID of the identity to record as the
-                auto-complete setter (typically the calling user's ID).
+                auto-complete setter.  When ``None`` (the default), the
+                authenticated user's identity is resolved via
+                ``get_connection_data`` and used automatically.
             completion_options: Merge strategy and post-completion options.
                 When ``None``, ADO retains the existing options.
         """
-        raw.patch_pr(
+        resolved_id = (
+            identity_id
+            if identity_id is not None
+            else self.org.get_connection_data().authenticated_user.id
+        )
+        raw.patch_pull_request(
             self._api_call,
             PullRequestUpdateRequest(
-                auto_complete_set_by=IdentityIdRef(id=identity_id),
+                auto_complete_set_by=IdentityIdRef(id=resolved_id),
                 completion_options=completion_options,
+            ),
+        )
+
+    def disable_auto_complete(self) -> None:
+        """Disable auto-complete on the pull request.
+
+        Clears the auto-complete setter so the PR will no longer be merged
+        automatically when policies pass.  Has no effect if auto-complete
+        was not set.  ADO requires an all-zeros GUID to unset auto-complete.
+        """
+        raw.patch_pull_request(
+            self._api_call,
+            PullRequestUpdateRequest(
+                auto_complete_set_by=IdentityIdRef(
+                    id="00000000-0000-0000-0000-000000000000"
+                ),
             ),
         )
 
@@ -533,7 +656,19 @@ class PullRequest:
         Returns:
             Updated PullRequestThreadResponse reflecting the new status.
         """
-        return raw.patch_pr_thread(self._api_call, thread_id, status)
+        return raw.patch_pull_request_thread(self._api_call, thread_id, status)
+
+    def get_thread(self, thread_id: int) -> PullRequestThreadResponse:
+        """Return a single review thread by ID.
+
+        Args:
+            thread_id: Numeric ID of the thread to fetch.  Obtain it from
+                :meth:`iter_threads`.
+
+        Returns:
+            PullRequestThreadResponse for the requested thread.
+        """
+        return raw.get_pull_request_thread(self._api_call, thread_id)
 
     def iter_statuses(self) -> Iterator[PullRequestStatusInfo]:
         """Iterate over status checks posted on this pull request.
@@ -541,4 +676,32 @@ class PullRequest:
         Yields:
             PullRequestStatusInfo for each status item, in API-returned order.
         """
-        yield from raw.iter_pr_statuses(self._api_call)
+        yield from raw.iter_pull_request_statuses(self._api_call)
+
+    def list_threads(self) -> list[PullRequestThreadResponse]:
+        """Return all review threads on this pull request as a list."""
+        return list(self.iter_threads())
+
+    def list_commits(self) -> list[Commit]:
+        """Return all commits in this pull request as a list."""
+        return list(self.iter_commits())
+
+    def list_work_item_ids(self) -> list[WorkItemId]:
+        """Return all linked work item IDs as a list."""
+        return list(self.iter_work_item_ids())
+
+    def list_work_items(self) -> "list[WorkItem]":
+        """Return all linked work items as a list."""
+        return list(self.iter_work_items())
+
+    def list_iterations(self) -> list[PullRequestIterationRecord]:
+        """Return all iterations for this pull request as a list."""
+        return list(self.iter_iterations())
+
+    def list_files_changed(self) -> list[PrIterationChange]:
+        """Return all files changed in this pull request as a list."""
+        return list(self.iter_files_changed())
+
+    def list_statuses(self) -> list[PullRequestStatusInfo]:
+        """Return all status checks on this pull request as a list."""
+        return list(self.iter_statuses())

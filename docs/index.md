@@ -15,8 +15,10 @@ maxdepth: 1
 ---
 
 usage
+quick_reference
 alternatives
 reference
+AGENT
 contributing
 Code of Conduct <codeofconduct>
 License <license>

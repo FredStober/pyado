@@ -3,7 +3,7 @@
 All classes are re-exported from the top-level ``pyado`` package::
 
     import pyado
-    svc = pyado.AzureDevOpsService(org="https://dev.azure.com/myorg", pat="...")
+    svc = pyado.AzureDevOpsService(org="myorg", pat="...")
 
 or import directly from this subpackage::
 
@@ -12,7 +12,7 @@ or import directly from this subpackage::
 Design
 ------
 Each class wraps one ADO resource and delegates all HTTP calls to the
-underlying :mod:`pyado.raw` and :mod:`pyado.high` layers.  The classes form
+underlying :mod:`pyado.raw` layer.  The classes form
 a scope hierarchy:
 
 * :class:`AzureDevOpsService` → :class:`Organization`
@@ -33,7 +33,7 @@ Quick start::
 
     from pyado.oop import AzureDevOpsService
 
-    svc  = AzureDevOpsService(org="https://dev.azure.com/myorg", pat="...")
+    svc  = AzureDevOpsService(org="myorg", pat="...")
     org  = svc.org
     proj = org.get_project("ICS")
     print(proj.name)                         # "ICS"
@@ -41,7 +41,7 @@ Quick start::
     repo = proj.get_repository("myrepo")
     print(repo.default_branch)               # "refs/heads/main"
 
-    pr = repo.get_pr(32)
+    pr = repo.get_pull_request(32)
     print(pr.title, pr.status)              # "My PR"  "active"
 
     wi = proj.get_work_item(153)

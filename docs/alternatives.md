@@ -19,17 +19,30 @@ requirement, it is worth a look.
 - Models are largely untyped — fields are annotated as `object`, so IDEs
   cannot offer meaningful completion or catch mistakes at write time.
 - Optional fields are not always distinguished from required ones in the
-  type signatures.
+  type signatures, so you only discover missing required values at runtime.
 - Pagination is inconsistent: some list methods return all pages
   automatically, others require manual iteration with continuation tokens,
   and the pattern differs by endpoint family.
 - Docstrings describe wire-format field names rather than intent, which
-  makes it harder to understand what a parameter actually controls.
+  makes it harder to understand what a parameter actually controls without
+  consulting the ADO REST documentation.
+- The connection object (`Connection`) couples authentication, org URL, and
+  the client class factory into one opaque object, which makes testing and
+  dependency injection more cumbersome.
+- Error messages surface the raw ADO JSON error body rather than extracting
+  the human-readable `message` field.
 
 These are not criticisms of the team — they are inherent trade-offs of
 generating a client from a large, heterogeneous API spec. The generated
 client is a faithful reflection of the API; it just leaves more work for
 the caller.
+
+**When to choose it:**
+
+- You need an endpoint that pyado does not cover.
+- You are building tooling that must work even when pyado falls behind new
+  ADO API versions.
+- Your organisation's security policy requires a Microsoft-published package.
 
 ---
 
@@ -53,23 +66,37 @@ design.
 **What pyado focuses on:**
 
 - Every function returns a [Pydantic] model — fields are typed, optional
-  fields are marked `... | None`, and bad inputs are caught before any HTTP
-  request is made.
+  fields are marked `... | None`, and bad inputs are caught at construction
+  time with a readable validation error, before any HTTP request is issued.
+  IDE completion, `mypy`, and `ty` work on every field.
 - Authentication, retries, and content-type negotiation are centralised in
-  one place; callers never touch them.
+  one place; callers never touch them. The underlying `requests.Session` is
+  LRU-cached per token, so the connection pool is shared across all calls
+  made with the same PAT without any extra ceremony.
 - Paginated endpoints are plain Python generators — iterate with a `for`
-  loop and pagination happens automatically.
-- A two-layer architecture (`raw` for one-function-per-endpoint, `high` for
-  payload construction and multi-step helpers) keeps concerns separated and
-  makes the library easy to extend.
+  loop and pagination happens automatically. You never manage `$skip`,
+  `$top`, or continuation tokens.
+- A two-layer architecture (`raw` for one-function-per-endpoint, `oop` for
+  payload construction, multi-step helpers, and Pythonic resource objects)
+  keeps concerns separated and makes the library easy to extend.
+- Work item mutations translate a plain `dict` of field names to values into
+  the JSON Patch (RFC 6902) format that ADO requires, so callers never have
+  to think about the protocol.
+- Git pushes handle the optimistic-concurrency SHA handshake automatically
+  (or expose `ZERO_SHA` and `make_ref_update` for callers who need control).
+- Tags on work items are exposed as Python lists with case-insensitive
+  deduplication matching ADO's normalisation — add and remove tags without
+  ever seeing the semicolon-separated wire format.
 
 **Honest limitations:**
 
 - pyado covers the endpoints the authors needed; there will be gaps. Check
-  the [API reference] before committing to it if you need an obscure endpoint.
+  the [API reference] and [usage guide] before committing to it if you need
+  an obscure endpoint.
 - It is not backed by Microsoft and does not track the OpenAPI spec
   automatically, so new API features require manual additions.
-- The project is young and the API is not yet stable across minor versions.
+- The OOP layer is a preview API; some interfaces may change between minor
+  versions until stabilised.
 
 ---
 
@@ -83,8 +110,13 @@ design.
 | IDE completion on models | — | — | ✓ |
 | Automatic pagination | partial | — | ✓ |
 | Auth handled for you | ✓ | — | ✓ |
-| No external dependencies | — | — | — |
+| JSON Patch abstracted away | ✓ | — | ✓ |
+| Optimistic concurrency for git | — | — | ✓ |
+| OOP resource hierarchy | — | — | ✓ |
+| Python 3.11 type annotations | — | — | ✓ |
+| mypy / ty strict mode compatible | — | — | ✓ |
 
 [azure-devops-pkg]: https://pypi.org/project/azure-devops/
 [pydantic]: https://docs.pydantic.dev/
-[api reference]: https://pyado.readthedocs.io/
+[api reference]: reference
+[usage guide]: usage

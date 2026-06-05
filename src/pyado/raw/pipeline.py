@@ -36,6 +36,7 @@ __all__ = [
     "PipelineApprovalStatus",
     "PipelineApprovalStep",
     "PipelineApprovalUpdateRequest",
+    "PipelineId",
     "PipelineInfo",
     "PipelinePermissionEntry",
     "PipelineResourcePermissions",
@@ -55,16 +56,16 @@ __all__ = [
     "iter_pipeline_runs",
     "iter_pipelines",
     "patch_approvals",
-    "patch_pipeline_run",
+    "patch_pipeline_permission",
     "patch_timeline_records",
     "post_job_event",
     "post_job_feed",
     "post_job_logs",
-    "post_pipeline_permission",
     "post_pipeline_run",
 ]
 
 JobId = UUID
+PipelineId = int
 
 
 class JobEventName(StrEnum):
@@ -226,12 +227,6 @@ class PipelineApprovalUpdateRequest(BaseModel):
     comment: str = ""
 
 
-class _PipelineStateRequest(BaseModel):
-    """Internal: request body for updating a pipeline run state."""
-
-    state: str
-
-
 # ---------------------------------------------------------------------------
 # Pipeline REST API functions
 # ---------------------------------------------------------------------------
@@ -294,20 +289,28 @@ def get_pipeline(
 def iter_pipeline_runs(
     project_api_call: ApiCall,
     pipeline_id: int,
+    *,
+    top: int | None = None,
 ) -> Iterator[PipelineRunInfo]:
     """Iterate over runs for a pipeline.
 
     Args:
         project_api_call: Project-level ADO API call.
         pipeline_id: The numeric pipeline ID.
+        top: Maximum number of runs to return.  When ``None`` the API default
+            is used.
 
     Yields:
         PipelineRunInfo for each run, newest first.
     """
+    parameters: dict[str, int | str | bool] = {}
+    if top is not None:
+        parameters["$top"] = top
     response = project_api_call.get(
         "pipelines",
         str(pipeline_id),
         "runs",
+        parameters=parameters or None,
         version="7.1",
     )
     yield from _PipelineRunListResults.model_validate(response).value
@@ -338,34 +341,6 @@ def get_pipeline_run(
         "runs",
         str(run_id),
         version="7.1",
-    )
-    return PipelineRunInfo.model_validate(response)
-
-
-def patch_pipeline_run(
-    project_api_call: ApiCall,
-    pipeline_id: int,
-    run_id: int,
-    state: PipelineRunState,
-) -> PipelineRunInfo:
-    """Update the state of a pipeline run.
-
-    Args:
-        project_api_call: Project-level ADO API call.
-        pipeline_id: The numeric pipeline ID.
-        run_id: The numeric run (build) ID.
-        state: New run state to set (e.g. ``"canceling"``).
-
-    Returns:
-        PipelineRunInfo reflecting the updated run state.
-    """
-    response = project_api_call.patch(
-        "pipelines",
-        str(pipeline_id),
-        "runs",
-        str(run_id),
-        version="7.1",
-        json=_PipelineStateRequest(state=state).model_dump(mode="json"),
     )
     return PipelineRunInfo.model_validate(response)
 
@@ -608,7 +583,7 @@ def patch_approvals(
     )
 
 
-def post_pipeline_permission(
+def patch_pipeline_permission(
     project_api_call: ApiCall,
     resource_type: PipelineResourceType,
     resource_id: str,
@@ -618,7 +593,7 @@ def post_pipeline_permission(
 ) -> PipelineResourcePermissions:
     """Authorize or de-authorize a pipeline to use a protected resource.
 
-    Maps to ``POST /{project}/_apis/pipelines/pipelinepermissions/{type}/{id}``.
+    Maps to ``PATCH /{project}/_apis/pipelines/pipelinepermissions/{type}/{id}``.
 
     **Important — additive semantics:** this endpoint only *adds* authorizations;
     it never removes existing ones.  There is no bulk-replace endpoint.  To
@@ -644,7 +619,7 @@ def post_pipeline_permission(
             mode="json", by_alias=True
         )
     ]
-    response = project_api_call.post(
+    response = project_api_call.patch(
         "pipelines",
         "pipelinepermissions",
         str(resource_type),
@@ -653,3 +628,25 @@ def post_pipeline_permission(
         json=body,
     )
     return PipelineResourcePermissions.model_validate(response)
+
+
+def list_pipelines(
+    project_api_call: ApiCall,
+    order_by: str | None = None,
+) -> list[PipelineInfo]:
+    """Return all pipelines as a list."""
+    return list(iter_pipelines(project_api_call, order_by=order_by))
+
+
+def list_pipeline_runs(
+    project_api_call: ApiCall,
+    pipeline_id: int,
+    top: int | None = None,
+) -> list[PipelineRunInfo]:
+    """Return all runs for a pipeline as a list."""
+    return list(iter_pipeline_runs(project_api_call, pipeline_id, top=top))
+
+
+def list_approvals(project_api_call: ApiCall) -> list[PipelineApproval]:
+    """Return all pending approvals as a list."""
+    return list(iter_approvals(project_api_call))

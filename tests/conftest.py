@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 import requests
 
-from pyado import ApiCall
+from pyado.raw import ApiCall
 from pyado.raw._core import _get_session
 
 BASE_URL = "https://dev.azure.com/org/"

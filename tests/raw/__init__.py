@@ -1,0 +1,3 @@
+"""Tests for the pyado.raw REST API wrapper layer."""
+# Copyright (c) 2023, Fred Stober
+# SPDX-License-Identifier: MIT

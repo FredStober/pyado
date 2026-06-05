@@ -1,0 +1,480 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 200" width="860" height="200">
+  <defs>
+    <!-- ── Gradients ──────────────────────────────────────────────────────── -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#040c1d"/>
+      <stop offset="100%" stop-color="#070f1a"/>
+    </linearGradient>
+
+    <!-- Azure bar: bright at centre, fades to edges -->
+    <linearGradient id="bar" x1="0" y1="0" x2="860" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#0078D4" stop-opacity="0.05"/>
+      <stop offset="30%"  stop-color="#0078D4" stop-opacity="0.9"/>
+      <stop offset="50%"  stop-color="#40bcf8"/>
+      <stop offset="70%"  stop-color="#0078D4" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#0078D4" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <!-- Title: dark azure → bright cyan → dark azure -->
+    <linearGradient id="title" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#0078D4"/>
+      <stop offset="45%"  stop-color="#38b6f0"/>
+      <stop offset="100%" stop-color="#0078D4"/>
+    </linearGradient>
+
+    <!-- Underline -->
+    <linearGradient id="under" x1="0" y1="0" x2="270" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#0078D4" stop-opacity="0.2"/>
+      <stop offset="50%"  stop-color="#40bcf8"/>
+      <stop offset="100%" stop-color="#0078D4" stop-opacity="0.2"/>
+    </linearGradient>
+
+    <!-- Scan-beam: subtler, vertical transparent→cyan→transparent -->
+    <linearGradient id="scanGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#0078D4" stop-opacity="0"/>
+      <stop offset="35%"  stop-color="#40bcf8" stop-opacity="0.05"/>
+      <stop offset="50%"  stop-color="#40bcf8" stop-opacity="0.065"/>
+      <stop offset="65%"  stop-color="#40bcf8" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#0078D4" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Top-bar shimmer highlight -->
+    <linearGradient id="shimmerGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="white" stop-opacity="0"/>
+      <stop offset="45%"  stop-color="white" stop-opacity="0.28"/>
+      <stop offset="55%"  stop-color="white" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- ── Patterns ───────────────────────────────────────────────────────── -->
+    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+      <circle cx="11" cy="11" r="0.9" fill="#0a1e38"/>
+    </pattern>
+
+    <!-- ── Filters ────────────────────────────────────────────────────────── -->
+    <filter id="glow" x="-18%" y="-80%" width="136%" height="260%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="bigGlow" x="-30%" y="-100%" width="160%" height="300%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="12"/>
+    </filter>
+
+    <!-- Soft halo for random-walk lights -->
+    <filter id="pointGlow" x="-150%" y="-150%" width="400%" height="400%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- ── Clip paths ─────────────────────────────────────────────────────── -->
+    <!-- Confine scan beam to the content area (below top bar) -->
+    <clipPath id="contentClip">
+      <rect x="0" y="3" width="860" height="194"/>
+    </clipPath>
+    <!-- Confine shimmer to the top-bar strip -->
+    <clipPath id="topBarClip">
+      <rect width="860" height="3"/>
+    </clipPath>
+  </defs>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       LAYER 1 — Static background
+       ════════════════════════════════════════════════════════════════════════ -->
+  <rect width="860" height="200" fill="url(#bg)" rx="10"/>
+  <rect width="860" height="200" fill="url(#dots)" rx="10"/>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       LAYER 2 — Background circuit network (faint, fades in over 2 s)
+       ════════════════════════════════════════════════════════════════════════ -->
+  <g fill="none" stroke="#0078D4" stroke-width="0.9" stroke-linecap="round" opacity="0">
+    <animate attributeName="opacity" from="0" to="0.08" dur="2s" begin="0s" fill="freeze"/>
+
+    <!-- Top-left extension -->
+    <path d="M 10,22 H 115 V 46"/>
+    <circle cx="10"  cy="22" r="1.5" fill="#0078D4" stroke="none"/>
+    <circle cx="115" cy="46" r="1.5" fill="#0078D4" stroke="none"/>
+    <path d="M 60,22 V 10 H 200"/>
+    <circle cx="60"  cy="10" r="1.2" fill="#40bcf8" stroke="none" opacity="0.6"/>
+    <circle cx="200" cy="10" r="1.5" fill="#0078D4" stroke="none"/>
+
+    <!-- Top-right extension (mirror) -->
+    <path d="M 850,22 H 745 V 46"/>
+    <circle cx="850" cy="22" r="1.5" fill="#0078D4" stroke="none"/>
+    <circle cx="745" cy="46" r="1.5" fill="#0078D4" stroke="none"/>
+    <path d="M 800,22 V 10 H 660"/>
+    <circle cx="800" cy="10" r="1.2" fill="#40bcf8" stroke="none" opacity="0.6"/>
+    <circle cx="660" cy="10" r="1.5" fill="#0078D4" stroke="none"/>
+
+    <!-- Bottom-left extension -->
+    <path d="M 10,178 H 115 V 154"/>
+    <circle cx="10"  cy="178" r="1.5" fill="#0078D4" stroke="none"/>
+    <circle cx="115" cy="154" r="1.5" fill="#0078D4" stroke="none"/>
+    <path d="M 60,178 V 190 H 220"/>
+    <circle cx="60"  cy="190" r="1.2" fill="#40bcf8" stroke="none" opacity="0.6"/>
+    <circle cx="220" cy="190" r="1.5" fill="#0078D4" stroke="none"/>
+
+    <!-- Bottom-right extension (mirror) -->
+    <path d="M 850,178 H 745 V 154"/>
+    <circle cx="850" cy="178" r="1.5" fill="#0078D4" stroke="none"/>
+    <circle cx="745" cy="154" r="1.5" fill="#0078D4" stroke="none"/>
+    <path d="M 800,178 V 190 H 640"/>
+    <circle cx="800" cy="190" r="1.2" fill="#40bcf8" stroke="none" opacity="0.6"/>
+    <circle cx="640" cy="190" r="1.5" fill="#0078D4" stroke="none"/>
+
+    <!-- Edge verticals -->
+    <line x1="10" y1="22" x2="10" y2="178"/>
+    <line x1="850" y1="22" x2="850" y2="178"/>
+    <!-- Edge horizontals -->
+    <line x1="10" y1="10" x2="200" y2="10"/>
+    <line x1="660" y1="10" x2="850" y2="10"/>
+    <line x1="10"  y1="190" x2="220" y2="190"/>
+    <line x1="640" y1="190" x2="850" y2="190"/>
+  </g>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       LAYER 3 — Horizontal grid lines (subtle pulsing, staggered phases)
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <!-- y=36 — phase 0 s -->
+  <line x1="0" y1="36" x2="860" y2="36" stroke="#0078D4" stroke-width="0.35" opacity="0.02">
+    <animate attributeName="opacity" values="0.02;0.07;0.02" dur="5s" begin="0s" repeatCount="indefinite"/>
+  </line>
+
+  <!-- y=84 — phase 1.25 s -->
+  <line x1="0" y1="84" x2="860" y2="84" stroke="#0078D4" stroke-width="0.35" opacity="0.02">
+    <animate attributeName="opacity" values="0.02;0.07;0.02" dur="5s" begin="1.25s" repeatCount="indefinite"/>
+  </line>
+
+  <!-- y=116 — phase 2.5 s -->
+  <line x1="0" y1="116" x2="860" y2="116" stroke="#0078D4" stroke-width="0.35" opacity="0.02">
+    <animate attributeName="opacity" values="0.02;0.07;0.02" dur="5s" begin="2.5s" repeatCount="indefinite"/>
+  </line>
+
+  <!-- y=164 — phase 3.75 s -->
+  <line x1="0" y1="164" x2="860" y2="164" stroke="#0078D4" stroke-width="0.35" opacity="0.02">
+    <animate attributeName="opacity" values="0.02;0.07;0.02" dur="5s" begin="3.75s" repeatCount="indefinite"/>
+  </line>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       LAYER 4 — Horizontal scan beam
+       ════════════════════════════════════════════════════════════════════════ -->
+  <g clip-path="url(#contentClip)">
+    <rect width="860" height="30" fill="url(#scanGrad)">
+      <animateTransform attributeName="transform" type="translate"
+        from="0,-27" to="0,197"
+        dur="5s" begin="0.3s" repeatCount="indefinite"
+        calcMode="linear"/>
+    </rect>
+  </g>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       LAYER 5 — Random-walk lights
+       Five faint dots each traverse a closed 40 px grid loop.
+       Paths are hand-routed to avoid obvious repetition and end at their
+       start so the repeat is seamless.  Staggered begin times and slightly
+       different durations keep them permanently out of phase with each other.
+
+       Grid: 40 px step; anchor rows y = 20 / 60 / 100 / 140 / 180;
+             anchor cols x = 20, 60, 100, 140, … 820.
+
+       Walker 1 — left zone  (60,20) → CCW figure-8-ish, 12 steps, 7.2 s
+       Walker 2 — right zone (800,20) → mirror of w1,            6.0 s
+       Walker 3 — centre-left (220,60) → inner loop,             8.4 s
+       Walker 4 — centre-right (640,60) → mirror of w3,          6.6 s
+       Walker 5 — bottom-centre (420,140) → floor loop,          7.8 s
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <!-- Walker 1: left zone, begin 0 s, 7.2 s/loop
+       The <g> fades in slowly (fill="freeze" keeps it at 1 after 3 s).
+       The child circle pulses independently; the two opacities multiply.  -->
+  <g opacity="0">
+    <animate attributeName="opacity" from="0" to="1"
+      dur="3s" begin="0s" calcMode="spline" keyTimes="0;1" keySplines="0.4 0 1 1" fill="freeze"/>
+    <circle cx="0" cy="0" r="1.5" fill="#7dcef5" opacity="0.42" filter="url(#pointGlow)">
+      <animate attributeName="opacity" values="0.42;0.60;0.42" dur="1.8s" begin="0s" repeatCount="indefinite"/>
+      <animateMotion dur="7.2s" begin="0s" repeatCount="indefinite" calcMode="linear"
+        path="M 60,20 H 100 V 60 H 140 V 100 H 100 V 140 H 60 V 100 H 20 V 60 H 60 V 20"/>
+    </circle>
+  </g>
+
+  <!-- Walker 2: right zone, begin 1.3 s, 6.0 s/loop -->
+  <g opacity="0">
+    <animate attributeName="opacity" from="0" to="1"
+      dur="3s" begin="1.3s" calcMode="spline" keyTimes="0;1" keySplines="0.4 0 1 1" fill="freeze"/>
+    <circle cx="0" cy="0" r="1.5" fill="#7dcef5" opacity="0.42" filter="url(#pointGlow)">
+      <animate attributeName="opacity" values="0.42;0.60;0.42" dur="2.3s" begin="1.3s" repeatCount="indefinite"/>
+      <animateMotion dur="6.0s" begin="1.3s" repeatCount="indefinite" calcMode="linear"
+        path="M 800,20 H 760 V 60 H 720 V 100 H 760 V 140 H 800 V 100 H 840 V 60 H 800 V 20"/>
+    </circle>
+  </g>
+
+  <!-- Walker 3: centre-left, begin 2.6 s, 8.4 s/loop -->
+  <g opacity="0">
+    <animate attributeName="opacity" from="0" to="1"
+      dur="3s" begin="2.6s" calcMode="spline" keyTimes="0;1" keySplines="0.4 0 1 1" fill="freeze"/>
+    <circle cx="0" cy="0" r="1.5" fill="#7dcef5" opacity="0.42" filter="url(#pointGlow)">
+      <animate attributeName="opacity" values="0.42;0.60;0.42" dur="2.1s" begin="2.6s" repeatCount="indefinite"/>
+      <animateMotion dur="8.4s" begin="2.6s" repeatCount="indefinite" calcMode="linear"
+        path="M 220,60 V 100 H 260 V 140 H 300 V 100 H 340 V 60 H 300 V 20 H 260 V 60 H 220"/>
+    </circle>
+  </g>
+
+  <!-- Walker 4: centre-right, begin 0.9 s, 6.6 s/loop -->
+  <g opacity="0">
+    <animate attributeName="opacity" from="0" to="1"
+      dur="3s" begin="0.9s" calcMode="spline" keyTimes="0;1" keySplines="0.4 0 1 1" fill="freeze"/>
+    <circle cx="0" cy="0" r="1.5" fill="#7dcef5" opacity="0.42" filter="url(#pointGlow)">
+      <animate attributeName="opacity" values="0.42;0.60;0.42" dur="1.6s" begin="0.9s" repeatCount="indefinite"/>
+      <animateMotion dur="6.6s" begin="0.9s" repeatCount="indefinite" calcMode="linear"
+        path="M 640,60 V 100 H 600 V 140 H 560 V 100 H 520 V 60 H 560 V 20 H 600 V 60 H 640"/>
+    </circle>
+  </g>
+
+  <!-- Walker 5: bottom-centre, begin 3.8 s, 7.8 s/loop -->
+  <g opacity="0">
+    <animate attributeName="opacity" from="0" to="1"
+      dur="3s" begin="3.8s" calcMode="spline" keyTimes="0;1" keySplines="0.4 0 1 1" fill="freeze"/>
+    <circle cx="0" cy="0" r="1.5" fill="#7dcef5" opacity="0.42" filter="url(#pointGlow)">
+      <animate attributeName="opacity" values="0.42;0.60;0.42" dur="2.5s" begin="3.8s" repeatCount="indefinite"/>
+      <animateMotion dur="7.8s" begin="3.8s" repeatCount="indefinite" calcMode="linear"
+        path="M 420,140 H 380 V 180 H 340 V 140 H 300 V 100 H 340 V 60 H 380 V 100 H 420 V 140"/>
+    </circle>
+  </g>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       LAYER 6 — Main circuit traces (draw animation)
+       Upper path length: 40 + 34 + 74 = 148 px
+       Lower path length: 28 + 32 + 86 = 146 px
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <!-- ── Left traces ────────────────────────────────────────────────────── -->
+  <g fill="none" stroke="#0078D4" stroke-width="1.5" stroke-linecap="round" opacity="0.4">
+
+    <!-- Upper left — begins drawing at t = 0.6 s -->
+    <path d="M 18,80 H 58 V 46 H 132" stroke-dasharray="148" stroke-dashoffset="148">
+      <animate attributeName="stroke-dashoffset"
+        from="148" to="0" dur="0.7s" begin="0.6s"
+        calcMode="spline" keyTimes="0;1" keySplines="0 0 0.4 1" fill="freeze"/>
+    </path>
+    <circle cx="18"  cy="80" r="3"   fill="#0078D4" stroke="none" opacity="0">
+      <animate attributeName="opacity" from="0" to="1"   dur="0.15s" begin="0.6s"  fill="freeze"/>
+    </circle>
+    <circle cx="58"  cy="46" r="1.5" fill="#40bcf8" stroke="none" opacity="0">
+      <animate attributeName="opacity" from="0" to="0.6" dur="0.15s" begin="0.95s" fill="freeze"/>
+    </circle>
+    <circle cx="132" cy="46" r="3"   fill="#0078D4" stroke="none" opacity="0">
+      <animate attributeName="opacity" from="0" to="1"   dur="0.15s" begin="1.28s" fill="freeze"/>
+    </circle>
+
+    <!-- Lower left — begins drawing at t = 0.9 s -->
+    <path d="M 18,122 H 46 V 154 H 132" stroke-dasharray="146" stroke-dashoffset="146">
+      <animate attributeName="stroke-dashoffset"
+        from="146" to="0" dur="0.7s" begin="0.9s"
+        calcMode="spline" keyTimes="0;1" keySplines="0 0 0.4 1" fill="freeze"/>
+    </path>
+    <circle cx="18"  cy="122" r="3"   fill="#0078D4" stroke="none" opacity="0">
+      <animate attributeName="opacity" from="0" to="1"   dur="0.15s" begin="0.9s"  fill="freeze"/>
+    </circle>
+    <circle cx="46"  cy="154" r="1.5" fill="#40bcf8" stroke="none" opacity="0">
+      <animate attributeName="opacity" from="0" to="0.6" dur="0.15s" begin="1.19s" fill="freeze"/>
+    </circle>
+    <circle cx="132" cy="154" r="3"   fill="#0078D4" stroke="none" opacity="0">
+      <animate attributeName="opacity" from="0" to="1"   dur="0.15s" begin="1.58s" fill="freeze"/>
+    </circle>
+
+  </g>
+
+  <!-- ── Right traces (mirror) ──────────────────────────────────────────── -->
+  <g fill="none" stroke="#0078D4" stroke-width="1.5" stroke-linecap="round" opacity="0.4">
+
+    <!-- Upper right -->
+    <path d="M 842,80 H 802 V 46 H 728" stroke-dasharray="148" stroke-dashoffset="148">
+      <animate attributeName="stroke-dashoffset"
+        from="148" to="0" dur="0.7s" begin="0.6s"
+        calcMode="spline" keyTimes="0;1" keySplines="0 0 0.4 1" fill="freeze"/>
+    </path>
+    <circle cx="842" cy="80" r="3"   fill="#0078D4" stroke="none" opacity="0">
+      <animate attributeName="opacity" from="0" to="1"   dur="0.15s" begin="0.6s"  fill="freeze"/>
+    </circle>
+    <circle cx="802" cy="46" r="1.5" fill="#40bcf8" stroke="none" opacity="0">
+      <animate attributeName="opacity" from="0" to="0.6" dur="0.15s" begin="0.95s" fill="freeze"/>
+    </circle>
+    <circle cx="728" cy="46" r="3"   fill="#0078D4" stroke="none" opacity="0">
+      <animate attributeName="opacity" from="0" to="1"   dur="0.15s" begin="1.28s" fill="freeze"/>
+    </circle>
+
+    <!-- Lower right -->
+    <path d="M 842,122 H 814 V 154 H 728" stroke-dasharray="146" stroke-dashoffset="146">
+      <animate attributeName="stroke-dashoffset"
+        from="146" to="0" dur="0.7s" begin="0.9s"
+        calcMode="spline" keyTimes="0;1" keySplines="0 0 0.4 1" fill="freeze"/>
+    </path>
+    <circle cx="842" cy="122" r="3"   fill="#0078D4" stroke="none" opacity="0">
+      <animate attributeName="opacity" from="0" to="1"   dur="0.15s" begin="0.9s"  fill="freeze"/>
+    </circle>
+    <circle cx="814" cy="154" r="1.5" fill="#40bcf8" stroke="none" opacity="0">
+      <animate attributeName="opacity" from="0" to="0.6" dur="0.15s" begin="1.19s" fill="freeze"/>
+    </circle>
+    <circle cx="728" cy="154" r="3"   fill="#0078D4" stroke="none" opacity="0">
+      <animate attributeName="opacity" from="0" to="1"   dur="0.15s" begin="1.58s" fill="freeze"/>
+    </circle>
+
+  </g>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       LAYER 7 — Data-flow dots (travel along circuit traces)
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <!-- Left upper — t = 1.45 s -->
+  <circle cx="0" cy="0" r="2" fill="#40bcf8" opacity="0">
+    <animate attributeName="opacity"
+      values="0;0.65;0.65;0" keyTimes="0;0.07;0.92;1"
+      dur="2.1s" begin="1.45s" repeatCount="indefinite"/>
+    <animateMotion dur="2.1s" begin="1.45s" repeatCount="indefinite"
+      path="M 18,80 H 58 V 46 H 132"/>
+  </circle>
+
+  <!-- Right upper — staggered -->
+  <circle cx="0" cy="0" r="2" fill="#40bcf8" opacity="0">
+    <animate attributeName="opacity"
+      values="0;0.65;0.65;0" keyTimes="0;0.07;0.92;1"
+      dur="2.1s" begin="2.05s" repeatCount="indefinite"/>
+    <animateMotion dur="2.1s" begin="2.05s" repeatCount="indefinite"
+      path="M 842,80 H 802 V 46 H 728"/>
+  </circle>
+
+  <!-- Left lower — t = 1.75 s -->
+  <circle cx="0" cy="0" r="2" fill="#40bcf8" opacity="0">
+    <animate attributeName="opacity"
+      values="0;0.65;0.65;0" keyTimes="0;0.07;0.92;1"
+      dur="2.1s" begin="1.75s" repeatCount="indefinite"/>
+    <animateMotion dur="2.1s" begin="1.75s" repeatCount="indefinite"
+      path="M 18,122 H 46 V 154 H 132"/>
+  </circle>
+
+  <!-- Right lower — staggered -->
+  <circle cx="0" cy="0" r="2" fill="#40bcf8" opacity="0">
+    <animate attributeName="opacity"
+      values="0;0.65;0.65;0" keyTimes="0;0.07;0.92;1"
+      dur="2.1s" begin="2.35s" repeatCount="indefinite"/>
+    <animateMotion dur="2.1s" begin="2.35s" repeatCount="indefinite"
+      path="M 842,122 H 814 V 154 H 728"/>
+  </circle>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       LAYER 8 — Title glow halo (pulsing, behind the title text)
+       ════════════════════════════════════════════════════════════════════════ -->
+  <text x="430" y="92"
+        text-anchor="middle"
+        font-family="'SFMono-Regular','Cascadia Code','Fira Code',Consolas,'Liberation Mono','Courier New',monospace"
+        font-size="60" font-weight="700"
+        fill="url(#title)"
+        filter="url(#bigGlow)"
+        opacity="0">
+    <animate attributeName="opacity"
+      values="0;0.22;0.10;0.22;0.10;0.22"
+      keyTimes="0;0.08;0.35;0.6;0.8;1"
+      dur="3s" begin="0.7s" repeatCount="indefinite"/>
+    pyado
+  </text>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       LAYER 9 — Main title text (fades in)
+       ════════════════════════════════════════════════════════════════════════ -->
+  <text x="430" y="92"
+        text-anchor="middle"
+        font-family="'SFMono-Regular','Cascadia Code','Fira Code',Consolas,'Liberation Mono','Courier New',monospace"
+        font-size="60" font-weight="700"
+        fill="url(#title)"
+        filter="url(#glow)"
+        opacity="0">
+    <animate attributeName="opacity"
+      from="0" to="1" dur="0.5s" begin="0.1s"
+      calcMode="spline" keyTimes="0;1" keySplines="0 0 0.4 1"
+      fill="freeze"/>
+    pyado
+  </text>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       LAYER 10 — Underline, tagline, and chips (sequential fade-in)
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <!-- Underline -->
+  <rect x="295" y="101" width="270" height="2" fill="url(#under)" rx="1" opacity="0">
+    <animate attributeName="opacity" from="0" to="1" dur="0.3s" begin="0.4s" fill="freeze"/>
+  </rect>
+
+  <!-- Tagline -->
+  <text x="430" y="128"
+        text-anchor="middle"
+        font-family="'Segoe UI',system-ui,-apple-system,'Liberation Sans',Arial,sans-serif"
+        font-size="13.5" fill="#567a9c" letter-spacing="0.4"
+        opacity="0">
+    <animate attributeName="opacity" from="0" to="1" dur="0.4s" begin="0.5s" fill="freeze"/>
+    Typed  ·  Pydantic-backed  ·  Pythonic wrappers for the Azure DevOps REST API
+  </text>
+
+  <!-- Chip 1: Type safe — t = 1.1 s -->
+  <g opacity="0">
+    <animate attributeName="opacity" from="0" to="1" dur="0.3s" begin="1.1s" fill="freeze"/>
+    <rect x="179" y="150" width="100" height="24" rx="12"
+          fill="#0078D4" fill-opacity="0.07"
+          stroke="#0078D4" stroke-opacity="0.30" stroke-width="1"/>
+    <text x="229" y="166" text-anchor="middle"
+          font-family="'Segoe UI',system-ui,-apple-system,Arial,sans-serif"
+          font-size="11" fill="#38a8d8">&#x2713; Type safe</text>
+  </g>
+
+  <!-- Chip 2: Auto pagination — t = 1.3 s -->
+  <g opacity="0">
+    <animate attributeName="opacity" from="0" to="1" dur="0.3s" begin="1.3s" fill="freeze"/>
+    <rect x="293" y="150" width="130" height="24" rx="12"
+          fill="#0078D4" fill-opacity="0.07"
+          stroke="#0078D4" stroke-opacity="0.30" stroke-width="1"/>
+    <text x="358" y="166" text-anchor="middle"
+          font-family="'Segoe UI',system-ui,-apple-system,Arial,sans-serif"
+          font-size="11" fill="#38a8d8">&#x21BB; Auto pagination</text>
+  </g>
+
+  <!-- Chip 3: OOP layer — t = 1.5 s -->
+  <g opacity="0">
+    <animate attributeName="opacity" from="0" to="1" dur="0.3s" begin="1.5s" fill="freeze"/>
+    <rect x="437" y="150" width="100" height="24" rx="12"
+          fill="#0078D4" fill-opacity="0.07"
+          stroke="#0078D4" stroke-opacity="0.30" stroke-width="1"/>
+    <text x="487" y="166" text-anchor="middle"
+          font-family="'Segoe UI',system-ui,-apple-system,Arial,sans-serif"
+          font-size="11" fill="#38a8d8">&#x2B21; OOP layer</text>
+  </g>
+
+  <!-- Chip 4: No boilerplate — t = 1.7 s -->
+  <g opacity="0">
+    <animate attributeName="opacity" from="0" to="1" dur="0.3s" begin="1.7s" fill="freeze"/>
+    <rect x="551" y="150" width="130" height="24" rx="12"
+          fill="#0078D4" fill-opacity="0.07"
+          stroke="#0078D4" stroke-opacity="0.30" stroke-width="1"/>
+    <text x="616" y="166" text-anchor="middle"
+          font-family="'Segoe UI',system-ui,-apple-system,Arial,sans-serif"
+          font-size="11" fill="#38a8d8">&#x25CE; No boilerplate</text>
+  </g>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       TOP LAYER — Accent bars + shimmer (drawn last so always on top)
+       ════════════════════════════════════════════════════════════════════════ -->
+  <rect width="860" height="3" fill="url(#bar)"/>
+  <g clip-path="url(#topBarClip)">
+    <rect x="0" y="0" width="300" height="3" fill="url(#shimmerGrad)">
+      <animateTransform attributeName="transform" type="translate"
+        from="-300,0" to="860,0"
+        dur="3.5s" begin="0.8s" repeatCount="indefinite"/>
+    </rect>
+  </g>
+  <rect y="197" width="860" height="3" fill="url(#bar)" opacity="0.35"/>
+</svg>
