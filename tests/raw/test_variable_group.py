@@ -211,13 +211,17 @@ class TestDeleteVariableGroup:
 
     @staticmethod
     def test_sends_delete_request(api_call: ApiCall) -> None:
-        """Issues a DELETE request to the variable group endpoint."""
+        """Issues a DELETE request with the group ID and projectIds query param."""
         mock_response = _make_mock_response(None)
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            delete_variable_group(api_call)
+            delete_variable_group(api_call, 42, ["proj-uuid-1"])
         assert mock_req.call_args.args[0] == "DELETE"
+        assert "/42" in mock_req.call_args[1]["url"]
+        assert (
+            mock_req.call_args[1].get("params", {}).get("projectIds") == "proj-uuid-1"
+        )
 
 
 class TestVariableInfo:
@@ -307,7 +311,7 @@ class TestListVariableGroupDetails:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         with patch(
-            "pyado.raw.variable_group.iter_variable_group_details",
+            "pyado.raw.pipelines.variable_group.iter_variable_group_details",
             return_value=iter([]),
         ) as m:
             result = list_variable_group_details(api_call)

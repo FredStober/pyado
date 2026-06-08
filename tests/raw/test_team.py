@@ -216,7 +216,7 @@ class TestIterTeamMembers:
 class TestListTeams:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
-        with patch("pyado.raw.team.iter_teams", return_value=iter([])) as m:
+        with patch("pyado.raw.boards.team.iter_teams", return_value=iter([])) as m:
             result = list_teams(api_call, "MyProject")
         assert result == []
         m.assert_called_once_with(api_call, "MyProject")
@@ -225,7 +225,9 @@ class TestListTeams:
 class TestListTeamMembers:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
-        with patch("pyado.raw.team.iter_team_members", return_value=iter([])) as m:
+        with patch(
+            "pyado.raw.boards.team.iter_team_members", return_value=iter([])
+        ) as m:
             result = list_team_members(api_call, "proj-id", "team-id")
         assert result == []
         m.assert_called_once_with(api_call, "proj-id", "team-id")

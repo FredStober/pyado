@@ -1,4 +1,4 @@
-"""Tests for pyado.oop._pull_request — OOP layer."""
+"""Tests for pyado.oop.repos._pull_request — OOP layer."""
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
@@ -10,7 +10,7 @@ import pytest
 import requests
 
 from pyado.oop import Commit, Project, PullRequest, Repository
-from pyado.oop._pull_request import (
+from pyado.oop.repos._pull_request import (
     abandon_pull_request,
     add_pull_request_reviewer,
     complete_pull_request,
@@ -27,8 +27,8 @@ from pyado.raw import (
     ApiCall,
     ConnectionData,
     IdentityIdRef,
-    PrIterationChange,
     PullRequestCompletionOptions,
+    PullRequestIterationChange,
     PullRequestIterationRecord,
     PullRequestLabel,
     PullRequestListItem,
@@ -45,7 +45,7 @@ from pyado.raw import (
     get_pull_request_api_call,
     get_repository_api_call,
 )
-from tests.conftest import ACCESS_TOKEN, NOW_ISO, _make_mock_response
+from tests.conftest import NOW_ISO, _make_mock_response
 from tests.oop.conftest import (
     ORG_URL,
     _api_call,
@@ -405,7 +405,6 @@ class TestLinkPrWorkItem:
         }
         wi_data: dict[str, Any] = {"id": 42, "fields": {"System.Title": "Task"}}
         project_api_call = ApiCall(
-            access_token=ACCESS_TOKEN,
             url="https://dev.azure.com/org/myproject/",
         )
         pr_api_call = get_pull_request_api_call(project_api_call, repo_id, 7)
@@ -439,7 +438,6 @@ class TestLinkPrWorkItem:
         }
         wi_data: dict[str, Any] = {"id": 1, "fields": {}}
         project_api_call = ApiCall(
-            access_token=ACCESS_TOKEN,
             url="https://dev.azure.com/org/myproject/",
         )
         pr_api_call = get_pull_request_api_call(project_api_call, repo_id, 3)
@@ -557,7 +555,9 @@ class TestPullRequest:
 
     def test_refresh_refetches(self) -> None:
         pr = _make_pr()
-        with patch("pyado.oop.pull_request.raw.get_pull_request_details") as mock_get:
+        with patch(
+            "pyado.oop.repos.pull_request.raw.get_pull_request_details"
+        ) as mock_get:
             mock_get.return_value = _pr_list_item()
             pr.refresh()
             # refresh() lazily invalidates; the actual fetch happens on next info access
@@ -565,7 +565,9 @@ class TestPullRequest:
         mock_get.assert_called_once()
 
     def test_link_work_item_calls_add_work_item_link(self) -> None:
-        with patch("pyado.oop.pull_request._work_item.add_work_item_link") as mock_link:
+        with patch(
+            "pyado.oop.repos.pull_request._work_item.add_work_item_link"
+        ) as mock_link:
             mock_link.return_value = _work_item_info()
             pr = _make_pr(32)
             wi = _make_wi(153)
@@ -576,7 +578,9 @@ class TestPullRequest:
         assert "32" in relation.url
 
     def test_link_work_item_with_comment(self) -> None:
-        with patch("pyado.oop.pull_request._work_item.add_work_item_link") as mock_link:
+        with patch(
+            "pyado.oop.repos.pull_request._work_item.add_work_item_link"
+        ) as mock_link:
             mock_link.return_value = _work_item_info()
             _make_pr(32).link_work_item(_make_wi(153), comment="Linked via PR")
         relation = mock_link.call_args.args[1]
@@ -585,39 +589,45 @@ class TestPullRequest:
 
     def test_get_tags_delegates(self) -> None:
         with patch(
-            "pyado.oop.pull_request._pull_request.get_pull_request_tags"
+            "pyado.oop.repos.pull_request._pull_request.get_pull_request_tags"
         ) as mock_tags:
             mock_tags.return_value = ["tag-a", "tag-b"]
             tags = _make_pr().get_tags()
         assert tags == ["tag-a", "tag-b"]
 
     def test_add_tag_delegates(self) -> None:
-        with patch("pyado.oop.pull_request.raw.post_pull_request_label") as mock_add:
+        with patch(
+            "pyado.oop.repos.pull_request.raw.post_pull_request_label"
+        ) as mock_add:
             _make_pr().add_tag("my-tag")
         mock_add.assert_called_once()
 
     def test_remove_tag_delegates(self) -> None:
-        with patch("pyado.oop.pull_request.raw.delete_pull_request_label") as mock_del:
+        with patch(
+            "pyado.oop.repos.pull_request.raw.delete_pull_request_label"
+        ) as mock_del:
             _make_pr().remove_tag("my-tag")
         mock_del.assert_called_once()
 
     def test_add_thread_delegates(self) -> None:
         with patch(
-            "pyado.oop.pull_request._pull_request.create_pull_request_thread"
+            "pyado.oop.repos.pull_request._pull_request.create_pull_request_thread"
         ) as mock_thread:
             mock_thread.return_value = MagicMock()
             _make_pr().add_thread("hello")
         assert mock_thread.call_args.args[1] == "hello"
 
     def test_iter_threads_delegates(self) -> None:
-        with patch("pyado.oop.pull_request.raw.iter_pull_request_threads") as mock_iter:
+        with patch(
+            "pyado.oop.repos.pull_request.raw.iter_pull_request_threads"
+        ) as mock_iter:
             mock_iter.return_value = iter([MagicMock()])
             result = list(_make_pr().iter_threads())
         assert len(result) == 1
 
     def test_reply_to_thread_delegates(self) -> None:
         with patch(
-            "pyado.oop.pull_request._pull_request.reply_to_pull_request_thread"
+            "pyado.oop.repos.pull_request._pull_request.reply_to_pull_request_thread"
         ) as mock_reply:
             mock_reply.return_value = MagicMock()
             _make_pr().reply_to_thread(1, "reply text")
@@ -625,14 +635,16 @@ class TestPullRequest:
         assert mock_reply.call_args.args[2] == "reply text"
 
     def test_get_reviewers_delegates(self) -> None:
-        with patch("pyado.oop.pull_request.raw.get_pull_request_reviewers") as mock_get:
+        with patch(
+            "pyado.oop.repos.pull_request.raw.get_pull_request_reviewers"
+        ) as mock_get:
             mock_get.return_value = [MagicMock()]
             result = _make_pr().get_reviewers()
         assert len(result) == 1
 
     def test_add_reviewer_delegates(self) -> None:
         with patch(
-            "pyado.oop.pull_request._pull_request.add_pull_request_reviewer"
+            "pyado.oop.repos.pull_request._pull_request.add_pull_request_reviewer"
         ) as mock_add:
             _make_pr().add_reviewer("user-id", is_required=True)
         assert mock_add.call_args.args[1] == "user-id"
@@ -640,21 +652,21 @@ class TestPullRequest:
 
     def test_remove_reviewer_delegates(self) -> None:
         with patch(
-            "pyado.oop.pull_request.raw.delete_pull_request_reviewer"
+            "pyado.oop.repos.pull_request.raw.delete_pull_request_reviewer"
         ) as mock_del:
             _make_pr().remove_reviewer("user-id")
         mock_del.assert_called_once()
 
     def test_vote_delegates(self) -> None:
         with patch(
-            "pyado.oop.pull_request._pull_request.set_pull_request_reviewer_vote"
+            "pyado.oop.repos.pull_request._pull_request.set_pull_request_reviewer_vote"
         ) as mock_vote:
             _make_pr().vote("user-id", PullRequestVote.APPROVED)
         assert mock_vote.call_args.args[1] == "user-id"
         assert mock_vote.call_args.args[2] == PullRequestVote.APPROVED
 
     def test_update_sends_only_non_none(self) -> None:
-        with patch("pyado.oop.pull_request.raw.patch_pull_request") as mock_patch:
+        with patch("pyado.oop.repos.pull_request.raw.patch_pull_request") as mock_patch:
             _make_pr().update(title="New Title")
         update_arg = mock_patch.call_args.args[1]
         assert update_arg.title == "New Title"
@@ -670,7 +682,7 @@ class TestPullRequest:
             }
         )
         with patch(
-            "pyado.oop.pull_request.raw.patch_pull_request",
+            "pyado.oop.repos.pull_request.raw.patch_pull_request",
             return_value=updated_response,
         ):
             pr.update(title="Renamed Title")
@@ -678,14 +690,14 @@ class TestPullRequest:
 
     def test_set_status_delegates(self) -> None:
         with patch(
-            "pyado.oop.pull_request.raw.post_pull_request_status"
+            "pyado.oop.repos.pull_request.raw.post_pull_request_status"
         ) as mock_status:
             _make_pr().set_status(PullRequestStatusState.SUCCEEDED, "my-check")
         mock_status.assert_called_once()
 
     def test_set_status_with_target_url(self) -> None:
         with patch(
-            "pyado.oop.pull_request.raw.post_pull_request_status"
+            "pyado.oop.repos.pull_request.raw.post_pull_request_status"
         ) as mock_status:
             _make_pr().set_status(
                 PullRequestStatusState.SUCCEEDED,
@@ -696,7 +708,9 @@ class TestPullRequest:
         assert request_arg.target_url is not None
 
     def test_iter_commits_returns_commit_objects(self) -> None:
-        with patch("pyado.oop.pull_request.raw.iter_pull_request_commits") as mock_iter:
+        with patch(
+            "pyado.oop.repos.pull_request.raw.iter_pull_request_commits"
+        ) as mock_iter:
             mock_iter.return_value = iter(
                 [_git_commit_ref("abc123"), _git_commit_ref("def456")]
             )
@@ -707,14 +721,16 @@ class TestPullRequest:
 
     def test_iter_commits_back_reference_is_pr_repo(self) -> None:
         pr = _make_pr()
-        with patch("pyado.oop.pull_request.raw.iter_pull_request_commits") as mock_iter:
+        with patch(
+            "pyado.oop.repos.pull_request.raw.iter_pull_request_commits"
+        ) as mock_iter:
             mock_iter.return_value = iter([_git_commit_ref("abc123")])
             result = list(pr.iter_commits())
         assert result[0].repo is pr.repo
 
     def test_iter_work_item_ids_delegates(self) -> None:
         with patch(
-            "pyado.oop.pull_request._pull_request.iter_pull_request_work_item_ids"
+            "pyado.oop.repos.pull_request._pull_request.iter_pull_request_work_item_ids"
         ) as mock_iter:
             mock_iter.return_value = iter([10, 20])
             result = list(_make_pr().iter_work_item_ids())
@@ -722,7 +738,7 @@ class TestPullRequest:
 
     def test_iter_iterations_delegates(self) -> None:
         with patch(
-            "pyado.oop.pull_request.raw.iter_pull_request_iterations"
+            "pyado.oop.repos.pull_request.raw.iter_pull_request_iterations"
         ) as mock_iter:
             mock_iter.return_value = iter([MagicMock()])
             result = list(_make_pr().iter_iterations())
@@ -731,7 +747,7 @@ class TestPullRequest:
 
     def test_get_iteration_changes_delegates(self) -> None:
         with patch(
-            "pyado.oop.pull_request.raw.get_pull_request_iteration_changes"
+            "pyado.oop.repos.pull_request.raw.get_pull_request_iteration_changes"
         ) as mock_get:
             mock_get.return_value = [MagicMock(), MagicMock()]
             result = _make_pr().get_iteration_changes(2)
@@ -739,7 +755,7 @@ class TestPullRequest:
         assert mock_get.call_args.args[1] == 2
 
     def test_enable_auto_complete_patches_pr(self) -> None:
-        with patch("pyado.oop.pull_request.raw.patch_pull_request") as mock_patch:
+        with patch("pyado.oop.repos.pull_request.raw.patch_pull_request") as mock_patch:
             _make_pr().enable_auto_complete("user-id-123")
         update_arg = mock_patch.call_args.args[1]
         assert update_arg.auto_complete_set_by == IdentityIdRef(id="user-id-123")
@@ -749,7 +765,7 @@ class TestPullRequest:
             {"authenticatedUser": {"id": "auto-id-456", "providerDisplayName": "Me"}}
         )
         with (
-            patch("pyado.oop.pull_request.raw.patch_pull_request") as mock_patch,
+            patch("pyado.oop.repos.pull_request.raw.patch_pull_request") as mock_patch,
             patch(
                 "pyado.oop.organization.raw.get_connection_data",
                 return_value=conn_data,
@@ -763,13 +779,13 @@ class TestPullRequest:
         opts = PullRequestCompletionOptions.model_validate(
             {"mergeStrategy": "squash", "deleteSourceBranch": True}
         )
-        with patch("pyado.oop.pull_request.raw.patch_pull_request") as mock_patch:
+        with patch("pyado.oop.repos.pull_request.raw.patch_pull_request") as mock_patch:
             _make_pr().enable_auto_complete("user-id-123", completion_options=opts)
         update_arg = mock_patch.call_args.args[1]
         assert update_arg.completion_options is opts
 
     def test_disable_auto_complete_patches_pr(self) -> None:
-        with patch("pyado.oop.pull_request.raw.patch_pull_request") as mock_patch:
+        with patch("pyado.oop.repos.pull_request.raw.patch_pull_request") as mock_patch:
             _make_pr().disable_auto_complete()
         update_arg = mock_patch.call_args.args[1]
         assert update_arg.auto_complete_set_by == IdentityIdRef(
@@ -779,7 +795,7 @@ class TestPullRequest:
     def test_update_thread_status_delegates(self) -> None:
         thread_resp = MagicMock(spec=PullRequestThreadResponse)
         with patch(
-            "pyado.oop.pull_request.raw.patch_pull_request_thread"
+            "pyado.oop.repos.pull_request.raw.patch_pull_request_thread"
         ) as mock_patch:
             mock_patch.return_value = thread_resp
             result = _make_pr().update_thread_status(7, PullRequestThreadStatus.FIXED)
@@ -796,7 +812,7 @@ class TestPullRequest:
             }
         )
         with patch(
-            "pyado.oop.pull_request.raw.iter_pull_request_statuses"
+            "pyado.oop.repos.pull_request.raw.iter_pull_request_statuses"
         ) as mock_iter:
             mock_iter.return_value = iter([status])
             result = list(_make_pr().iter_statuses())
@@ -837,7 +853,7 @@ class TestPullRequest:
     def test_get_tag_details_delegates_to_raw(self) -> None:
         label = PullRequestLabel(name="my-tag")
         with patch(
-            "pyado.oop.pull_request.raw.get_pull_request_labels_details"
+            "pyado.oop.repos.pull_request.raw.get_pull_request_labels_details"
         ) as mock_get:
             mock_get.return_value = [label]
             result = _make_pr().get_tag_details()
@@ -848,13 +864,13 @@ class TestPullRequest:
         iteration = PullRequestIterationRecord.model_validate(
             {"id": 3, "createdDate": NOW_ISO, "updatedDate": NOW_ISO}
         )
-        change = MagicMock(spec=PrIterationChange)
+        change = MagicMock(spec=PullRequestIterationChange)
         with (
             patch(
-                "pyado.oop.pull_request.raw.iter_pull_request_iterations"
+                "pyado.oop.repos.pull_request.raw.iter_pull_request_iterations"
             ) as mock_iter,
             patch(
-                "pyado.oop.pull_request.raw.get_pull_request_iteration_changes"
+                "pyado.oop.repos.pull_request.raw.get_pull_request_iteration_changes"
             ) as mock_changes,
         ):
             mock_iter.return_value = iter([iteration])
@@ -865,7 +881,7 @@ class TestPullRequest:
 
     def test_iter_files_changed_empty_when_no_iterations(self) -> None:
         with patch(
-            "pyado.oop.pull_request.raw.iter_pull_request_iterations"
+            "pyado.oop.repos.pull_request.raw.iter_pull_request_iterations"
         ) as mock_iter:
             mock_iter.return_value = iter([])
             result = list(_make_pr().iter_files_changed())
@@ -880,10 +896,10 @@ class TestPullRequest:
         )
         with (
             patch(
-                "pyado.oop.pull_request.raw.iter_pull_request_iterations"
+                "pyado.oop.repos.pull_request.raw.iter_pull_request_iterations"
             ) as mock_iter,
             patch(
-                "pyado.oop.pull_request.raw.get_pull_request_iteration_changes"
+                "pyado.oop.repos.pull_request.raw.get_pull_request_iteration_changes"
             ) as mock_changes,
         ):
             mock_iter.return_value = iter([iter1, iter2])
@@ -902,7 +918,7 @@ class TestPullRequestLifecycle:
         pr = _make_pr()
         completed = _pr_created()
         with patch(
-            "pyado.oop.pull_request._pull_request.complete_pull_request"
+            "pyado.oop.repos.pull_request._pull_request.complete_pull_request"
         ) as mock_complete:
             mock_complete.return_value = completed
             pr.complete("deadbeef")
@@ -915,7 +931,7 @@ class TestPullRequestLifecycle:
         completed = _pr_created()
         completed.status = PullRequestStatus.COMPLETED
         with patch(
-            "pyado.oop.pull_request._pull_request.complete_pull_request"
+            "pyado.oop.repos.pull_request._pull_request.complete_pull_request"
         ) as mock_complete:
             mock_complete.return_value = completed
             pr.complete("deadbeef")
@@ -926,7 +942,7 @@ class TestPullRequestLifecycle:
         abandoned = _pr_created()
         abandoned.status = PullRequestStatus.ABANDONED
         with patch(
-            "pyado.oop.pull_request._pull_request.abandon_pull_request"
+            "pyado.oop.repos.pull_request._pull_request.abandon_pull_request"
         ) as mock_abandon:
             mock_abandon.return_value = abandoned
             pr.abandon()
@@ -937,7 +953,7 @@ class TestPullRequestLifecycle:
         abandoned = _pr_created()
         abandoned.status = PullRequestStatus.ABANDONED
         with patch(
-            "pyado.oop.pull_request._pull_request.abandon_pull_request"
+            "pyado.oop.repos.pull_request._pull_request.abandon_pull_request"
         ) as mock_abandon:
             mock_abandon.return_value = abandoned
             pr.abandon()
@@ -946,7 +962,7 @@ class TestPullRequestLifecycle:
     def test_set_work_item_refs_delegates(self) -> None:
         pr = _make_pr()
         with patch(
-            "pyado.oop.pull_request._pull_request.update_pull_request_work_item_refs"
+            "pyado.oop.repos.pull_request._pull_request.update_pull_request_work_item_refs"
         ) as mock_update:
             pr.set_work_item_refs([10, 20])
         mock_update.assert_called_once_with(pr.api_call, [10, 20])
@@ -960,7 +976,9 @@ class TestPullRequestLifecycle:
 class TestPullRequestRefreshWithExpand:
     def test_refresh_with_expand_updates_stored_expand(self) -> None:
         pr = _make_pr()
-        with patch("pyado.oop.pull_request.raw.get_pull_request_details") as mock_get:
+        with patch(
+            "pyado.oop.repos.pull_request.raw.get_pull_request_details"
+        ) as mock_get:
             mock_get.return_value = _pr_created()
             pr.refresh(expand="reviewers")
             # refresh() lazily invalidates; the actual fetch happens on next info access
@@ -979,12 +997,12 @@ class TestPullRequestSyncTags:
         pr = _make_pr()
         with (
             patch(
-                "pyado.oop.pull_request._pull_request.get_pull_request_tags"
+                "pyado.oop.repos.pull_request._pull_request.get_pull_request_tags"
             ) as mock_tags,
             patch(
-                "pyado.oop.pull_request.raw.delete_pull_request_label"
+                "pyado.oop.repos.pull_request.raw.delete_pull_request_label"
             ) as mock_delete,
-            patch("pyado.oop.pull_request.raw.post_pull_request_label"),
+            patch("pyado.oop.repos.pull_request.raw.post_pull_request_label"),
         ):
             mock_tags.return_value = ["old-tag"]
             pr.sync_tags({"new-tag"})
@@ -999,9 +1017,11 @@ class TestPullRequestSyncTags:
         info.labels = [PullRequestLabel(name="cached-tag")]
         pr = PullRequest(repo, api_call, info, expand="labels")
         with (
-            patch("pyado.oop.pull_request.raw.post_pull_request_label") as mock_add,
             patch(
-                "pyado.oop.pull_request.raw.delete_pull_request_label"
+                "pyado.oop.repos.pull_request.raw.post_pull_request_label"
+            ) as mock_add,
+            patch(
+                "pyado.oop.repos.pull_request.raw.delete_pull_request_label"
             ) as mock_remove,
         ):
             pr.sync_tags({"cached-tag", "new-tag"})
@@ -1012,11 +1032,13 @@ class TestPullRequestSyncTags:
         pr = _make_pr()
         with (
             patch(
-                "pyado.oop.pull_request._pull_request.get_pull_request_tags"
+                "pyado.oop.repos.pull_request._pull_request.get_pull_request_tags"
             ) as mock_tags,
-            patch("pyado.oop.pull_request.raw.post_pull_request_label") as mock_add,
             patch(
-                "pyado.oop.pull_request.raw.delete_pull_request_label"
+                "pyado.oop.repos.pull_request.raw.post_pull_request_label"
+            ) as mock_add,
+            patch(
+                "pyado.oop.repos.pull_request.raw.delete_pull_request_label"
             ) as mock_remove,
         ):
             mock_tags.return_value = ["foo"]
@@ -1040,7 +1062,9 @@ class TestPullRequestGetThread:
                 "comments": [],
             }
         )
-        with patch("pyado.oop.pull_request.raw.get_pull_request_thread") as mock_get:
+        with patch(
+            "pyado.oop.repos.pull_request.raw.get_pull_request_thread"
+        ) as mock_get:
             mock_get.return_value = thread
             result = pr.get_thread(7)
         mock_get.assert_called_once_with(pr.api_call, 7)
@@ -1059,7 +1083,7 @@ class TestPullRequestIterWorkItems:
         wi_b = _make_wi(20)
         with (
             patch(
-                "pyado.oop.pull_request._pull_request.iter_pull_request_work_item_ids"
+                "pyado.oop.repos.pull_request._pull_request.iter_pull_request_work_item_ids"
             ) as mock_ids,
             patch("pyado.oop.project.raw.post_work_items_batch") as mock_batch,
             patch("pyado.oop.project.raw.get_work_item_api_call") as mock_api,
@@ -1074,7 +1098,7 @@ class TestPullRequestIterWorkItems:
     def test_yields_nothing_when_no_linked_items(self) -> None:
         pr = _make_pr()
         with patch(
-            "pyado.oop.pull_request._pull_request.iter_pull_request_work_item_ids"
+            "pyado.oop.repos.pull_request._pull_request.iter_pull_request_work_item_ids"
         ) as mock_ids:
             mock_ids.return_value = iter([])
             result = list(pr.iter_work_items())

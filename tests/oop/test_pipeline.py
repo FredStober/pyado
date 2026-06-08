@@ -1,15 +1,15 @@
-"""Tests for pyado.oop._build pipeline helpers — OOP layer."""
+"""Tests for pyado.oop.pipelines._build pipeline helpers — OOP layer."""
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-from typing import TYPE_CHECKING, cast
+from typing import cast
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import requests
 
 from pyado.oop import Pipeline, Project
-from pyado.oop._build import (
+from pyado.oop.pipelines._build import (
     approve_pipeline,
     iter_pending_approvals,
     reject_pipeline,
@@ -17,14 +17,18 @@ from pyado.oop._build import (
     send_job_feed,
     update_timeline_records,
 )
-from pyado.oop.pipeline import PipelineRun
+from pyado.oop.pipelines.pipeline import PipelineRun
 from pyado.raw import (
     ApiCall,
     BuildRecordInfo,
     BuildStatus,
+    JobEventName,
+    JobEventResult,
+    PipelineApprovalStatus,
     PipelineResourcePermissions,
     PipelineResourceType,
     PipelineRunInfo,
+    VariableInfo,
 )
 from tests.conftest import NOW_ISO, _make_mock_response, make_build_record_dict
 from tests.oop.conftest import (
@@ -37,9 +41,6 @@ from tests.oop.conftest import (
     _pipeline_run_info,
     _project_info,
 )
-
-if TYPE_CHECKING:  # pragma: no cover
-    from pyado.raw.pipeline import JobEventName, JobEventResult
 
 HUB_NAME = "Build"
 PLAN_ID = uuid4()
@@ -131,6 +132,17 @@ class TestIterPendingApprovals:
         params = mock_req.call_args.kwargs.get("params") or {}
         assert params.get("state") == "pending"
 
+    @staticmethod
+    def test_forwards_pipeline_run_ids(api_call: ApiCall) -> None:
+        """Forwards pipeline_run_ids as pipelineIds query parameter."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(iter_pending_approvals(api_call, pipeline_run_ids=[7]))
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params.get("pipelineIds") == "7"
+
 
 class TestApprovePipeline:
     """Tests for approve_pipeline."""
@@ -207,7 +219,7 @@ class TestPipeline:
         proj = _make_project()
         pipe = Pipeline(proj, 7, "MyPipeline")
         assert pipe._info is None
-        with patch("pyado.oop.pipeline.raw.get_pipeline") as mock_get:
+        with patch("pyado.oop.pipelines.pipeline.raw.get_pipeline") as mock_get:
             mock_get.return_value = _pipeline_info(7)
             info = pipe.info
         assert info.id == 7
@@ -233,27 +245,27 @@ class TestPipeline:
         assert pipe._info is None
 
     def test_iter_runs_delegates(self) -> None:
-        with patch("pyado.oop.pipeline.raw.iter_pipeline_runs") as mock_iter:
+        with patch("pyado.oop.pipelines.pipeline.raw.iter_pipeline_runs") as mock_iter:
             mock_iter.return_value = iter([])
             list(_make_pipeline().iter_runs())
         assert mock_iter.call_args.args[1] == 7
 
     def test_start_run_no_args_passes_none(self) -> None:
-        with patch("pyado.oop.pipeline.raw.post_pipeline_run") as mock_run:
+        with patch("pyado.oop.pipelines.pipeline.raw.post_pipeline_run") as mock_run:
             mock_run.return_value = MagicMock()
             _make_pipeline().start_run()
         assert mock_run.call_args.args[2] is None
 
     def test_start_run_with_variables_builds_request(self) -> None:
-        with patch("pyado.oop.pipeline.raw.post_pipeline_run") as mock_run:
+        with patch("pyado.oop.pipelines.pipeline.raw.post_pipeline_run") as mock_run:
             mock_run.return_value = MagicMock()
-            _make_pipeline().start_run(variables={"env": "test"})
+            _make_pipeline().start_run(variables={"env": VariableInfo(value="test")})
         request_arg = mock_run.call_args.args[2]
         assert request_arg is not None
-        assert request_arg.variables == {"env": "test"}
+        assert request_arg.variables == {"env": VariableInfo(value="test")}
 
     def test_get_run_delegates(self) -> None:
-        with patch("pyado.oop.pipeline.raw.get_pipeline_run") as mock_get:
+        with patch("pyado.oop.pipelines.pipeline.raw.get_pipeline_run") as mock_get:
             mock_get.return_value = MagicMock()
             _make_pipeline().get_run(42)
         assert mock_get.call_args.args[2] == 42
@@ -267,7 +279,9 @@ class TestPipeline:
 class TestPipelineAuthorizeResource:
     def test_authorize_resource_delegates(self) -> None:
         pipe = _make_pipeline()
-        with patch("pyado.oop.pipeline.raw.patch_pipeline_permission") as mock_post:
+        with patch(
+            "pyado.oop.pipelines.pipeline.raw.patch_pipeline_permission"
+        ) as mock_post:
             mock_post.return_value = _make_pipeline_resource_permissions()
             result = pipe.authorize_resource(PipelineResourceType.VARIABLE_GROUP, "42")
         assert isinstance(result, PipelineResourcePermissions)
@@ -275,7 +289,9 @@ class TestPipelineAuthorizeResource:
 
     def test_authorize_resource_passes_pipeline_id(self) -> None:
         pipe = _make_pipeline(pipeline_id=7)
-        with patch("pyado.oop.pipeline.raw.patch_pipeline_permission") as mock_post:
+        with patch(
+            "pyado.oop.pipelines.pipeline.raw.patch_pipeline_permission"
+        ) as mock_post:
             mock_post.return_value = _make_pipeline_resource_permissions()
             pipe.authorize_resource(PipelineResourceType.ENDPOINT, "svc-conn-1")
         call = mock_post.call_args
@@ -283,7 +299,9 @@ class TestPipelineAuthorizeResource:
 
     def test_authorize_resource_default_authorized_true(self) -> None:
         pipe = _make_pipeline()
-        with patch("pyado.oop.pipeline.raw.patch_pipeline_permission") as mock_post:
+        with patch(
+            "pyado.oop.pipelines.pipeline.raw.patch_pipeline_permission"
+        ) as mock_post:
             mock_post.return_value = _make_pipeline_resource_permissions()
             pipe.authorize_resource(PipelineResourceType.QUEUE, "1")
         call = mock_post.call_args
@@ -291,7 +309,9 @@ class TestPipelineAuthorizeResource:
 
     def test_authorize_resource_can_deauthorize(self) -> None:
         pipe = _make_pipeline()
-        with patch("pyado.oop.pipeline.raw.patch_pipeline_permission") as mock_post:
+        with patch(
+            "pyado.oop.pipelines.pipeline.raw.patch_pipeline_permission"
+        ) as mock_post:
             mock_post.return_value = _make_pipeline_resource_permissions(
                 authorized=False
             )
@@ -326,14 +346,14 @@ class TestPipelineGetLatestRun:
                 "url": "https://dev.azure.com/testorg/TestProject/_apis/pipelines/7/runs/99",
             }
         )
-        with patch("pyado.oop.pipeline.raw.iter_pipeline_runs") as mock_iter:
+        with patch("pyado.oop.pipelines.pipeline.raw.iter_pipeline_runs") as mock_iter:
             mock_iter.return_value = iter([run])
             result = _make_pipeline().get_latest_run()
         assert result is not None
         assert result.info is run
 
     def test_returns_none_when_no_runs(self) -> None:
-        with patch("pyado.oop.pipeline.raw.iter_pipeline_runs") as mock_iter:
+        with patch("pyado.oop.pipelines.pipeline.raw.iter_pipeline_runs") as mock_iter:
             mock_iter.return_value = iter([])
             result = _make_pipeline().get_latest_run()
         assert result is None
@@ -363,7 +383,9 @@ class TestPipelineCancelRun:
                 "url": "https://dev.azure.com/testorg/TestProject/_apis/pipelines/7/runs/55",
             }
         )
-        with patch("pyado.oop.pipeline._build.cancel_pipeline_run") as mock_cancel:
+        with patch(
+            "pyado.oop.pipelines.pipeline._build.cancel_pipeline_run"
+        ) as mock_cancel:
             mock_cancel.return_value = run
             result = _make_pipeline(7).cancel_run(55)
         assert result is run
@@ -424,7 +446,9 @@ class TestPipelineRunProperties:
     def test_cancel_updates_info_and_returns_self(self) -> None:
         new_info = _pipeline_run_info(run_id=100)
         run = PipelineRun(_make_pipeline(), _pipeline_run_info())
-        with patch("pyado.oop.pipeline._build.cancel_pipeline_run") as mock_cancel:
+        with patch(
+            "pyado.oop.pipelines.pipeline._build.cancel_pipeline_run"
+        ) as mock_cancel:
             mock_cancel.return_value = new_info
             result = run.cancel()
         assert result is run
@@ -433,7 +457,7 @@ class TestPipelineRunProperties:
     def test_refresh_updates_info(self) -> None:
         refreshed = _pipeline_run_info(run_id=100)
         run = PipelineRun(_make_pipeline(), _pipeline_run_info(run_id=100))
-        with patch("pyado.oop.pipeline.raw.get_pipeline_run") as mock_get:
+        with patch("pyado.oop.pipelines.pipeline.raw.get_pipeline_run") as mock_get:
             mock_get.return_value = refreshed
             run.refresh()
             # refresh() lazily invalidates; the actual fetch happens on next info access
@@ -442,7 +466,7 @@ class TestPipelineRunProperties:
     def test_refresh_passes_pipeline_and_run_ids(self) -> None:
         pipe = _make_pipeline(7)
         run = PipelineRun(pipe, _pipeline_run_info(run_id=55))
-        with patch("pyado.oop.pipeline.raw.get_pipeline_run") as mock_get:
+        with patch("pyado.oop.pipelines.pipeline.raw.get_pipeline_run") as mock_get:
             mock_get.return_value = _pipeline_run_info(run_id=55)
             run.refresh()
             # refresh() lazily invalidates; trigger the fetch inside the mock context
@@ -450,11 +474,43 @@ class TestPipelineRunProperties:
         assert mock_get.call_args.args[1] == 7
         assert mock_get.call_args.args[2] == 55
 
+    def test_iter_approvals_scopes_to_run_id(self) -> None:
+        """Passes the run ID as pipeline_run_ids to raw.iter_approvals."""
+        run = PipelineRun(_make_pipeline(), _pipeline_run_info(run_id=55))
+        with patch(
+            "pyado.oop.pipelines.pipeline.raw.iter_approvals", return_value=iter([])
+        ) as mock_iter:
+            list(run.iter_approvals())
+        mock_iter.assert_called_once_with(
+            run.api_call,
+            state=None,
+            pipeline_run_ids=[55],
+        )
+
+    def test_iter_approvals_passes_state_filter(self) -> None:
+        """Forwards the state argument to raw.iter_approvals."""
+        run = PipelineRun(_make_pipeline(), _pipeline_run_info(run_id=10))
+        with patch(
+            "pyado.oop.pipelines.pipeline.raw.iter_approvals", return_value=iter([])
+        ) as mock_iter:
+            list(run.iter_approvals(state=PipelineApprovalStatus.PENDING))
+        mock_iter.assert_called_once_with(
+            run.api_call,
+            state=PipelineApprovalStatus.PENDING,
+            pipeline_run_ids=[10],
+        )
+
+    def test_list_approvals_delegates_to_iter(self) -> None:
+        """list_approvals returns results of iter_approvals as a list."""
+        run = PipelineRun(_make_pipeline(), _pipeline_run_info())
+        with patch.object(run, "iter_approvals", return_value=iter([])):
+            assert run.list_approvals() == []
+
 
 class TestPipelineIterRunsYield:
     def test_iter_runs_yields_pipeline_run_wrappers(self) -> None:
         info = _pipeline_run_info(run_id=77)
-        with patch("pyado.oop.pipeline.raw.iter_pipeline_runs") as mock_iter:
+        with patch("pyado.oop.pipelines.pipeline.raw.iter_pipeline_runs") as mock_iter:
             mock_iter.return_value = iter([info])
             result = list(_make_pipeline().iter_runs())
         assert len(result) == 1
@@ -464,13 +520,13 @@ class TestPipelineIterRunsYield:
 
 class TestPipelineIterRunsTop:
     def test_iter_runs_passes_top_to_raw(self) -> None:
-        with patch("pyado.oop.pipeline.raw.iter_pipeline_runs") as mock_iter:
+        with patch("pyado.oop.pipelines.pipeline.raw.iter_pipeline_runs") as mock_iter:
             mock_iter.return_value = iter([])
             list(_make_pipeline().iter_runs(top=3))
         assert mock_iter.call_args.kwargs.get("top") == 3
 
     def test_iter_runs_passes_none_top_by_default(self) -> None:
-        with patch("pyado.oop.pipeline.raw.iter_pipeline_runs") as mock_iter:
+        with patch("pyado.oop.pipelines.pipeline.raw.iter_pipeline_runs") as mock_iter:
             mock_iter.return_value = iter([])
             list(_make_pipeline().iter_runs())
         assert mock_iter.call_args.kwargs.get("top") is None
@@ -480,36 +536,60 @@ class TestPipelineIterBuilds:
     def test_delegates_to_project_iter_builds(self) -> None:
         build = _make_build(build_id=5, pipeline_id=7)
         pipe = _make_pipeline()
-        with patch.object(
-            pipe._project, "iter_builds", return_value=iter([build])
-        ) as mock_iter:
+        with (
+            patch(
+                "pyado.oop.pipelines.project_pipelines.raw.iter_builds",
+                return_value=iter([build.info]),
+            ) as mock_iter,
+            patch(
+                "pyado.oop.pipelines.project_pipelines.raw.get_build_api_call",
+                return_value=build.api_call,
+            ),
+        ):
             result = list(pipe.iter_builds())
         assert len(result) == 1
-        assert mock_iter.call_args.kwargs.get("definition_id") == 7
+        sc = mock_iter.call_args.kwargs["search_criteria"]
+        assert sc.definition_id == 7
 
     def test_forwards_status_filter(self) -> None:
         pipe = _make_pipeline()
-        with patch.object(
-            pipe._project, "iter_builds", return_value=iter([])
-        ) as mock_iter:
+        with (
+            patch(
+                "pyado.oop.pipelines.project_pipelines.raw.iter_builds",
+                return_value=iter([]),
+            ) as mock_iter,
+            patch("pyado.oop.pipelines.project_pipelines.raw.get_build_api_call"),
+        ):
             list(pipe.iter_builds(status_filter=BuildStatus.COMPLETED))
-        assert mock_iter.call_args.kwargs.get("status_filter") == BuildStatus.COMPLETED
+        sc = mock_iter.call_args.kwargs["search_criteria"]
+        assert sc.status_filter == BuildStatus.COMPLETED
 
     def test_forwards_branch_name(self) -> None:
         pipe = _make_pipeline()
-        with patch.object(
-            pipe._project, "iter_builds", return_value=iter([])
-        ) as mock_iter:
+        with (
+            patch(
+                "pyado.oop.pipelines.project_pipelines.raw.iter_builds",
+                return_value=iter([]),
+            ) as mock_iter,
+            patch("pyado.oop.pipelines.project_pipelines.raw.get_build_api_call"),
+        ):
             list(pipe.iter_builds(branch_name="refs/heads/main"))
-        assert mock_iter.call_args.kwargs.get("branch_name") == "refs/heads/main"
+        assert (
+            mock_iter.call_args.kwargs["search_criteria"].branch_name
+            == "refs/heads/main"
+        )
 
     def test_forwards_top(self) -> None:
         pipe = _make_pipeline()
-        with patch.object(
-            pipe._project, "iter_builds", return_value=iter([])
-        ) as mock_iter:
+        with (
+            patch(
+                "pyado.oop.pipelines.project_pipelines.raw.iter_builds",
+                return_value=iter([]),
+            ) as mock_iter,
+            patch("pyado.oop.pipelines.project_pipelines.raw.get_build_api_call"),
+        ):
             list(pipe.iter_builds(top=10))
-        assert mock_iter.call_args.kwargs.get("top") == 10
+        assert mock_iter.call_args.kwargs["search_criteria"].top == 10
 
 
 class TestPipelineListMethods:

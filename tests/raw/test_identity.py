@@ -11,11 +11,12 @@ from pyado.raw import (
     GraphGroup,
     IdentityInfo,
     get_identities,
+    get_session,
     get_vssps_api_call,
     iter_graph_groups,
     list_graph_groups,
 )
-from pyado.raw._core import AccessToken, ApiCall
+from pyado.raw._core import ApiCall
 from tests.conftest import ACCESS_TOKEN, _make_mock_response
 
 
@@ -46,13 +47,13 @@ class TestGetVsspsApiCall:
     @staticmethod
     def test_url_contains_vssps_host() -> None:
         """Returned ApiCall URL uses the vssps.dev.azure.com host."""
-        api_call = get_vssps_api_call(AccessToken(ACCESS_TOKEN), "myorg")
+        api_call = get_vssps_api_call(get_session(pat=ACCESS_TOKEN), "myorg")
         assert "vssps.dev.azure.com" in api_call.url.unicode_string()
 
     @staticmethod
     def test_url_contains_org_name() -> None:
         """Returned ApiCall URL contains the organisation name."""
-        api_call = get_vssps_api_call(AccessToken(ACCESS_TOKEN), "acme-corp")
+        api_call = get_vssps_api_call(get_session(pat=ACCESS_TOKEN), "acme-corp")
         assert "acme-corp" in api_call.url.unicode_string()
 
 
@@ -62,7 +63,7 @@ class TestGetIdentities:
     @staticmethod
     def test_returns_identity_list() -> None:
         """Returns a list of IdentityInfo objects."""
-        vssps_call = get_vssps_api_call(AccessToken(ACCESS_TOKEN), "myorg")
+        vssps_call = get_vssps_api_call(get_session(pat=ACCESS_TOKEN), "myorg")
         response_data = {
             "value": [_make_identity_dict(), _make_identity_dict("id-002")]
         }
@@ -75,7 +76,7 @@ class TestGetIdentities:
     @staticmethod
     def test_filters_none_identity_values() -> None:
         """None entries in the value list are excluded from the returned list."""
-        vssps_call = get_vssps_api_call(AccessToken(ACCESS_TOKEN), "myorg")
+        vssps_call = get_vssps_api_call(get_session(pat=ACCESS_TOKEN), "myorg")
         response_data = {
             "value": [
                 _make_identity_dict("id-001"),
@@ -92,7 +93,7 @@ class TestGetIdentities:
     @staticmethod
     def test_descriptors_joined_in_params() -> None:
         """Descriptor list is joined with commas in the query parameters."""
-        vssps_call = get_vssps_api_call(AccessToken(ACCESS_TOKEN), "myorg")
+        vssps_call = get_vssps_api_call(get_session(pat=ACCESS_TOKEN), "myorg")
         response_data = {"value": [_make_identity_dict()]}
         mock_response = _make_mock_response(response_data)
         with patch.object(
@@ -110,7 +111,7 @@ class TestIterGraphGroups:
     @staticmethod
     def test_yields_graph_groups() -> None:
         """Yields GraphGroup objects for each group in the response."""
-        vssps_call = get_vssps_api_call(AccessToken(ACCESS_TOKEN), "myorg")
+        vssps_call = get_vssps_api_call(get_session(pat=ACCESS_TOKEN), "myorg")
         response_data = {
             "value": [_make_graph_group_dict(), _make_graph_group_dict("g-002")]
         }
@@ -128,6 +129,6 @@ class TestListGraphGroups:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         """Returns a list wrapping iter_graph_groups results."""
-        with patch("pyado.raw.identity.iter_graph_groups", return_value=iter([])):
+        with patch("pyado.raw.core.identity.iter_graph_groups", return_value=iter([])):
             result = list_graph_groups(api_call)
         assert result == []

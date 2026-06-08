@@ -1,0 +1,656 @@
+"""Tests for pyado.raw.policy_types — typed policy settings models."""
+# Copyright (c) 2023, Fred Stober
+# SPDX-License-Identifier: MIT
+
+from uuid import UUID
+
+from pyado.raw.policy_types import (
+    BuildPolicySettings,
+    CommentRequirementsSettings,
+    CommitAuthorEmailValidationSettings,
+    FileNameRestrictionSettings,
+    FileSizeRestrictionSettings,
+    GitRepositorySettings,
+    MergeStrategySettings,
+    MinimumReviewersSettings,
+    PathLengthRestrictionSettings,
+    RequiredReviewersSettings,
+    ReservedNamesRestrictionSettings,
+    SearchBranchSettings,
+    StatusPolicySettings,
+    WorkItemLinkingSettings,
+)
+
+from pyado.raw.policy import (
+    PolicyConfigurationRequest,
+    PolicyScopeMatchKind,
+    PolicyTypeIdRef,
+)
+
+_REPO_ID = UUID("2d0a1d19-a496-4858-9c63-b7851549e7eb")
+_REPO_NAME = "my-repo"
+_REF_NAME = "refs/heads/main"
+
+
+class TestMinimumReviewersSettings:
+    """Tests for MinimumReviewersSettings."""
+
+    @staticmethod
+    def test_to_request_returns_policy_configuration_request() -> None:
+        """to_request returns a PolicyConfigurationRequest."""
+        settings = MinimumReviewersSettings(
+            repository_id=_REPO_ID,
+            repository_name=_REPO_NAME,
+            ref_name=_REF_NAME,
+            minimum_approver_count=2,
+        )
+        request = settings.to_request()
+        assert isinstance(request, PolicyConfigurationRequest)
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID."""
+        settings = MinimumReviewersSettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            minimum_approver_count=1,
+        )
+        request = settings.to_request()
+        assert request.type == PolicyTypeIdRef(
+            id=UUID("fa4e907d-c16b-4a4c-9dfa-4906e5d171dd")
+        )
+
+    @staticmethod
+    def test_to_request_default_is_enabled_and_blocking() -> None:
+        """to_request uses is_enabled=True and is_blocking=True by default."""
+        settings = MinimumReviewersSettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            minimum_approver_count=1,
+        )
+        request = settings.to_request()
+        assert request.is_enabled is True
+        assert request.is_blocking is True
+
+    @staticmethod
+    def test_to_request_respects_is_enabled_false() -> None:
+        """to_request uses is_enabled=False when set."""
+        settings = MinimumReviewersSettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            minimum_approver_count=1,
+            is_enabled=False,
+        )
+        assert settings.to_request().is_enabled is False
+
+    @staticmethod
+    def test_to_request_respects_is_blocking_false() -> None:
+        """to_request uses is_blocking=False when set."""
+        settings = MinimumReviewersSettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            minimum_approver_count=1,
+            is_blocking=False,
+        )
+        assert settings.to_request().is_blocking is False
+
+    @staticmethod
+    def test_to_request_settings_dict_keys() -> None:
+        """to_request settings dict uses camelCase keys."""
+        settings = MinimumReviewersSettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            minimum_approver_count=3,
+            creator_vote_counts=True,
+            allow_downvotes=True,
+        )
+        s = settings.to_request().settings
+        assert s["minimumApproverCount"] == 3
+        assert s["creatorVoteCounts"] is True
+        assert s["allowDownvotes"] is True
+
+    @staticmethod
+    def test_to_request_excludes_none_optional_fields() -> None:
+        """Optional None fields are absent from the settings dict."""
+        settings = MinimumReviewersSettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            minimum_approver_count=1,
+        )
+        s = settings.to_request().settings
+        assert "requireVoteOnEachIteration" not in s
+
+    @staticmethod
+    def test_to_request_includes_optional_field_when_set() -> None:
+        """Optional fields appear in settings when explicitly set."""
+        settings = MinimumReviewersSettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            minimum_approver_count=1,
+            require_vote_on_each_iteration=True,
+        )
+        assert settings.to_request().settings["requireVoteOnEachIteration"] is True
+
+    @staticmethod
+    def test_to_request_scope_branch() -> None:
+        """to_request builds the correct branch scope."""
+        settings = MinimumReviewersSettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            minimum_approver_count=1,
+        )
+        scope = settings.to_request().settings["scope"]
+        assert scope == [
+            {
+                "repositoryId": str(_REPO_ID),
+                "refName": _REF_NAME,
+                "matchKind": "Exact",
+            }
+        ]
+
+    @staticmethod
+    def test_to_request_scope_prefix_match_kind() -> None:
+        """to_request scope uses Prefix matchKind when specified."""
+        settings = MinimumReviewersSettings(
+            repository_id=_REPO_ID,
+            ref_name="refs/heads/release",
+            match_kind=PolicyScopeMatchKind.PREFIX,
+            minimum_approver_count=1,
+        )
+        scope = settings.to_request().settings["scope"]
+        assert scope[0]["matchKind"] == "Prefix"
+
+    @staticmethod
+    def test_to_request_excludes_scope_from_settings_top_level() -> None:
+        """repository_name is informational and absent from the settings dict."""
+        settings = MinimumReviewersSettings(
+            repository_id=_REPO_ID,
+            repository_name=_REPO_NAME,
+            ref_name=_REF_NAME,
+            minimum_approver_count=1,
+        )
+        s = settings.to_request().settings
+        assert "repository_name" not in s
+        assert "repositoryName" not in s
+
+    @staticmethod
+    def test_type_id_class_var() -> None:
+        """TYPE_ID is the known ADO policy type UUID."""
+        assert (
+            UUID("fa4e907d-c16b-4a4c-9dfa-4906e5d171dd")
+            == MinimumReviewersSettings.TYPE_ID
+        )
+
+
+class TestCommentRequirementsSettings:
+    """Tests for CommentRequirementsSettings."""
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID."""
+        settings = CommentRequirementsSettings(
+            repository_id=_REPO_ID, ref_name=_REF_NAME
+        )
+        assert settings.to_request().type == PolicyTypeIdRef(
+            id=UUID("c6a1889d-b943-4856-b76f-9e46bb6b0df2")
+        )
+
+    @staticmethod
+    def test_to_request_scope_only_settings() -> None:
+        """Settings dict contains only the scope key (no extra fields)."""
+        settings = CommentRequirementsSettings(
+            repository_id=_REPO_ID, ref_name=_REF_NAME
+        )
+        s = settings.to_request().settings
+        assert list(s.keys()) == ["scope"]
+
+    @staticmethod
+    def test_to_request_default_branch_scope() -> None:
+        """Default-branch project-wide scope retains null repositoryId."""
+        settings = CommentRequirementsSettings(
+            repository_id=None,
+            ref_name=None,
+            match_kind=PolicyScopeMatchKind.DEFAULT_BRANCH,
+        )
+        scope = settings.to_request().settings["scope"]
+        assert scope[0]["matchKind"] == "DefaultBranch"
+        assert scope[0]["repositoryId"] is None
+
+
+class TestWorkItemLinkingSettings:
+    """Tests for WorkItemLinkingSettings."""
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID."""
+        settings = WorkItemLinkingSettings(repository_id=_REPO_ID, ref_name=_REF_NAME)
+        assert settings.to_request().type == PolicyTypeIdRef(
+            id=UUID("40e92b44-2fe1-4dd6-b3d8-74a9c21d0c6e")
+        )
+
+    @staticmethod
+    def test_to_request_scope_only_settings() -> None:
+        """Settings dict contains only the scope key."""
+        settings = WorkItemLinkingSettings(repository_id=_REPO_ID, ref_name=_REF_NAME)
+        s = settings.to_request().settings
+        assert list(s.keys()) == ["scope"]
+
+
+class TestMergeStrategySettings:
+    """Tests for MergeStrategySettings."""
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID (distinct from MinimumReviewers)."""
+        settings = MergeStrategySettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            allow_squash=True,
+        )
+        assert settings.to_request().type == PolicyTypeIdRef(
+            id=UUID("fa4e907d-c16b-4a4c-9dfa-4916e5d171ab")
+        )
+
+    @staticmethod
+    def test_to_request_strategy_flags() -> None:
+        """Set strategy flags appear in settings; unset flags are absent."""
+        settings = MergeStrategySettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            allow_squash=True,
+            allow_rebase_merge=True,
+        )
+        s = settings.to_request().settings
+        assert s["allowSquash"] is True
+        assert s["allowRebaseMerge"] is True
+        assert "allowNoFastForward" not in s
+        assert "allowRebase" not in s
+
+    @staticmethod
+    def test_type_id_differs_from_minimum_reviewers() -> None:
+        """MergeStrategy and MinimumReviewers share a prefix but are distinct."""
+        assert MergeStrategySettings.TYPE_ID != MinimumReviewersSettings.TYPE_ID
+
+
+class TestBuildPolicySettings:
+    """Tests for BuildPolicySettings."""
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID."""
+        settings = BuildPolicySettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            build_definition_id=42,
+            queue_on_source_update_only=True,
+            manual_queue_only=False,
+        )
+        assert settings.to_request().type == PolicyTypeIdRef(
+            id=UUID("0609b952-1397-4640-95ec-e00a01b2c241")
+        )
+
+    @staticmethod
+    def test_to_request_required_fields() -> None:
+        """Required fields appear in settings with camelCase keys."""
+        settings = BuildPolicySettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            build_definition_id=32,
+            queue_on_source_update_only=False,
+            manual_queue_only=False,
+        )
+        s = settings.to_request().settings
+        assert s["buildDefinitionId"] == 32
+        assert s["queueOnSourceUpdateOnly"] is False
+        assert s["manualQueueOnly"] is False
+        assert s["validDuration"] == 0.0
+
+    @staticmethod
+    def test_to_request_optional_display_name_absent_when_none() -> None:
+        """display_name absent when None."""
+        settings = BuildPolicySettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            build_definition_id=1,
+            queue_on_source_update_only=False,
+            manual_queue_only=False,
+        )
+        assert "displayName" not in settings.to_request().settings
+
+    @staticmethod
+    def test_to_request_optional_filename_patterns() -> None:
+        """filename_patterns appears when set."""
+        settings = BuildPolicySettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            build_definition_id=1,
+            queue_on_source_update_only=False,
+            manual_queue_only=False,
+            filename_patterns=["/src/*"],
+        )
+        assert settings.to_request().settings["filenamePatterns"] == ["/src/*"]
+
+
+class TestRequiredReviewersSettings:
+    """Tests for RequiredReviewersSettings."""
+
+    _REVIEWER = UUID("6de91b4b-5753-41e7-b7a5-05fe82cdefcc")
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID."""
+        settings = RequiredReviewersSettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            required_reviewer_ids=[TestRequiredReviewersSettings._REVIEWER],
+            minimum_approver_count=1,
+        )
+        assert settings.to_request().type == PolicyTypeIdRef(
+            id=UUID("fd2167ab-b0be-447a-8ec8-39368250530e")
+        )
+
+    @staticmethod
+    def test_to_request_reviewer_ids_serialized_as_strings() -> None:
+        """required_reviewer_ids appear as UUID strings in settings."""
+        reviewer = TestRequiredReviewersSettings._REVIEWER
+        settings = RequiredReviewersSettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            required_reviewer_ids=[reviewer],
+            minimum_approver_count=1,
+        )
+        ids = settings.to_request().settings["requiredReviewerIds"]
+        assert ids == [str(reviewer)]
+
+    @staticmethod
+    def test_to_request_message_absent_when_none() -> None:
+        """Message absent from settings when not provided."""
+        settings = RequiredReviewersSettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            required_reviewer_ids=[TestRequiredReviewersSettings._REVIEWER],
+            minimum_approver_count=1,
+        )
+        assert "message" not in settings.to_request().settings
+
+    @staticmethod
+    def test_to_request_message_present_when_set() -> None:
+        """Message present in settings when set."""
+        settings = RequiredReviewersSettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            required_reviewer_ids=[TestRequiredReviewersSettings._REVIEWER],
+            minimum_approver_count=1,
+            message="Please review",
+        )
+        assert settings.to_request().settings["message"] == "Please review"
+
+
+class TestStatusPolicySettings:
+    """Tests for StatusPolicySettings."""
+
+    _AUTHOR_ID = UUID("d343a15d-d264-6742-a574-dd64798fc77e")
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID."""
+        settings = StatusPolicySettings(
+            repository_id=_REPO_ID,
+            ref_name="refs/heads/release",
+            match_kind=PolicyScopeMatchKind.PREFIX,
+            status_name="pre_commit",
+            status_genre="test",
+            author_id=TestStatusPolicySettings._AUTHOR_ID,
+            invalidate_on_source_update=True,
+            default_display_name="pre-commit",
+        )
+        assert settings.to_request().type == PolicyTypeIdRef(
+            id=UUID("cbdc66da-9728-4af8-aada-9a5a32e4a226")
+        )
+
+    @staticmethod
+    def test_to_request_settings_fields() -> None:
+        """Settings dict contains the expected status fields."""
+        author_id = TestStatusPolicySettings._AUTHOR_ID
+        settings = StatusPolicySettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            status_name="lint",
+            status_genre="test",
+            author_id=author_id,
+            invalidate_on_source_update=True,
+            default_display_name="Static Code Analysis",
+        )
+        s = settings.to_request().settings
+        assert s["statusName"] == "lint"
+        assert s["statusGenre"] == "test"
+        assert s["authorId"] == str(author_id)
+        assert s["invalidateOnSourceUpdate"] is True
+        assert s["defaultDisplayName"] == "Static Code Analysis"
+
+    @staticmethod
+    def test_to_request_filename_patterns_absent_when_none() -> None:
+        """FilenamePatterns absent when not set."""
+        settings = StatusPolicySettings(
+            repository_id=_REPO_ID,
+            ref_name=_REF_NAME,
+            status_name="x",
+            status_genre="test",
+            author_id=TestStatusPolicySettings._AUTHOR_ID,
+            invalidate_on_source_update=False,
+            default_display_name="X",
+        )
+        assert "filenamePatterns" not in settings.to_request().settings
+
+
+class TestGitRepositorySettings:
+    """Tests for GitRepositorySettings."""
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID."""
+        settings = GitRepositorySettings(repository_id=_REPO_ID)
+        assert settings.to_request().type == PolicyTypeIdRef(
+            id=UUID("7ed39669-655c-494e-b4a0-a08b4da0fcce")
+        )
+
+    @staticmethod
+    def test_to_request_repo_scope() -> None:
+        """Scope contains only repositoryId for repo-level policy."""
+        settings = GitRepositorySettings(repository_id=_REPO_ID)
+        scope = settings.to_request().settings["scope"]
+        assert scope == [{"repositoryId": str(_REPO_ID)}]
+
+    @staticmethod
+    def test_to_request_project_wide_scope_keeps_null() -> None:
+        """Project-wide scope retains repositoryId: null."""
+        settings = GitRepositorySettings(repository_id=None)
+        scope = settings.to_request().settings["scope"]
+        assert scope[0]["repositoryId"] is None
+
+    @staticmethod
+    def test_to_request_optional_fields_absent_when_none() -> None:
+        """Optional None settings fields are absent from the dict."""
+        settings = GitRepositorySettings(repository_id=_REPO_ID)
+        s = settings.to_request().settings
+        assert "enforceConsistentCase" not in s
+        assert "strictVoteMode" not in s
+
+    @staticmethod
+    def test_to_request_optional_fields_present_when_set() -> None:
+        """Set optional fields appear in the settings dict."""
+        settings = GitRepositorySettings(
+            repository_id=_REPO_ID,
+            enforce_consistent_case=True,
+            strict_vote_mode=False,
+        )
+        s = settings.to_request().settings
+        assert s["enforceConsistentCase"] is True
+        assert s["strictVoteMode"] is False
+
+    @staticmethod
+    def test_to_request_repository_name_excluded() -> None:
+        """repository_name is informational and absent from settings."""
+        settings = GitRepositorySettings(
+            repository_id=_REPO_ID, repository_name=_REPO_NAME
+        )
+        s = settings.to_request().settings
+        assert "repositoryName" not in s
+        assert "repository_name" not in s
+
+
+class TestReservedNamesRestrictionSettings:
+    """Tests for ReservedNamesRestrictionSettings."""
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID."""
+        settings = ReservedNamesRestrictionSettings(repository_id=_REPO_ID)
+        assert settings.to_request().type == PolicyTypeIdRef(
+            id=UUID("db2b9b4c-180d-4529-9701-01541d19f36b")
+        )
+
+    @staticmethod
+    def test_to_request_scope_only_settings() -> None:
+        """Settings dict contains only the scope key."""
+        settings = ReservedNamesRestrictionSettings(repository_id=_REPO_ID)
+        s = settings.to_request().settings
+        assert list(s.keys()) == ["scope"]
+
+    @staticmethod
+    def test_to_request_project_wide_scope() -> None:
+        """Project-wide scope retains null repositoryId."""
+        settings = ReservedNamesRestrictionSettings(repository_id=None)
+        scope = settings.to_request().settings["scope"]
+        assert scope[0]["repositoryId"] is None
+
+
+class TestPathLengthRestrictionSettings:
+    """Tests for PathLengthRestrictionSettings."""
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID."""
+        settings = PathLengthRestrictionSettings(
+            repository_id=_REPO_ID, max_path_length=248
+        )
+        assert settings.to_request().type == PolicyTypeIdRef(
+            id=UUID("001a79cf-fda1-4c4e-9e7c-bac40ee5ead8")
+        )
+
+    @staticmethod
+    def test_to_request_max_path_length() -> None:
+        """MaxPathLength appears in settings with correct value."""
+        settings = PathLengthRestrictionSettings(
+            repository_id=_REPO_ID, max_path_length=248
+        )
+        assert settings.to_request().settings["maxPathLength"] == 248
+
+
+class TestFileSizeRestrictionSettings:
+    """Tests for FileSizeRestrictionSettings."""
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID."""
+        settings = FileSizeRestrictionSettings(
+            repository_id=_REPO_ID,
+            maximum_git_blob_size_in_bytes=10485760,
+            use_uncompressed_size=False,
+        )
+        assert settings.to_request().type == PolicyTypeIdRef(
+            id=UUID("2e26e725-8201-4edd-8bf5-978563c34a80")
+        )
+
+    @staticmethod
+    def test_to_request_settings_fields() -> None:
+        """Settings dict contains the expected file-size fields."""
+        settings = FileSizeRestrictionSettings(
+            repository_id=_REPO_ID,
+            maximum_git_blob_size_in_bytes=10485760,
+            use_uncompressed_size=False,
+        )
+        s = settings.to_request().settings
+        assert s["maximumGitBlobSizeInBytes"] == 10485760
+        assert s["useUncompressedSize"] is False
+
+
+class TestFileNameRestrictionSettings:
+    """Tests for FileNameRestrictionSettings."""
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID."""
+        settings = FileNameRestrictionSettings(repository_id=_REPO_ID)
+        assert settings.to_request().type == PolicyTypeIdRef(
+            id=UUID("51c78909-e838-41a2-9496-c647091e3c61")
+        )
+
+    @staticmethod
+    def test_to_request_filename_patterns_absent_when_none() -> None:
+        """FilenamePatterns absent from settings when not set."""
+        settings = FileNameRestrictionSettings(repository_id=_REPO_ID)
+        assert "filenamePatterns" not in settings.to_request().settings
+
+    @staticmethod
+    def test_to_request_filename_patterns_present_when_set() -> None:
+        """FilenamePatterns present when set."""
+        settings = FileNameRestrictionSettings(
+            repository_id=_REPO_ID,
+            filename_patterns=[".terraform", "hidden"],
+        )
+        assert settings.to_request().settings["filenamePatterns"] == [
+            ".terraform",
+            "hidden",
+        ]
+
+
+class TestCommitAuthorEmailValidationSettings:
+    """Tests for CommitAuthorEmailValidationSettings."""
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID."""
+        settings = CommitAuthorEmailValidationSettings(repository_id=None)
+        assert settings.to_request().type == PolicyTypeIdRef(
+            id=UUID("77ed4bd3-b063-4689-934a-175e4d0a78d7")
+        )
+
+    @staticmethod
+    def test_to_request_email_patterns() -> None:
+        """AuthorEmailPatterns appears in settings when set."""
+        patterns = ["*@example.com", "*@external.example.com"]
+        settings = CommitAuthorEmailValidationSettings(
+            repository_id=None, author_email_patterns=patterns
+        )
+        assert settings.to_request().settings["authorEmailPatterns"] == patterns
+
+    @staticmethod
+    def test_to_request_email_patterns_absent_when_none() -> None:
+        """AuthorEmailPatterns absent when not set."""
+        settings = CommitAuthorEmailValidationSettings(repository_id=None)
+        assert "authorEmailPatterns" not in settings.to_request().settings
+
+
+class TestSearchBranchSettings:
+    """Tests for SearchBranchSettings."""
+
+    @staticmethod
+    def test_to_request_type_id() -> None:
+        """to_request embeds the correct TYPE_ID."""
+        settings = SearchBranchSettings(
+            repository_id=_REPO_ID,
+            search_branches=["refs/heads/main"],
+        )
+        assert settings.to_request().type == PolicyTypeIdRef(
+            id=UUID("0517f88d-4ec5-4343-9d26-9930ebd53069")
+        )
+
+    @staticmethod
+    def test_to_request_search_branches() -> None:
+        """SearchBranches appears in settings."""
+        branches = ["refs/heads/release/staging", "refs/heads/release/prod"]
+        settings = SearchBranchSettings(
+            repository_id=_REPO_ID, search_branches=branches
+        )
+        assert settings.to_request().settings["searchBranches"] == branches

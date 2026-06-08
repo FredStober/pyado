@@ -1,4 +1,4 @@
-"""Tests for pyado.oop._build — OOP layer."""
+"""Tests for pyado.oop.pipelines._build — OOP layer."""
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
@@ -11,21 +11,22 @@ import pytest
 import requests
 
 from pyado.oop import (
-    ActiveBuildTask,
     Build,
     BuildJob,
     BuildPhase,
     BuildStage,
     BuildTask,
+    DistributedTaskSession,
     Pipeline,
     Project,
 )
-from pyado.oop._build import (
+from pyado.oop.pipelines._build import (
     cancel_build,
     cancel_pipeline_run,
     iter_build_work_item_ids,
     start_build,
 )
+from pyado.oop.pipelines.pipeline import PipelineRun
 from pyado.raw import (
     ApiCall,
     BuildArtifact,
@@ -39,6 +40,7 @@ from pyado.raw import (
     BuildRecordType,
     BuildResult,
     BuildStatus,
+    PipelineApprovalStatus,
     PipelineRunInfo,
     WorkItemRef,
     get_build_api_call,
@@ -320,7 +322,7 @@ class TestBuild:
         build = _make_build()
         new_info = _build_details(build_id=100)
         new_info.build_number = "20240102.1"
-        with patch("pyado.oop.build.raw.get_build_details") as mock_get:
+        with patch("pyado.oop.pipelines.build.raw.get_build_details") as mock_get:
             mock_get.return_value = new_info
             build.refresh()
             # refresh() lazily invalidates; the actual fetch happens on next info access
@@ -329,7 +331,7 @@ class TestBuild:
 
     def test_refresh_stores_expand_and_forwards_on_fetch(self) -> None:
         build = _make_build()
-        with patch("pyado.oop.build.raw.get_build_details") as mock_get:
+        with patch("pyado.oop.pipelines.build.raw.get_build_details") as mock_get:
             mock_get.return_value = _build_details()
             build.refresh(expand=BuildExpand.ALL)
             _ = build.info
@@ -337,7 +339,7 @@ class TestBuild:
 
     def test_refresh_preserves_existing_expand_when_none_passed(self) -> None:
         build = _make_build()
-        with patch("pyado.oop.build.raw.get_build_details") as mock_get:
+        with patch("pyado.oop.pipelines.build.raw.get_build_details") as mock_get:
             mock_get.return_value = _build_details()
             build.refresh(expand=BuildExpand.VARIABLES)
             _ = build.info
@@ -346,37 +348,39 @@ class TestBuild:
         assert mock_get.call_args.kwargs["expand"] == BuildExpand.VARIABLES
 
     def test_iter_artifacts_delegates(self) -> None:
-        with patch("pyado.oop.build.raw.iter_build_artifacts") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_build_artifacts") as mock_iter:
             mock_iter.return_value = iter([])
             list(_make_build().iter_artifacts())
         mock_iter.assert_called_once()
 
     def test_add_tag_delegates(self) -> None:
-        with patch("pyado.oop.build.raw.post_build_tag") as mock_tag:
+        with patch("pyado.oop.pipelines.build.raw.post_build_tag") as mock_tag:
             mock_tag.return_value = ["tag-a"]
             result = _make_build().add_tag("tag-a")
         assert result == ["tag-a"]
 
     def test_iter_tags_delegates(self) -> None:
-        with patch("pyado.oop.build.raw.iter_build_tags") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_build_tags") as mock_iter:
             mock_iter.return_value = iter(["tag-x"])
             result = list(_make_build().iter_tags())
         assert result == ["tag-x"]
 
     def test_remove_tag_delegates(self) -> None:
-        with patch("pyado.oop.build.raw.delete_build_tag") as mock_del:
+        with patch("pyado.oop.pipelines.build.raw.delete_build_tag") as mock_del:
             mock_del.return_value = ["remaining"]
             result = _make_build().remove_tag("old-tag")
         assert result == ["remaining"]
 
     def test_iter_timeline_records_delegates(self) -> None:
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter([MagicMock()])
             result = list(_make_build().iter_timeline_records())
         assert len(result) == 1
 
     def test_iter_work_item_ids_delegates(self) -> None:
-        with patch("pyado.oop.build._build.iter_build_work_item_ids") as mock_iter:
+        with patch(
+            "pyado.oop.pipelines.build._build.iter_build_work_item_ids"
+        ) as mock_iter:
             mock_iter.return_value = iter([42, 43])
             result = list(_make_build().iter_work_item_ids())
         assert result == [42, 43]
@@ -386,7 +390,9 @@ class TestBuild:
         ref_b = WorkItemRef(id=20, url=None)
         older = _make_build(build_id=50)
         newer = _make_build(build_id=100)
-        with patch("pyado.oop.build.raw.iter_work_items_between_builds") as mock_iter:
+        with patch(
+            "pyado.oop.pipelines.build.raw.iter_work_items_between_builds"
+        ) as mock_iter:
             mock_iter.return_value = iter([ref_a, ref_b])
             result = list(newer.iter_work_item_ids_between(older))
         assert result == [10, 20]
@@ -398,13 +404,15 @@ class TestBuild:
     def test_iter_work_item_ids_between_passes_top(self) -> None:
         older = _make_build(build_id=50)
         newer = _make_build(build_id=100)
-        with patch("pyado.oop.build.raw.iter_work_items_between_builds") as mock_iter:
+        with patch(
+            "pyado.oop.pipelines.build.raw.iter_work_items_between_builds"
+        ) as mock_iter:
             mock_iter.return_value = iter([])
             list(newer.iter_work_item_ids_between(older, top=5))
         assert mock_iter.call_args.kwargs["top"] == 5
 
     def test_get_log_text_delegates(self) -> None:
-        with patch("pyado.oop.build.raw.get_build_log") as mock_log:
+        with patch("pyado.oop.pipelines.build.raw.get_build_log") as mock_log:
             mock_log.return_value = "log line 1\nlog line 2\n"
             text = _make_build().get_log_text(3)
         assert text == "log line 1\nlog line 2\n"
@@ -422,6 +430,16 @@ class TestBuild:
     def test_finish_time_returns_none_when_not_set(self) -> None:
         assert _make_build().finish_time is None
 
+    def test_pipeline_run_returns_pipeline_run(self) -> None:
+        build = _make_build(build_id=55, pipeline_id=7)
+        run_info = _pipeline_run_info(run_id=55)
+        with patch(
+            "pyado.oop.pipelines.build.raw.get_pipeline_run", return_value=run_info
+        ):
+            result = build.pipeline_run
+        assert isinstance(result, PipelineRun)
+        assert result.id == 55
+
 
 # ---------------------------------------------------------------------------
 # OOP Build timeline tests
@@ -435,7 +453,7 @@ class TestBuildTimeline:
 
     def test_iter_stages_yields_only_stages(self) -> None:
         all_records = _make_all_records()
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             stages = list(_make_build().iter_stages())
         assert len(stages) == 1
@@ -443,7 +461,7 @@ class TestBuildTimeline:
 
     def test_iter_stages_name_and_id(self) -> None:
         all_records = _make_all_records()
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             stage = next(_make_build().iter_stages())
         assert stage.name == "Build Stage"
@@ -451,7 +469,7 @@ class TestBuildTimeline:
 
     def test_iter_stages_state_and_result(self) -> None:
         all_records = _make_all_records()
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             stage = next(_make_build().iter_stages())
         assert stage.state == BuildRecordState.COMPLETED
@@ -459,7 +477,7 @@ class TestBuildTimeline:
 
     def test_stage_time_and_counts_and_log(self) -> None:
         all_records = _make_all_records()
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             stage = next(_make_build().iter_stages())
         assert stage.start_time is not None
@@ -471,7 +489,7 @@ class TestBuildTimeline:
 
     def test_iter_stages_info_is_raw_record(self) -> None:
         all_records = _make_all_records()
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             stage = next(_make_build().iter_stages())
         assert isinstance(stage.info, BuildRecordInfo)
@@ -479,7 +497,7 @@ class TestBuildTimeline:
 
     def test_iter_stages_empty_when_no_stages(self) -> None:
         task_only = [_record(TASK_ID, "Task", "t", parent_id=JOB_ID)]
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(task_only)
             stages = list(_make_build().iter_stages())
         assert stages == []
@@ -491,7 +509,7 @@ class TestBuildTimeline:
     def test_stage_build_backref(self) -> None:
         build = _make_build()
         all_records = _make_all_records()
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             stage = next(build.iter_stages())
         assert stage.build is build
@@ -736,7 +754,7 @@ class TestBuildTimeline:
 
     def test_full_traversal_via_phases(self) -> None:
         all_records = _make_all_records(use_phase=True)
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             stage = next(_make_build().iter_stages())
         phases = list(stage.iter_phases())
@@ -749,7 +767,7 @@ class TestBuildTimeline:
 
     def test_full_traversal_direct_jobs(self) -> None:
         all_records = _make_all_records(use_phase=False)
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             stage = next(_make_build().iter_stages())
         jobs = list(stage.iter_jobs())
@@ -759,7 +777,7 @@ class TestBuildTimeline:
 
     def test_stage_get_log_text_none_when_no_log(self) -> None:
         all_records = _make_all_records()
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             stage = next(_make_build().iter_stages())
         assert stage.get_log_text() is None
@@ -776,8 +794,8 @@ class TestBuildTimeline:
         stage_record.log = log_info
         all_records = [stage_record]
         with (
-            patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter,
-            patch("pyado.oop.build.raw.get_build_log") as mock_log,
+            patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter,
+            patch("pyado.oop.pipelines.build.raw.get_build_log") as mock_log,
         ):
             mock_iter.return_value = iter(all_records)
             mock_log.return_value = "stage log text"
@@ -788,7 +806,7 @@ class TestBuildTimeline:
 
     def test_job_get_log_text_none_when_no_log(self) -> None:
         all_records = _make_all_records()
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             stage = next(_make_build().iter_stages())
         job = next(stage.iter_jobs())
@@ -806,8 +824,8 @@ class TestBuildTimeline:
         job_record.log = log_info
         all_records = [_record(STAGE_ID, "Stage", "Build Stage"), job_record]
         with (
-            patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter,
-            patch("pyado.oop.build.raw.get_build_log") as mock_log,
+            patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter,
+            patch("pyado.oop.pipelines.build.raw.get_build_log") as mock_log,
         ):
             mock_iter.return_value = iter(all_records)
             mock_log.return_value = "job log text"
@@ -819,7 +837,7 @@ class TestBuildTimeline:
 
     def test_task_get_log_text_none_when_no_log(self) -> None:
         all_records = _make_all_records()
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             stage = next(_make_build().iter_stages())
         task = next(next(stage.iter_jobs()).iter_tasks())
@@ -854,8 +872,8 @@ class TestBuildTimeline:
             task_record,
         ]
         with (
-            patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter,
-            patch("pyado.oop.build.raw.get_build_log") as mock_log,
+            patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter,
+            patch("pyado.oop.pipelines.build.raw.get_build_log") as mock_log,
         ):
             mock_iter.return_value = iter(all_records)
             mock_log.return_value = "task log text"
@@ -867,11 +885,11 @@ class TestBuildTimeline:
 
 
 # ---------------------------------------------------------------------------
-# OOP ActiveBuildTask tests
+# OOP DistributedTaskSession tests
 # ---------------------------------------------------------------------------
 
 
-class TestActiveBuildTask:
+class TestDistributedTaskSession:
     # ------------------------------------------------------------------
     # Navigation
 
@@ -894,16 +912,16 @@ class TestActiveBuildTask:
     # Build factory
     # ------------------------------------------------------------------
 
-    def test_factory_on_build_returns_active_build_task(self) -> None:
+    def test_factory_on_build_returns_distributed_task_session(self) -> None:
         build = _make_build()
-        task = build.get_active_build_task(
+        task = build.get_distributed_task_session(
             hub_name=HUB_NAME,
             plan_id=PLAN_ID,
             timeline_id=TIMELINE_ID,
             job_id=ACTIVE_JOB_ID,
             task_instance_id=TASK_INSTANCE_ID,
         )
-        assert isinstance(task, ActiveBuildTask)
+        assert isinstance(task, DistributedTaskSession)
         assert task.build is build
 
     # ------------------------------------------------------------------
@@ -913,7 +931,7 @@ class TestActiveBuildTask:
     def test_inherits_task_read_properties(self) -> None:
         record = _task_record()
         with patch(
-            "pyado.oop.active_build_task.raw.iter_timeline_records"
+            "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
         ) as mock_iter:
             mock_iter.return_value = iter([record])
             task = _make_active_task()
@@ -925,7 +943,7 @@ class TestActiveBuildTask:
         record = _task_record()
         task = _make_active_task()
         with patch(
-            "pyado.oop.active_build_task.raw.iter_timeline_records"
+            "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
         ) as mock_iter:
             mock_iter.return_value = iter([record])
             _ = task.name
@@ -940,7 +958,7 @@ class TestActiveBuildTask:
         record = _task_record()
         task = _make_active_task()
         with patch(
-            "pyado.oop.active_build_task.raw.iter_timeline_records"
+            "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
         ) as mock_iter:
             mock_iter.side_effect = [iter([record]), iter([record])]
             _ = task.name
@@ -955,7 +973,7 @@ class TestActiveBuildTask:
     def test_get_record_returns_matching_task(self) -> None:
         record = _task_record()
         with patch(
-            "pyado.oop.active_build_task.raw.iter_timeline_records"
+            "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
         ) as mock_iter:
             mock_iter.return_value = iter([record])
             result = _make_active_task().get_record()
@@ -966,7 +984,7 @@ class TestActiveBuildTask:
         other_id = uuid4()
         other_record = _record(other_id, "Task", "Other Task", parent_id=JOB_ID)
         with patch(
-            "pyado.oop.active_build_task.raw.iter_timeline_records"
+            "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
         ) as mock_iter:
             mock_iter.return_value = iter([other_record])
             with pytest.raises(ValueError, match=str(TASK_INSTANCE_ID)):
@@ -982,7 +1000,7 @@ class TestActiveBuildTask:
             _record(STAGE_ID, "Stage", "Stage A"),
             job_record,
         ]
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             job = _make_active_task().get_job()
         assert isinstance(job, BuildJob)
@@ -996,14 +1014,14 @@ class TestActiveBuildTask:
             _record(other_job_id, "Job", "Other Job", parent_id=STAGE_ID),
             _record(ACTIVE_JOB_ID, "Job", "My Job", parent_id=STAGE_ID),
         ]
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             job = _make_active_task().get_job()
         assert job.id == ACTIVE_JOB_ID
 
     def test_get_job_raises_when_not_found(self) -> None:
         all_records = [_record(STAGE_ID, "Stage", "Stage A")]
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter(all_records)
             with pytest.raises(ValueError, match=str(ACTIVE_JOB_ID)):
                 _make_active_task().get_job()
@@ -1013,7 +1031,9 @@ class TestActiveBuildTask:
     # ------------------------------------------------------------------
 
     def test_send_feed_calls_high_send_job_feed(self) -> None:
-        with patch("pyado.oop.active_build_task._build.send_job_feed") as mock_feed:
+        with patch(
+            "pyado.oop.pipelines.distributed_task_session._build.send_job_feed"
+        ) as mock_feed:
             _make_active_task().send_feed(["line 1", "line 2"])
         assert mock_feed.call_count == 1
         _, messages = mock_feed.call_args.args
@@ -1026,9 +1046,13 @@ class TestActiveBuildTask:
     def test_send_log_calls_post_job_logs(self) -> None:
         record = _task_record(log_id=5)
         with (
-            patch("pyado.oop.active_build_task.raw.iter_timeline_records") as mock_iter,
-            patch("pyado.oop.active_build_task.raw.get_log_api_call"),
-            patch("pyado.oop.active_build_task.raw.post_job_logs") as mock_logs,
+            patch(
+                "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
+            ) as mock_iter,
+            patch("pyado.oop.pipelines.distributed_task_session.raw.get_log_api_call"),
+            patch(
+                "pyado.oop.pipelines.distributed_task_session.raw.post_job_logs"
+            ) as mock_logs,
         ):
             mock_iter.return_value = iter([record])
             _make_active_task().send_log("hello")
@@ -1040,9 +1064,11 @@ class TestActiveBuildTask:
         record = _task_record(log_id=7)
         task = _make_active_task()
         with (
-            patch("pyado.oop.active_build_task.raw.iter_timeline_records") as mock_iter,
-            patch("pyado.oop.active_build_task.raw.get_log_api_call"),
-            patch("pyado.oop.active_build_task.raw.post_job_logs"),
+            patch(
+                "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
+            ) as mock_iter,
+            patch("pyado.oop.pipelines.distributed_task_session.raw.get_log_api_call"),
+            patch("pyado.oop.pipelines.distributed_task_session.raw.post_job_logs"),
         ):
             mock_iter.return_value = iter([record])
             task.send_log("first")
@@ -1053,7 +1079,7 @@ class TestActiveBuildTask:
     def test_send_log_raises_when_no_log(self) -> None:
         record = _task_record(log_id=None)
         with patch(
-            "pyado.oop.active_build_task.raw.iter_timeline_records"
+            "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
         ) as mock_iter:
             mock_iter.return_value = iter([record])
             with pytest.raises(RuntimeError, match="no log"):
@@ -1066,10 +1092,16 @@ class TestActiveBuildTask:
     def test_send_message_writes_feed_and_log(self) -> None:
         record = _task_record(log_id=3)
         with (
-            patch("pyado.oop.active_build_task._build.send_job_feed") as mock_feed,
-            patch("pyado.oop.active_build_task.raw.iter_timeline_records") as mock_iter,
-            patch("pyado.oop.active_build_task.raw.get_log_api_call"),
-            patch("pyado.oop.active_build_task.raw.post_job_logs") as mock_logs,
+            patch(
+                "pyado.oop.pipelines.distributed_task_session._build.send_job_feed"
+            ) as mock_feed,
+            patch(
+                "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
+            ) as mock_iter,
+            patch("pyado.oop.pipelines.distributed_task_session.raw.get_log_api_call"),
+            patch(
+                "pyado.oop.pipelines.distributed_task_session.raw.post_job_logs"
+            ) as mock_logs,
         ):
             mock_iter.return_value = iter([record])
             _make_active_task().send_message(["a", "b"])
@@ -1086,9 +1118,11 @@ class TestActiveBuildTask:
         record = _task_record()
         issue = BuildIssue(message="boom", type=BuildIssueType.ERROR)
         with (
-            patch("pyado.oop.active_build_task.raw.iter_timeline_records") as mock_iter,
             patch(
-                "pyado.oop.active_build_task._build.update_timeline_records"
+                "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
+            ) as mock_iter,
+            patch(
+                "pyado.oop.pipelines.distributed_task_session._build.update_timeline_records"
             ) as mock_update,
         ):
             mock_iter.return_value = iter([record])
@@ -1103,7 +1137,9 @@ class TestActiveBuildTask:
     # ------------------------------------------------------------------
 
     def test_complete_succeeded_sends_event(self) -> None:
-        with patch("pyado.oop.active_build_task._build.send_job_event") as mock_event:
+        with patch(
+            "pyado.oop.pipelines.distributed_task_session._build.send_job_event"
+        ) as mock_event:
             _make_active_task().complete(succeeded=True)
         assert mock_event.call_count == 1
         _, task_id, job_id, _event_name, event_result = mock_event.call_args.args
@@ -1112,7 +1148,9 @@ class TestActiveBuildTask:
         assert event_result == "succeeded"
 
     def test_complete_failed_sends_event(self) -> None:
-        with patch("pyado.oop.active_build_task._build.send_job_event") as mock_event:
+        with patch(
+            "pyado.oop.pipelines.distributed_task_session._build.send_job_event"
+        ) as mock_event:
             _make_active_task().complete(succeeded=False)
         _, _task_id, _job_id, _event_name, event_result = mock_event.call_args.args
         assert event_result == "failed"
@@ -1127,7 +1165,7 @@ class TestBuildCancel:
     def test_cancel_delegates(self) -> None:
         build = _make_build()
         cancelled = _build_details()
-        with patch("pyado.oop.build._build.cancel_build") as mock_cancel:
+        with patch("pyado.oop.pipelines.build._build.cancel_build") as mock_cancel:
             mock_cancel.return_value = cancelled
             build.cancel()
         mock_cancel.assert_called_once_with(build.api_call)
@@ -1136,7 +1174,9 @@ class TestBuildCancel:
     def test_cancel_run_delegates(self) -> None:
         build = _make_build(build_id=100, pipeline_id=5)
         run_info = _pipeline_run_info(100, 5)
-        with patch("pyado.oop.build._build.cancel_pipeline_run") as mock_cancel:
+        with patch(
+            "pyado.oop.pipelines.build._build.cancel_pipeline_run"
+        ) as mock_cancel:
             mock_cancel.return_value = run_info
             result = build.cancel_run()
         mock_cancel.assert_called_once_with(build.project.api_call, 5, 100)
@@ -1144,7 +1184,9 @@ class TestBuildCancel:
 
     def test_cancel_run_uses_definition_id(self) -> None:
         build = _make_build(build_id=200, pipeline_id=99)
-        with patch("pyado.oop.build._build.cancel_pipeline_run") as mock_cancel:
+        with patch(
+            "pyado.oop.pipelines.build._build.cancel_pipeline_run"
+        ) as mock_cancel:
             mock_cancel.return_value = _pipeline_run_info(200, 99)
             build.cancel_run()
         call = mock_cancel.call_args
@@ -1162,8 +1204,8 @@ class TestBuildRetry:
         new_details = _build_details(build_id=200, pipeline_id=1)
         new_api_call = _api_call(f"{ORG_URL}/TestProject/_apis/build/builds/200")
         with (
-            patch("pyado.oop.build._build.start_build") as mock_start,
-            patch("pyado.oop.build.raw.get_build_api_call") as mock_api,
+            patch("pyado.oop.pipelines.build._build.start_build") as mock_start,
+            patch("pyado.oop.pipelines.build.raw.get_build_api_call") as mock_api,
         ):
             mock_start.return_value = new_details
             mock_api.return_value = new_api_call
@@ -1173,8 +1215,8 @@ class TestBuildRetry:
 
     def test_retry_passes_definition_id_and_branch(self) -> None:
         with (
-            patch("pyado.oop.build._build.start_build") as mock_start,
-            patch("pyado.oop.build.raw.get_build_api_call") as mock_api,
+            patch("pyado.oop.pipelines.build._build.start_build") as mock_start,
+            patch("pyado.oop.pipelines.build.raw.get_build_api_call") as mock_api,
         ):
             mock_start.return_value = _build_details(build_id=200, pipeline_id=5)
             mock_api.return_value = _api_call()
@@ -1193,7 +1235,9 @@ class TestBuildIterWorkItems:
         build = _make_build(build_id=100)
         wi_info = _work_item_info(5)
         with (
-            patch("pyado.oop.build._build.iter_build_work_item_ids") as mock_ids,
+            patch(
+                "pyado.oop.pipelines.build._build.iter_build_work_item_ids"
+            ) as mock_ids,
             patch("pyado.oop.project.raw.post_work_items_batch") as mock_batch,
             patch("pyado.oop.project.raw.get_work_item_api_call") as mock_api,
         ):
@@ -1206,7 +1250,9 @@ class TestBuildIterWorkItems:
 
     def test_iter_work_items_empty_when_no_ids(self) -> None:
         build = _make_build(build_id=100)
-        with patch("pyado.oop.build._build.iter_build_work_item_ids") as mock_ids:
+        with patch(
+            "pyado.oop.pipelines.build._build.iter_build_work_item_ids"
+        ) as mock_ids:
             mock_ids.return_value = iter([])
             result = list(build.iter_work_items())
         assert result == []
@@ -1220,7 +1266,7 @@ class TestBuildIterWorkItems:
 class TestBuildUpdate:
     def test_update_delegates_to_patch_build(self) -> None:
         build = _make_build()
-        with patch("pyado.oop.build.raw.patch_build") as mock_patch:
+        with patch("pyado.oop.pipelines.build.raw.patch_build") as mock_patch:
             mock_patch.return_value = _build_details()
             build.update(BuildStatus.CANCELLING)
         mock_patch.assert_called_once_with(build.api_call, BuildStatus.CANCELLING)
@@ -1229,7 +1275,7 @@ class TestBuildUpdate:
         build = _make_build()
         new_info = _build_details(build_id=100)
         new_info.build_number = "20240201.1"
-        with patch("pyado.oop.build.raw.patch_build") as mock_patch:
+        with patch("pyado.oop.pipelines.build.raw.patch_build") as mock_patch:
             mock_patch.return_value = new_info
             build.update(BuildStatus.CANCELLING)
         assert build.info is new_info
@@ -1249,7 +1295,9 @@ class TestBuildIterWorkItemsBetween:
         wi_a = _make_wi(10)
         wi_b = _make_wi(20)
         with (
-            patch("pyado.oop.build.raw.iter_work_items_between_builds") as mock_iter,
+            patch(
+                "pyado.oop.pipelines.build.raw.iter_work_items_between_builds"
+            ) as mock_iter,
             patch("pyado.oop.project.raw.post_work_items_batch") as mock_batch,
             patch("pyado.oop.project.raw.get_work_item_api_call") as mock_api,
         ):
@@ -1266,7 +1314,9 @@ class TestBuildIterWorkItemsBetween:
     def test_passes_top_parameter(self) -> None:
         older = _make_build(build_id=1)
         newer = _make_build(build_id=2)
-        with patch("pyado.oop.build.raw.iter_work_items_between_builds") as mock_iter:
+        with patch(
+            "pyado.oop.pipelines.build.raw.iter_work_items_between_builds"
+        ) as mock_iter:
             mock_iter.return_value = iter([])
             list(newer.iter_work_items_between(older, top=5))
         assert mock_iter.call_args.kwargs.get("top") == 5
@@ -1274,7 +1324,9 @@ class TestBuildIterWorkItemsBetween:
     def test_yields_nothing_when_no_ids(self) -> None:
         older = _make_build(build_id=1)
         newer = _make_build(build_id=2)
-        with patch("pyado.oop.build.raw.iter_work_items_between_builds") as mock_iter:
+        with patch(
+            "pyado.oop.pipelines.build.raw.iter_work_items_between_builds"
+        ) as mock_iter:
             mock_iter.return_value = iter([])
             result = list(newer.iter_work_items_between(older))
         assert result == []
@@ -1318,14 +1370,14 @@ class TestBuildFindTask:
 
     def test_find_task_returns_matching_record(self) -> None:
         record = self._record("Deploy")
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter([record])
             result = _make_build().find_task(lambda r: r.name == "Deploy")
         assert result is record
 
     def test_find_task_returns_none_when_no_match(self) -> None:
         record = self._record("Other")
-        with patch("pyado.oop.build.raw.iter_timeline_records") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
             mock_iter.return_value = iter([record])
             result = _make_build().find_task(lambda r: r.name == "Deploy")
         assert result is None
@@ -1346,7 +1398,7 @@ class TestBuildIterLogs:
                 "url": "https://dev.azure.com/org/_apis/build/builds/100/logs/7",
             }
         )
-        with patch("pyado.oop.build.raw.iter_build_logs") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_build_logs") as mock_iter:
             mock_iter.return_value = iter([log_info])
             result = list(build.iter_logs())
         assert len(result) == 1
@@ -1355,7 +1407,7 @@ class TestBuildIterLogs:
 
     def test_yields_empty_when_no_logs(self) -> None:
         build = _make_build(build_id=100)
-        with patch("pyado.oop.build.raw.iter_build_logs") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_build_logs") as mock_iter:
             mock_iter.return_value = iter([])
             result = list(build.iter_logs())
         assert result == []
@@ -1379,8 +1431,8 @@ class TestBuildGetAllLogText:
             }
         )
         with (
-            patch("pyado.oop.build.raw.iter_build_logs") as mock_iter,
-            patch("pyado.oop.build.raw.get_build_log") as mock_log,
+            patch("pyado.oop.pipelines.build.raw.iter_build_logs") as mock_iter,
+            patch("pyado.oop.pipelines.build.raw.get_build_log") as mock_log,
         ):
             mock_iter.return_value = iter([log_a, log_b])
             mock_log.side_effect = lambda _call, log_id: f"text-{log_id}"
@@ -1397,8 +1449,8 @@ class TestBuildGetAllLogText:
             }
         )
         with (
-            patch("pyado.oop.build.raw.iter_build_logs") as mock_iter,
-            patch("pyado.oop.build.raw.get_build_log") as mock_log,
+            patch("pyado.oop.pipelines.build.raw.iter_build_logs") as mock_iter,
+            patch("pyado.oop.pipelines.build.raw.get_build_log") as mock_log,
         ):
             mock_iter.return_value = iter([log_a])
             mock_log.return_value = "log text"
@@ -1407,7 +1459,7 @@ class TestBuildGetAllLogText:
 
     def test_empty_when_no_logs(self) -> None:
         build = _make_build(build_id=100)
-        with patch("pyado.oop.build.raw.iter_build_logs") as mock_iter:
+        with patch("pyado.oop.pipelines.build.raw.iter_build_logs") as mock_iter:
             mock_iter.return_value = iter([])
             result = build.get_all_log_text()
         assert not result
@@ -1415,43 +1467,43 @@ class TestBuildGetAllLogText:
 
 class TestBuildListMethods:
     def test_list_artifacts_delegates(self) -> None:
-        with patch("pyado.oop.build.raw.iter_build_artifacts") as m:
+        with patch("pyado.oop.pipelines.build.raw.iter_build_artifacts") as m:
             m.return_value = iter([])
             result = _make_build().list_artifacts()
         assert result == []
 
     def test_list_tags_delegates(self) -> None:
-        with patch("pyado.oop.build.raw.iter_build_tags") as m:
+        with patch("pyado.oop.pipelines.build.raw.iter_build_tags") as m:
             m.return_value = iter([])
             result = _make_build().list_tags()
         assert result == []
 
     def test_list_timeline_records_delegates(self) -> None:
-        with patch("pyado.oop.build.raw.iter_timeline_records") as m:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as m:
             m.return_value = iter([])
             result = _make_build().list_timeline_records()
         assert result == []
 
     def test_list_logs_delegates(self) -> None:
-        with patch("pyado.oop.build.raw.iter_build_logs") as m:
+        with patch("pyado.oop.pipelines.build.raw.iter_build_logs") as m:
             m.return_value = iter([])
             result = _make_build().list_logs()
         assert result == []
 
     def test_list_work_item_ids_delegates(self) -> None:
-        with patch("pyado.oop.build._build.iter_build_work_item_ids") as m:
+        with patch("pyado.oop.pipelines.build._build.iter_build_work_item_ids") as m:
             m.return_value = iter([])
             result = _make_build().list_work_item_ids()
         assert result == []
 
     def test_list_work_items_delegates(self) -> None:
-        with patch("pyado.oop.build._build.iter_build_work_item_ids") as m:
+        with patch("pyado.oop.pipelines.build._build.iter_build_work_item_ids") as m:
             m.return_value = iter([])
             result = _make_build().list_work_items()
         assert result == []
 
     def test_list_stages_delegates(self) -> None:
-        with patch("pyado.oop.build.raw.iter_timeline_records") as m:
+        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as m:
             m.return_value = iter([])
             result = _make_build().list_stages()
         assert result == []
@@ -1459,7 +1511,7 @@ class TestBuildListMethods:
     def test_list_work_items_between_delegates(self) -> None:
         older = _make_build(build_id=50)
         newer = _make_build(build_id=100)
-        with patch("pyado.oop.build.raw.iter_work_items_between_builds") as m:
+        with patch("pyado.oop.pipelines.build.raw.iter_work_items_between_builds") as m:
             m.return_value = iter([])
             result = newer.list_work_items_between(older)
         assert result == []
@@ -1467,7 +1519,7 @@ class TestBuildListMethods:
     def test_list_work_item_ids_between_delegates(self) -> None:
         older = _make_build(build_id=50)
         newer = _make_build(build_id=100)
-        with patch("pyado.oop.build.raw.iter_work_items_between_builds") as m:
+        with patch("pyado.oop.pipelines.build.raw.iter_work_items_between_builds") as m:
             m.return_value = iter([])
             result = newer.list_work_item_ids_between(older)
         assert result == []
@@ -1519,7 +1571,7 @@ class TestBuildDownloadArtifact:
     def test_download_artifact_delegates_to_raw(self) -> None:
         build = _make_build()
         artifact = _make_build_artifact()
-        with patch("pyado.oop.build.raw.get_build_artifact_bytes") as mock_dl:
+        with patch("pyado.oop.pipelines.build.raw.get_build_artifact_bytes") as mock_dl:
             mock_dl.return_value = b"data"
             result = build.download_artifact(artifact)
         mock_dl.assert_called_once_with(build._api_call, artifact)
@@ -1528,7 +1580,43 @@ class TestBuildDownloadArtifact:
     def test_download_artifact_returns_none_when_no_url(self) -> None:
         build = _make_build()
         artifact = _make_build_artifact(download_url=None)
-        with patch("pyado.oop.build.raw.get_build_artifact_bytes") as mock_dl:
+        with patch("pyado.oop.pipelines.build.raw.get_build_artifact_bytes") as mock_dl:
             mock_dl.return_value = None
             result = build.download_artifact(artifact)
         assert result is None
+
+
+class TestBuildIterApprovals:
+    """Tests for Build.iter_approvals and Build.list_approvals."""
+
+    def test_iter_approvals_scopes_to_build_run_id(self) -> None:
+        """Passes the build ID as pipeline_run_ids to raw.iter_approvals."""
+        build = _make_build(build_id=42)
+        with patch(
+            "pyado.oop.pipelines.build.raw.iter_approvals", return_value=iter([])
+        ) as mock_iter:
+            list(build.iter_approvals())
+        mock_iter.assert_called_once_with(
+            build._project.api_call,
+            state=None,
+            pipeline_run_ids=[42],
+        )
+
+    def test_iter_approvals_passes_state_filter(self) -> None:
+        """Forwards the state argument to raw.iter_approvals."""
+        build = _make_build(build_id=7)
+        with patch(
+            "pyado.oop.pipelines.build.raw.iter_approvals", return_value=iter([])
+        ) as mock_iter:
+            list(build.iter_approvals(state=PipelineApprovalStatus.PENDING))
+        mock_iter.assert_called_once_with(
+            build._project.api_call,
+            state=PipelineApprovalStatus.PENDING,
+            pipeline_run_ids=[7],
+        )
+
+    def test_list_approvals_delegates_to_iter(self) -> None:
+        """list_approvals returns results of iter_approvals as a list."""
+        build = _make_build()
+        with patch.object(build, "iter_approvals", return_value=iter([])):
+            assert build.list_approvals() == []

@@ -37,94 +37,212 @@ pyado provides two layers:
    :members:
 ```
 
-### Repository
+### Settings
 
 ```{eval-rst}
-.. automodule:: pyado.oop.repository
+.. automodule:: pyado.oop.settings
    :members:
 ```
 
-### Pull Request
+### Search
 
 ```{eval-rst}
-.. automodule:: pyado.oop.pull_request
+.. automodule:: pyado.oop.core.search
    :members:
 ```
 
-### Work Item
+### Repos
 
 ```{eval-rst}
-.. automodule:: pyado.oop.work_item
+.. automodule:: pyado.oop.repos
    :members:
 ```
 
-### Build
+#### Repository
 
 ```{eval-rst}
-.. automodule:: pyado.oop.build
+.. automodule:: pyado.oop.repos.repository
+   :members:
+   :no-index:
+```
+
+#### Pull Request
+
+```{eval-rst}
+.. automodule:: pyado.oop.repos.pull_request
+   :members:
+   :no-index:
+```
+
+#### Branch
+
+```{eval-rst}
+.. automodule:: pyado.oop.repos.branch
    :members:
 ```
 
-### Pipeline
+#### Tag
 
 ```{eval-rst}
-.. automodule:: pyado.oop.pipeline
+.. automodule:: pyado.oop.repos.tag
    :members:
 ```
 
-### Variable Group
+#### Commit
 
 ```{eval-rst}
-.. automodule:: pyado.oop.variable_group
+.. automodule:: pyado.oop.repos.commit
+   :members:
+   :no-index:
+```
+
+#### File Changes
+
+```{eval-rst}
+.. automodule:: pyado.oop.repos.file_change
    :members:
 ```
 
-### Team
+#### Policy Configuration
 
 ```{eval-rst}
-.. automodule:: pyado.oop.team
+.. automodule:: pyado.oop.repos.policy
    :members:
 ```
 
-### Iteration
+#### Policy Types
 
 ```{eval-rst}
-.. automodule:: pyado.oop.iteration
+.. automodule:: pyado.oop.repos.policy_types
    :members:
 ```
 
-### Area
+### Overview
 
 ```{eval-rst}
-.. automodule:: pyado.oop.area
+.. automodule:: pyado.oop.overview
    :members:
 ```
 
-### Commit
+#### Dashboard
 
 ```{eval-rst}
-.. automodule:: pyado.oop.commit
+.. automodule:: pyado.oop.overview.dashboard
    :members:
 ```
 
-### File Changes
+#### Wiki
 
 ```{eval-rst}
-.. automodule:: pyado.oop.file_change
+.. automodule:: pyado.oop.overview.wiki
    :members:
 ```
 
-### Build Timeline
+### Boards
 
 ```{eval-rst}
-.. automodule:: pyado.oop.build_timeline
+.. automodule:: pyado.oop.boards
    :members:
 ```
 
-### Active Build Task
+#### Work Item
 
 ```{eval-rst}
-.. automodule:: pyado.oop.active_build_task
+.. automodule:: pyado.oop.boards.work_item
+   :members:
+   :no-index:
+```
+
+#### Iteration
+
+```{eval-rst}
+.. automodule:: pyado.oop.boards.iteration
+   :members:
+```
+
+#### Area
+
+```{eval-rst}
+.. automodule:: pyado.oop.boards.area
+   :members:
+```
+
+#### Work Item Type
+
+```{eval-rst}
+.. automodule:: pyado.oop.boards.work_item_type
+   :members:
+```
+
+### Pipelines
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipelines
+   :members:
+```
+
+#### Build
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipelines.build
+   :members:
+   :no-index:
+```
+
+#### Build Timeline
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipelines.build_timeline
+   :members:
+   :no-index:
+```
+
+#### Pipeline
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipelines.pipeline
+   :members:
+```
+
+#### Environment
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipelines.environment
+   :members:
+```
+
+#### Agent
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipelines.agent
+   :members:
+```
+
+#### Variable Group
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipelines.variable_group
+   :members:
+```
+
+#### Secure File
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipelines.secure_file
+   :members:
+```
+
+#### Distributed Task Session
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipelines.distributed_task_session
+   :members:
+```
+
+#### Service Endpoint
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipelines.service_endpoint
    :members:
 ```
 
@@ -139,72 +257,141 @@ pyado provides two layers:
    :members:
 ```
 
-### Build
-
-```{eval-rst}
-.. automodule:: pyado.raw.build
-   :members:
-```
-
-### Git
-
-```{eval-rst}
-.. automodule:: pyado.raw.git
-   :members:
-```
-
-### Identity
-
-```{eval-rst}
-.. automodule:: pyado.raw.identity
-   :members:
-```
-
-### Pipeline
-
-```{eval-rst}
-.. automodule:: pyado.raw.pipeline
-   :members:
-```
-
 ### Profile
 
 ```{eval-rst}
-.. automodule:: pyado.raw.profile
+.. automodule:: pyado.raw.core.profile
    :members:
 ```
 
 ### Project
 
 ```{eval-rst}
-.. automodule:: pyado.raw.project
+.. automodule:: pyado.raw.core.project
    :members:
 ```
 
-### Pull Request
+### Identity
 
 ```{eval-rst}
-.. automodule:: pyado.raw.pull_request
+.. automodule:: pyado.raw.core.identity
    :members:
 ```
 
-### Team
+### Dashboard
 
 ```{eval-rst}
-.. automodule:: pyado.raw.team
+.. automodule:: pyado.raw.overview.dashboard
    :members:
 ```
 
-### Variable Group
+### Notification
 
 ```{eval-rst}
-.. automodule:: pyado.raw.variable_group
+.. automodule:: pyado.raw.settings.notification
    :members:
 ```
 
-### Work Item
+### Policy
 
 ```{eval-rst}
-.. automodule:: pyado.raw.work_item
+.. automodule:: pyado.raw.repos.policy
+   :members:
+```
+
+### Process
+
+```{eval-rst}
+.. automodule:: pyado.raw.core.process
+   :members:
+```
+
+### Search
+
+```{eval-rst}
+.. automodule:: pyado.raw.core.search
+   :members:
+```
+
+### Service Endpoint
+
+```{eval-rst}
+.. automodule:: pyado.raw.settings.service_endpoint
+   :members:
+```
+
+### Wiki
+
+```{eval-rst}
+.. automodule:: pyado.raw.overview.wiki
+   :members:
+```
+
+### Repos
+
+#### Git
+
+```{eval-rst}
+.. automodule:: pyado.raw.repos.git
+   :members:
+```
+
+#### Pull Request
+
+```{eval-rst}
+.. automodule:: pyado.raw.repos.pull_request
+   :members:
+```
+
+### Boards
+
+#### Work Item
+
+```{eval-rst}
+.. automodule:: pyado.raw.boards.work_item
+   :members:
+```
+
+### Pipelines
+
+#### Build
+
+```{eval-rst}
+.. automodule:: pyado.raw.pipelines.build
+   :members:
+```
+
+#### Pipeline
+
+```{eval-rst}
+.. automodule:: pyado.raw.pipelines.pipeline
+   :members:
+```
+
+#### Agent
+
+```{eval-rst}
+.. automodule:: pyado.raw.pipelines.agent
+   :members:
+```
+
+#### Environment
+
+```{eval-rst}
+.. automodule:: pyado.raw.pipelines.environment
+   :members:
+```
+
+#### Variable Group
+
+```{eval-rst}
+.. automodule:: pyado.raw.pipelines.variable_group
+   :members:
+```
+
+#### Secure File
+
+```{eval-rst}
+.. automodule:: pyado.raw.pipelines.secure_file
    :members:
 ```

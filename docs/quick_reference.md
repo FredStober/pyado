@@ -275,6 +275,7 @@ Obtained via `Project.get_work_item`, `Project.iter_work_items`, `Project.create
 | `.update_comment(comment_id, text)` | `-> WorkItemComment` | Edit an existing comment |
 | `.delete_comment(comment_id)` | `-> None` | Delete a comment |
 | `.add_attachment(filename, content)` | `(str, bytes) -> WorkItemAttachmentRef` | Upload and attach a file |
+| `.download_attachment(ref)` | `(WorkItemAttachmentRef) -> bytes` | Download attachment bytes |
 | `.add_link(other, link_type, *, comment)` | `-> None` | Link to another work item |
 | `.link_pull_request(pr, *, comment)` | `-> None` | Link to a pull request (ArtifactLink) |
 | `.link_build(build, *, comment)` | `-> None` | Link to a build (ArtifactLink) |
@@ -282,7 +283,7 @@ Obtained via `Project.get_work_item`, `Project.iter_work_items`, `Project.create
 | `.remove_link(relation)` | `-> None` | Remove a specific relation |
 | `.iter_relations(rel_type)` | `-> Iterator[WorkItemRelation]` | All (or filtered) relations |
 | `.iter_artifact_links()` | `-> Iterator[WorkItemRelation]` | Artifact links (PRs, builds, commits) |
-| `.iter_attachments()` | `-> Iterator[WorkItemRelation]` | Attached file relations |
+| `.iter_attachments()` | `-> Iterator[WorkItemAttachmentRef]` | Attached file references |
 | `.iter_linked_work_items(rel_type)` | `-> Iterator[WorkItem]` | Linked work items (batch-fetched) |
 | `.get_parent()` | `-> WorkItem \| None` | Parent work item, or None |
 | `.iter_children()` | `-> Iterator[WorkItem]` | Direct child work items |
@@ -321,7 +322,7 @@ Obtained via `Project.get_build`, `Project.iter_builds`, `Project.start_build`.
 |---|---|---|
 | `.refresh()` | `-> None` | Re-fetch build info |
 | `.update(status)` | `(BuildStatus) -> None` | Update build status |
-| `.cancel()` | `-> BuildDetails` | Request cancellation (Build API) |
+| `.cancel()` | `-> None` | Request cancellation (Build API) |
 | `.cancel_run()` | `-> PipelineRunInfo` | Request cancellation (Pipelines v2 API) |
 | `.retry()` | `-> Build` | Queue new build with same definition/branch |
 | `.iter_artifacts()` | `-> Iterator[BuildArtifact]` | Published artifacts |
@@ -336,9 +337,9 @@ Obtained via `Project.get_build`, `Project.iter_builds`, `Project.start_build`.
 | `.iter_stages()` | `-> Iterator[BuildStage]` | Build stages (with nested jobs/tasks) |
 | `.iter_work_item_ids()` | `-> Iterator[int]` | Linked work item IDs |
 | `.iter_work_items()` | `-> Iterator[WorkItem]` | Linked work items (batch-fetched) |
-| `.iter_changes_between(older_build, *, top)` | `-> Iterator[WorkItem]` | Work items in build range (exclusive lower bound) |
+| `.iter_work_items_between(older_build, *, top)` | `-> Iterator[WorkItem]` | Work items in build range (exclusive lower bound) |
 | `.iter_work_item_ids_between(older_build, *, top)` | `-> Iterator[int]` | Work item IDs in build range |
-| `.get_active_build_task(*, hub_name, plan_id, timeline_id, job_id, task_instance_id)` | `-> ActiveBuildTask` | External/serverless task handle |
+| `.get_distributed_task_session(*, hub_name, plan_id, timeline_id, job_id, task_instance_id)` | `-> DistributedTaskSession` | External/serverless task handle |
 
 ---
 
@@ -358,11 +359,13 @@ Obtained via `Project.get_pipeline`, `Project.iter_pipelines`, or `Build.pipelin
 | `.cancel_run(run_id)` | `(int) -> PipelineRunInfo` | Cancel an in-progress run |
 | `.authorize_resource(resource_type, resource_id, *, authorized)` | `-> PipelineResourcePermissions` | Grant/revoke resource access |
 
-**`PipelineRun` properties**: `.id`, `.status`, `.result`, `.info`, `.pipeline`, `.project`, `.org`
+**`PipelineRun` properties**: `.id`, `.status`, `.result`, `.info`, `.api_call`, `.pipeline`, `.project`, `.org`
 
 | Method | Signature | Description |
 |---|---|---|
+| `.refresh()` | `-> None` | Re-fetch run info |
 | `.cancel()` | `-> PipelineRun` | Request cancellation |
+| `.iter_approvals(state)` | `-> Iterator[PipelineApproval]` | Environment approvals for this run |
 
 ---
 
@@ -459,10 +462,9 @@ not cover an endpoint.
 
 ```python
 ApiCall(
-    access_token: str,
     url: ADOUrl,
+    session: requests.Session = requests.Session(),  # default: unauthenticated
     parameters: dict[str, int | str | bool] = {},
-    session: requests.Session | None = None,
     timeout: int = 10,
 )
 ```
@@ -480,8 +482,13 @@ ApiCall(
 **Helpers**:
 
 ```python
-get_session(access_token: str) -> requests.Session
-    # Return the LRU-cached session; useful to inject a custom SSL adapter.
+get_session(
+    pat: str | None = None,
+    bearer_token: str | None = None,
+    azure_credentials: TokenCredential | None = None,
+) -> requests.Session
+    # Return the cached session for the given credentials.
+    # Exactly one argument must be provided.
 
 get_test_api_call() -> tuple[ApiCall, dict]
     # Build an ApiCall from src/pyado/raw/test.json (for manual testing).
@@ -492,7 +499,7 @@ get_test_api_call() -> tuple[ApiCall, dict]
 ### Profile / Connection
 
 ```python
-get_profile_api_call(access_token) -> ApiCall
+get_profile_api_call(session: requests.Session) -> ApiCall
     # ApiCall for https://app.vssps.visualstudio.com/_apis
 
 get_my_profile(profile_api_call) -> UserProfile
@@ -849,7 +856,7 @@ get_team(org_api_call, project_name, team_name_or_id) -> TeamInfo
 ### Identity / Graph
 
 ```python
-get_vssps_api_call(access_token, org_name) -> ApiCall
+get_vssps_api_call(session: requests.Session, org_name) -> ApiCall
     # ApiCall for https://vssps.dev.azure.com/{org}.
 
 get_identities(vssps_call, descriptors: list[str]) -> list[IdentityInfo]

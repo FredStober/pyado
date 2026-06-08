@@ -2,7 +2,7 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -12,6 +12,7 @@ from pyado.raw import (
     ApiCall,
     JobEventPayload,
     PipelineApproval,
+    PipelineApprovalStatus,
     PipelineInfo,
     PipelineResourcePermissions,
     PipelineResourceType,
@@ -34,9 +35,6 @@ from pyado.raw import (
     post_pipeline_run,
 )
 from tests.conftest import _make_mock_response
-
-if TYPE_CHECKING:  # pragma: no cover
-    from pyado.raw.pipeline import PipelineApprovalStatus
 
 HUB_NAME = "Build"
 PLAN_ID = uuid4()
@@ -202,6 +200,28 @@ class TestIterApprovals:
         params = mock_req.call_args.kwargs.get("params") or {}
         assert "state" not in params
 
+    @staticmethod
+    def test_passes_pipeline_run_ids_as_comma_separated(api_call: ApiCall) -> None:
+        """Serialises run IDs to a comma-separated pipelineIds query param."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(iter_approvals(api_call, pipeline_run_ids=[42, 99]))
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params.get("pipelineIds") == "42,99"
+
+    @staticmethod
+    def test_omits_pipeline_run_ids_when_none(api_call: ApiCall) -> None:
+        """Omits pipelineIds query parameter when pipeline_run_ids is None."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(iter_approvals(api_call))
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert "pipelineIds" not in params
+
 
 def _make_pipeline_dict(**overrides: Any) -> dict[str, Any]:
     """Create a minimal valid PipelineInfo dict.
@@ -364,6 +384,7 @@ class TestPostPipelineRun:
 def _make_pipeline_permissions_dict(pipeline_id: int = 1) -> dict[str, Any]:
     """Create a minimal valid PipelineResourcePermissions dict."""
     return {
+        "resource": {"type": "variablegroup", "id": "42"},
         "allPipelines": None,
         "pipelines": [{"authorized": True, "id": pipeline_id}],
     }
@@ -423,6 +444,26 @@ class TestPatchPipelinePermission:
         url_called = mock_req.call_args[1]["url"]
         assert "queue" in url_called
         assert "7" in url_called
+
+    @staticmethod
+    def test_body_wraps_pipeline_in_pipelines_key(api_call: ApiCall) -> None:
+        """Request body has a 'pipelines' key containing the pipeline entry."""
+        response_data = _make_pipeline_permissions_dict()
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            patch_pipeline_permission(
+                api_call,
+                PipelineResourceType.QUEUE,
+                "7",
+                pipeline_id=99,
+                authorized=True,
+            )
+        sent_json = mock_req.call_args[1]["json"]
+        assert "pipelines" in sent_json
+        assert sent_json["pipelines"][0]["id"] == 99
+        assert sent_json["pipelines"][0]["authorized"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -782,7 +823,9 @@ class TestSmokeGetPipelineRun:
 class TestListPipelines:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
-        with patch("pyado.raw.pipeline.iter_pipelines", return_value=iter([])) as m:
+        with patch(
+            "pyado.raw.pipelines.pipeline.iter_pipelines", return_value=iter([])
+        ) as m:
             result = list_pipelines(api_call)
         assert result == []
         m.assert_called_once_with(api_call, order_by=None)
@@ -791,7 +834,9 @@ class TestListPipelines:
 class TestListPipelineRuns:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
-        with patch("pyado.raw.pipeline.iter_pipeline_runs", return_value=iter([])) as m:
+        with patch(
+            "pyado.raw.pipelines.pipeline.iter_pipeline_runs", return_value=iter([])
+        ) as m:
             result = list_pipeline_runs(api_call, 42)
         assert result == []
         m.assert_called_once_with(api_call, 42, top=None)
@@ -800,7 +845,9 @@ class TestListPipelineRuns:
 class TestListApprovals:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
-        with patch("pyado.raw.pipeline.iter_approvals", return_value=iter([])) as m:
+        with patch(
+            "pyado.raw.pipelines.pipeline.iter_approvals", return_value=iter([])
+        ) as m:
             result = list_approvals(api_call)
         assert result == []
         m.assert_called_once_with(api_call)

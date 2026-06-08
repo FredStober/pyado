@@ -11,9 +11,9 @@ from pydantic.networks import AnyUrl
 
 from pyado.raw import (
     ApiCall,
-    PrIterationChange,
     PullRequestCompletionOptions,
     PullRequestCreateRequest,
+    PullRequestIterationChange,
     PullRequestIterationRecord,
     PullRequestListItem,
     PullRequestResponse,
@@ -489,18 +489,18 @@ class TestGetPrDetails:
         assert result.title == "Fix bug"
 
 
-class TestGetPrIterationChanges:
+class TestGetPullRequestIterationChanges:
     """Tests for get_pull_request_iteration_changes."""
 
     @staticmethod
     def test_returns_change_entries_list(api_call: ApiCall) -> None:
-        """Returns a list of PrIterationChange from the changeEntries response."""
+        """Returns a list of PullRequestIterationChange from changeEntries."""
         entries = [{"changeType": "add", "item": {"path": "/src/foo.py"}}]
         mock_response = _make_mock_response({"changeEntries": entries})
         with patch.object(requests.Session, "request", return_value=mock_response):
             result = get_pull_request_iteration_changes(api_call, 2)
         assert len(result) == 1
-        assert isinstance(result[0], PrIterationChange)
+        assert isinstance(result[0], PullRequestIterationChange)
         assert result[0].change_type == "add"
         assert result[0].item.path == "/src/foo.py"
 
@@ -993,7 +993,7 @@ class TestListPullRequests:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         with patch(
-            "pyado.raw.pull_request.iter_pull_requests", return_value=iter([])
+            "pyado.raw.repos.pull_request.iter_pull_requests", return_value=iter([])
         ) as m:
             result = list_pull_requests(api_call)
         assert result == []
@@ -1004,7 +1004,8 @@ class TestListPullRequestThreads:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         with patch(
-            "pyado.raw.pull_request.iter_pull_request_threads", return_value=iter([])
+            "pyado.raw.repos.pull_request.iter_pull_request_threads",
+            return_value=iter([]),
         ) as m:
             result = list_pull_request_threads(api_call)
         assert result == []
@@ -1015,7 +1016,8 @@ class TestListPullRequestIterations:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         with patch(
-            "pyado.raw.pull_request.iter_pull_request_iterations", return_value=iter([])
+            "pyado.raw.repos.pull_request.iter_pull_request_iterations",
+            return_value=iter([]),
         ) as m:
             result = list_pull_request_iterations(api_call)
         assert result == []
@@ -1026,7 +1028,8 @@ class TestListPullRequestCommits:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         with patch(
-            "pyado.raw.pull_request.iter_pull_request_commits", return_value=iter([])
+            "pyado.raw.repos.pull_request.iter_pull_request_commits",
+            return_value=iter([]),
         ) as m:
             result = list_pull_request_commits(api_call)
         assert result == []
@@ -1037,7 +1040,7 @@ class TestListPullRequestWorkItemIds:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         with patch(
-            "pyado.raw.pull_request.iter_pull_request_work_item_ids",
+            "pyado.raw.repos.pull_request.iter_pull_request_work_item_ids",
             return_value=iter([]),
         ) as m:
             result = list_pull_request_work_item_ids(api_call)
@@ -1049,7 +1052,8 @@ class TestListPullRequestStatuses:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         with patch(
-            "pyado.raw.pull_request.iter_pull_request_statuses", return_value=iter([])
+            "pyado.raw.repos.pull_request.iter_pull_request_statuses",
+            return_value=iter([]),
         ) as m:
             result = list_pull_request_statuses(api_call)
         assert result == []

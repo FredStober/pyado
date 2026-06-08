@@ -273,6 +273,8 @@ pyado.RenameFile(old_path, new_path)  # rename without changing content
 .delete_comment(id)
 
 .add_attachment(filename, content) -> WorkItemAttachmentRef
+.download_attachment(ref)          -> bytes
+.iter_attachments()                -> Iterator[WorkItemAttachmentRef]
 
 .add_link(other, link_type, *, comment?)  # WI-to-WI relation
 .link_pull_request(pr, *, comment?)
@@ -307,7 +309,8 @@ pyado.RenameFile(old_path, new_path)  # rename without changing content
 .org          -> Organization   # zero-cost
 .refresh()
 
-.cancel()          -> BuildDetails
+.update(status)    -> None              # set build status directly
+.cancel()          -> None
 .cancel_run()      -> PipelineRunInfo   # via Pipelines v2
 .retry()           -> Build             # same definition and branch
 
@@ -322,11 +325,12 @@ pyado.RenameFile(old_path, new_path)  # rename without changing content
 .iter_logs()              -> Iterator[BuildLogInfo]
 .get_all_log_text(*, separator?) -> str
 
-.iter_work_item_ids()                        -> Iterator[int]
-.iter_changes_between(older_build, *, top?)  -> Iterator[WorkItem]
+.iter_work_item_ids()                             -> Iterator[int]
+.iter_work_items()                                -> Iterator[WorkItem]
+.iter_work_items_between(older_build, *, top?)    -> Iterator[WorkItem]
 .iter_work_item_ids_between(older_build, *, top?) -> Iterator[int]
 
-.get_active_build_task(*, hub_name, plan_id, timeline_id, job_id, task_instance_id) -> ActiveBuildTask
+.get_distributed_task_session(*, hub_name, plan_id, timeline_id, job_id, task_instance_id) -> DistributedTaskSession
 ```
 
 **BuildStage / BuildJob / BuildTask** (from `build.iter_stages()`):
@@ -342,6 +346,30 @@ job.iter_phases()    -> Iterator[BuildPhase]
 task.name, task.state, task.result, task.log
 ```
 
+### DistributedTaskSession
+
+Obtained from `build.get_distributed_task_session(...)`. Inherits all read
+properties from `BuildTask` (loaded lazily on first access).
+
+```text
+.build     -> Build         # zero-cost
+.project   -> Project       # zero-cost
+.org       -> Organization  # zero-cost
+
+.refresh()                  # discard cached record and log ID
+.get_record()  -> BuildRecordInfo   # always-fresh timeline record for this task
+.get_job()     -> BuildJob          # parent job (one API call via iter_stages)
+
+# Write operations
+.send_feed(messages: list[str])    -> None   # live feed messages (preview API)
+.send_log(message: str)            -> None   # persistent task log (preview API)
+.send_message(messages: list[str]) -> None   # send to both feed and log
+.add_issues(issues: list[BuildIssue]) -> None  # append issues to timeline record
+.complete(*, succeeded: bool)      -> None   # signal task completion
+```
+
+---
+
 ### Pipeline
 
 ```text
@@ -353,10 +381,11 @@ task.name, task.state, task.result, task.log
 .org      -> Organization # zero-cost
 .refresh()
 
-.iter_runs()              -> Iterator[PipelineRunInfo]
-.get_run(run_id)          -> PipelineRunInfo
-.get_latest_run()         -> PipelineRunInfo | None
-.start_run(*, resources?, variables?, template_parameters?, stages_to_skip?) -> PipelineRunInfo
+.iter_runs()              -> Iterator[PipelineRun]
+.get_run(run_id)          -> PipelineRun
+.get_latest_run()         -> PipelineRun | None
+.start_run(*, resources?, variables?, template_parameters?, stages_to_skip?) -> PipelineRun
+.cancel_run(run_id)       -> PipelineRunInfo
 .authorize_resource(resource_type, resource_id, *, authorized?) -> PipelineResourcePermissions
 ```
 
@@ -436,32 +465,44 @@ argument. It is an immutable Pydantic model.
 
 ```python
 class ApiCall(BaseModel):
-    access_token: str      # ADO personal access token
-    url: HttpUrl           # must be https://
-    parameters: dict = {}  # merged into every request as query params
-    timeout: int = 10      # request timeout in seconds
+    url: HttpUrl                      # must be https://
+    session: requests.Session = ...   # default: unauthenticated session
+    parameters: dict = {}             # merged into every request as query params
+    timeout: int = 10                 # request timeout in seconds
 ```
 
 ### Construction
 
+Use `get_session` to create an authenticated session, then pass it to `ApiCall`:
+
 ```python
+session = pyado.get_session(pat="<pat>")
+
 # Project-level (required by most functions)
 api = pyado.ApiCall(
-    access_token="<pat>",
+    session=session,
     url="https://dev.azure.com/<org>/<project>/_apis/",
 )
 
 # Organisation-level (iter_projects, iter_pull_requests across all repos)
 org_api = pyado.ApiCall(
-    access_token="<pat>",
+    session=session,
     url="https://dev.azure.com/<org>/_apis/",
 )
+```
+
+`get_session` accepts one of three mutually-exclusive auth arguments:
+
+```python
+pyado.get_session(pat="<personal-access-token>")
+pyado.get_session(bearer_token="<oauth-token>")
+pyado.get_session(azure_credentials=DefaultAzureCredential())
 ```
 
 The **profile API** lives on a separate host; use the dedicated helper:
 
 ```python
-profile_api = pyado.get_profile_api_call(access_token="<pat>")
+profile_api = pyado.get_profile_api_call(session)
 # -> ApiCall(url="https://app.vssps.visualstudio.com/_apis")
 ```
 
@@ -492,7 +533,7 @@ resource. Construct them once and reuse.
 | `get_job_api_call(project_api, hub_name, plan_id, timeline_id, job_id)` | `ApiCall, str, UUID, UUID, UUID` | `ApiCall` | task callbacks |
 | `get_log_api_call(project_api, hub_name, plan_id, log_id)` | `ApiCall, str, int` | `ApiCall` | task callbacks |
 | `get_timeline_api_call(project_api, hub_name, plan_id, timeline_id)` | `ApiCall, str, UUID, UUID` | `ApiCall` | task callbacks |
-| `get_profile_api_call(access_token)` | `str` | `ApiCall` | different host |
+| `get_profile_api_call(session)` | `requests.Session` | `ApiCall` | different host |
 | `get_test_api_call()` | — | `tuple[ApiCall, dict]` | test use only |
 
 ---
@@ -726,8 +767,8 @@ Requires a **profile `ApiCall`** (`get_profile_api_call`), not a project API cal
 
 ```
 ApiCall
-  access_token: str
   url: HttpUrl
+  session: requests.Session   (default: unauthenticated)
   parameters: dict[str, int | str | bool]
   timeout: int
   .build_call(*args, parameters?, version?) -> ApiCall
@@ -1161,7 +1202,7 @@ Pydantic validation errors (`ValidationError`) are raised on construction of
    Check for an empty string to detect absence.
 
 4. **Profile API** is on `app.vssps.visualstudio.com`, not `dev.azure.com`.
-   You must use `get_profile_api_call(access_token)`, not construct the
+   You must use `get_profile_api_call(session)`, not construct the
    `ApiCall` manually.
 
 5. **`iter_work_item_details`** with `work_item_field_list` does *not* expand

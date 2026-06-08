@@ -2,29 +2,64 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
+import os
 from contextlib import suppress
-from functools import lru_cache
 from html.parser import HTMLParser
-from typing import Annotated, Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeAlias
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from azure.core.credentials import TokenCredential
 
 import requests
 import requests.auth
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, TypeAdapter
 from pydantic.networks import HttpUrl, UrlConstraints
 
+from pyado.exceptions import (
+    AzureDevOpsAuthError,
+    AzureDevOpsBadRequestError,
+    AzureDevOpsConflictError,
+    AzureDevOpsError,
+    AzureDevOpsHttpError,
+    AzureDevOpsNotFoundError,
+)
+
 __all__ = [
-    "ADOUrl",
     "AccessToken",
+    "AdoUrl",
     "ApiCall",
-    "HTMLTextFilter",
+    "AzureDevOpsAuthError",
+    "AzureDevOpsBadRequestError",
+    "AzureDevOpsConflictError",
+    "AzureDevOpsError",
+    "AzureDevOpsHttpError",
+    "AzureDevOpsNotFoundError",
+    "HtmlTextFilter",
     "JsonPatchAdd",
     "JsonPatchRemove",
     "get_session",
 ]
 
+# `OAuth` scope for Azure DevOps
+_ADO_GRAPH_SCOPE = "499b84ac-1321-427f-aa17-267ca6975798/.default"
 
-class HTMLTextFilter(HTMLParser):
+
+def to_camel(s: str) -> str:
+    parts = s.split("_")
+    return parts[0] + "".join(word.capitalize() for word in parts[1:])
+
+
+class AdoBaseModel(BaseModel):
+    """Base model for Azure DevOps REST models."""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+
+class HtmlTextFilter(HTMLParser):
     """Filter HTML error pages for useful text."""
 
     def __init__(self) -> None:
@@ -58,7 +93,7 @@ class HTMLTextFilter(HTMLParser):
 AccessToken: TypeAlias = str
 
 #: Validated HTTPS URL accepted by ADO API calls (max 256 characters).
-ADOUrl: TypeAlias = Annotated[
+AdoUrl: TypeAlias = Annotated[
     HttpUrl,
     UrlConstraints(
         max_length=256,
@@ -67,10 +102,19 @@ ADOUrl: TypeAlias = Annotated[
         ],
     ),
 ]
-_ADO_URL_ADAPTER: TypeAdapter[ADOUrl] = TypeAdapter(ADOUrl)
+_ADO_URL_ADAPTER: TypeAdapter[AdoUrl] = TypeAdapter(AdoUrl)
 
 
-class JsonPatchAdd(BaseModel):
+_HTTP_EXCEPTION_MAP: dict[int, type[AzureDevOpsHttpError]] = {
+    400: AzureDevOpsBadRequestError,
+    401: AzureDevOpsAuthError,
+    403: AzureDevOpsAuthError,
+    404: AzureDevOpsNotFoundError,
+    409: AzureDevOpsConflictError,
+}
+
+
+class JsonPatchAdd(AdoBaseModel):
     """Type to store JSON patch information to add data."""
 
     op: Literal["add"] = "add"
@@ -78,7 +122,7 @@ class JsonPatchAdd(BaseModel):
     value: Any
 
 
-class JsonPatchRemove(BaseModel):
+class JsonPatchRemove(AdoBaseModel):
     """Type to store JSON patch information to remove data."""
 
     op: Literal["remove"] = "remove"
@@ -103,16 +147,61 @@ def _is_json_patch(value: Any | list[Any] | list[dict[str, str]]) -> bool:
     return True
 
 
-@lru_cache(maxsize=8)
-def _get_session(access_token: str) -> requests.Session:
-    """Get or create a cached session for the given access token.
+class _BearerAuth(requests.auth.AuthBase):
+    """Auth handler that injects an ``Authorization: Bearer`` header."""
+
+    def __init__(self, token: str) -> None:
+        """Construct the auth handler.
+
+        Args:
+            token: OAuth bearer token string.
+        """
+        self._token = token
+
+    def __call__(self, r: requests.PreparedRequest) -> requests.PreparedRequest:
+        """Attach the Authorization header to the request.
+
+        Returns:
+            The modified PreparedRequest with the Authorization header set.
+        """
+        r.headers["Authorization"] = f"Bearer {self._token}"
+        return r
+
+
+def _setup_session(
+    session: requests.Session,
+    pat: str | None = None,
+    bearer_token: str | None = None,
+    azure_credentials: "TokenCredential | None" = None,
+) -> requests.Session:
+    """Configure *session* with auth and return it.
+
+    Disables ``trust_env`` to prevent netrc credentials (which may contain a
+    repo-scoped token) from overriding the explicitly supplied ADO token.
+    Falls back to the ``AZURE_DEVOPS_EXT_PAT`` environment variable when no
+    other token source is provided.  If nothing is available, the session is
+    returned unconfigured (auth remains whatever the caller set).
+
+    Args:
+        session: Session to configure in-place.
+        pat: ADO personal access token.  Falls back to
+            ``AZURE_DEVOPS_EXT_PAT``.
+        bearer_token: Pre-acquired OAuth bearer token string.
+        azure_credentials: Any azure-identity ``TokenCredential``.  A bearer
+            token is acquired immediately using the ADO resource scope.
 
     Returns:
-        A requests Session configured with basic auth for the token.
+        The same session, configured with auth when a token source is found.
     """
-    session = requests.Session()
     session.trust_env = False
-    session.auth = requests.auth.HTTPBasicAuth("", access_token)
+    if azure_credentials is not None:
+        bearer_token = azure_credentials.get_token(_ADO_GRAPH_SCOPE).token
+    if bearer_token is not None:
+        session.auth = _BearerAuth(bearer_token)
+        return session
+    resolved_pat = pat or os.environ.get("AZURE_DEVOPS_EXT_PAT")
+    if resolved_pat is not None:
+        session.auth = requests.auth.HTTPBasicAuth("", resolved_pat)
     return session
 
 
@@ -130,15 +219,18 @@ def _get_content_type(*, has_data: bool, json_value: Any) -> str:
 
 
 class ApiCall(BaseModel):
-    """Class to call Azure DevOps APIs."""
+    """Class to call Azure DevOps APIs.
+
+    Pass a session from :func:`get_session` to authenticate requests.  When
+    no session is provided a plain unauthenticated session is used.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    access_token: AccessToken
+    session: requests.Session = Field(default_factory=requests.Session)
     parameters: dict[str, int | str | bool] = {}
-    session: requests.Session | None = None
     timeout: PositiveInt = 10
-    url: ADOUrl
+    url: AdoUrl
 
     def build_call(
         self,
@@ -158,9 +250,8 @@ class ApiCall(BaseModel):
         url_parts = [str(arg) for arg in args]
         new_url = "/".join([self.url.unicode_string().rstrip("/"), *url_parts])
         return ApiCall(
-            access_token=self.access_token,
-            parameters=parameters | self.parameters,
             session=self.session,
+            parameters=parameters | self.parameters,
             timeout=self.timeout,
             url=_ADO_URL_ADAPTER.validate_python(new_url),
         )
@@ -177,7 +268,7 @@ class ApiCall(BaseModel):
             return error_message
         error_message = repr(response.content)
         with suppress(Exception):
-            html_filter = HTMLTextFilter()
+            html_filter = HtmlTextFilter()
             html_filter.feed(response.content.decode("utf-8"))
             error_message = repr(html_filter.text)
         return f"Invalid error response: {error_message}"
@@ -190,14 +281,16 @@ class ApiCall(BaseModel):
             The parsed JSON response, raw bytes if raw is True, or None if empty.
 
         Raises:
-            RuntimeError: If the HTTP response indicates an error status.
             ValueError: If the response body cannot be parsed as JSON.
         """
         try:
             response.raise_for_status()
         except Exception as ex:
             error_message = ApiCall._get_error_message(response)
-            raise RuntimeError(error_message) from ex
+            exc_class = _HTTP_EXCEPTION_MAP.get(
+                response.status_code, AzureDevOpsHttpError
+            )
+            raise exc_class(response.status_code, error_message) from ex
         if raw:
             return response.content
         if not response.content:  # Handle b'' return values
@@ -235,11 +328,7 @@ class ApiCall(BaseModel):
             kwargs = {"json": json}
         if data is not None:
             kwargs = {"data": data}
-        session = (
-            api_call.session
-            if api_call.session is not None
-            else _get_session(api_call.access_token)
-        )
+        session = api_call.session
         max_retries = 3
         for retry in range(max_retries, 0, -1):  # max_retries, ..., 1
             try:
@@ -347,24 +436,36 @@ class ApiCall(BaseModel):
         return ApiCall._request("DELETE", api_call)
 
 
-def get_session(access_token: AccessToken) -> requests.Session:
-    """Return the cached session for the given access token.
-
-    Callers may use this to inject a custom SSL adapter (e.g. a truststore
-    adapter) into the session before the first API call is made.
+def get_session(
+    pat: str | None = None,
+    bearer_token: str | None = None,
+    azure_credentials: "TokenCredential | None" = None,
+) -> requests.Session:
+    """Return a new session configured via :func:`_setup_session`.
 
     Args:
-        access_token: ADO personal access token or OAuth token.
+        pat: ADO personal access token.  Falls back to
+            ``AZURE_DEVOPS_EXT_PAT``.
+        bearer_token: Pre-acquired OAuth bearer token string.
+        azure_credentials: Any azure-identity ``TokenCredential``.  A bearer
+            token is acquired immediately using the ADO resource scope.
 
     Returns:
-        The requests.Session that pyado uses for all calls with this token.
+        A new requests.Session configured with the supplied credentials.
     """
-    return _get_session(access_token)
+    return _setup_session(
+        requests.Session(),
+        pat=pat,
+        bearer_token=bearer_token,
+        azure_credentials=azure_credentials,
+    )
 
 
-class _IdentityRef(BaseModel):
+class _IdentityRef(AdoBaseModel):
     """Minimal identity reference as returned across ADO REST responses."""
 
     id: str
-    display_name: str = Field(alias="displayName")
-    unique_name: str | None = Field(alias="uniqueName", default=None)
+    display_name: str
+    unique_name: str | None = None
+    url: AdoUrl | None = None
+    image_url: AdoUrl | None = None

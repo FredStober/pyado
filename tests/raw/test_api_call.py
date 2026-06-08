@@ -8,17 +8,24 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
+import requests.auth
 
+from pyado import (
+    AzureDevOpsAuthError,
+    AzureDevOpsBadRequestError,
+    AzureDevOpsConflictError,
+    AzureDevOpsHttpError,
+    AzureDevOpsNotFoundError,
+)
 from pyado.raw import (
     ApiCall,
-    HTMLTextFilter,
+    HtmlTextFilter,
     JsonPatchAdd,
     get_session,
 )
-from pyado.raw._core import _get_content_type, _get_session, _is_json_patch
+from pyado.raw._core import _BearerAuth, _get_content_type, _is_json_patch
 
 BASE_URL = "https://dev.azure.com/org/"
-ACCESS_TOKEN = "test_token"
 
 
 def make_mock_response(
@@ -51,19 +58,19 @@ def make_mock_response(
     return mock
 
 
-class TestHTMLTextFilter:
-    """Tests for HTMLTextFilter."""
+class TestHtmlTextFilter:
+    """Tests for HtmlTextFilter."""
 
     @staticmethod
     def test_init_sets_empty_text() -> None:
         """Filter starts with empty text."""
-        html_filter = HTMLTextFilter()
+        html_filter = HtmlTextFilter()
         assert not html_filter.text
 
     @staticmethod
     def test_handle_data_appends_text() -> None:
         """Data outside style tags is accumulated in text."""
-        html_filter = HTMLTextFilter()
+        html_filter = HtmlTextFilter()
         html_filter.handle_starttag("p", [])
         html_filter.handle_data("hello")
         assert html_filter.text == "hello"
@@ -71,7 +78,7 @@ class TestHTMLTextFilter:
     @staticmethod
     def test_handle_data_skips_inside_style_tag() -> None:
         """Data inside a style tag is ignored."""
-        html_filter = HTMLTextFilter()
+        html_filter = HtmlTextFilter()
         html_filter.handle_starttag("style", [])
         html_filter.handle_data("body { color: red; }")
         assert not html_filter.text
@@ -79,7 +86,7 @@ class TestHTMLTextFilter:
     @staticmethod
     def test_handle_data_strips_and_concatenates() -> None:
         """Multiple data segments are joined with a single space."""
-        html_filter = HTMLTextFilter()
+        html_filter = HtmlTextFilter()
         html_filter.handle_starttag("p", [])
         html_filter.handle_data("  hello  ")
         html_filter.handle_endtag("p")
@@ -90,14 +97,14 @@ class TestHTMLTextFilter:
     @staticmethod
     def test_handle_endtag_matching_tag() -> None:
         """Matching end tag is removed from the stack without error."""
-        html_filter = HTMLTextFilter()
+        html_filter = HtmlTextFilter()
         html_filter.handle_starttag("p", [])
         html_filter.handle_endtag("p")  # Should not raise
 
     @staticmethod
     def test_handle_endtag_mismatched_raises() -> None:
         """Mismatched end tag raises ValueError."""
-        html_filter = HTMLTextFilter()
+        html_filter = HtmlTextFilter()
         html_filter.handle_starttag("p", [])
         with pytest.raises(ValueError, match="Invalid end tag!"):
             html_filter.handle_endtag("div")
@@ -105,7 +112,7 @@ class TestHTMLTextFilter:
     @staticmethod
     def test_feed_full_html() -> None:
         """Full HTML document is parsed and text extracted."""
-        html_filter = HTMLTextFilter()
+        html_filter = HtmlTextFilter()
         html_filter.feed("<html><body><p>content</p></body></html>")
         assert html_filter.text == "content"
 
@@ -173,40 +180,38 @@ class TestApiCallBuildCall:
     @staticmethod
     def test_build_call_appends_path_segments() -> None:
         """Path segments are appended to the base URL."""
-        api_call = ApiCall(access_token=ACCESS_TOKEN, url=BASE_URL)
+        api_call = ApiCall(url=BASE_URL)
         result = api_call.build_call("projects", "myproject")
         assert "projects/myproject" in result.url.unicode_string()
 
     @staticmethod
     def test_build_call_adds_version_parameter() -> None:
         """Version is added as api-version query parameter."""
-        api_call = ApiCall(access_token=ACCESS_TOKEN, url=BASE_URL)
+        api_call = ApiCall(url=BASE_URL)
         result = api_call.build_call("resource", version="7.0")
         assert result.parameters["api-version"] == "7.0"
 
     @staticmethod
     def test_build_call_without_version_no_api_version_param() -> None:
         """Without version, no api-version parameter is added."""
-        api_call = ApiCall(access_token=ACCESS_TOKEN, url=BASE_URL)
+        api_call = ApiCall(url=BASE_URL)
         result = api_call.build_call("resource")
         assert "api-version" not in result.parameters
 
     @staticmethod
     def test_build_call_merges_parameters() -> None:
         """Provided parameters are merged with existing ones."""
-        api_call = ApiCall(
-            access_token=ACCESS_TOKEN, url=BASE_URL, parameters={"base": "param"}
-        )
+        api_call = ApiCall(url=BASE_URL, parameters={"base": "param"})
         result = api_call.build_call("resource", parameters={"extra": "value"})
         assert result.parameters["base"] == "param"
         assert result.parameters["extra"] == "value"
 
     @staticmethod
-    def test_build_call_inherits_access_token() -> None:
-        """Access token is preserved in the new ApiCall."""
-        api_call = ApiCall(access_token=ACCESS_TOKEN, url=BASE_URL)
+    def test_build_call_inherits_session() -> None:
+        """Session is preserved in the new ApiCall."""
+        api_call = ApiCall(url=BASE_URL)
         result = api_call.build_call("path")
-        assert result.access_token == ACCESS_TOKEN
+        assert result.session is api_call.session
 
 
 class TestApiCallGetErrorMessage:
@@ -244,13 +249,92 @@ class TestApiCallParseResponse:
     """Tests for ApiCall._parse_response."""
 
     @staticmethod
-    def test_failed_response_raises_runtime_error() -> None:
-        """HTTP error response raises RuntimeError with message."""
+    def test_unmapped_status_raises_base_http_error() -> None:
+        """Unmapped HTTP status code raises the base AzureDevOpsHttpError."""
+        mock_response = make_mock_response(
+            json_data={"message": "internal error"},
+            raise_for_status_exc=requests.HTTPError("500"),
+        )
+        mock_response.status_code = 500
+        with pytest.raises(AzureDevOpsHttpError, match="internal error"):
+            ApiCall._parse_response(mock_response)
+
+    @staticmethod
+    def test_400_raises_bad_request_error() -> None:
+        """HTTP 400 raises AzureDevOpsBadRequestError."""
+        mock_response = make_mock_response(
+            json_data={"message": "bad request"},
+            raise_for_status_exc=requests.HTTPError("400"),
+        )
+        mock_response.status_code = 400
+        with pytest.raises(AzureDevOpsBadRequestError):
+            ApiCall._parse_response(mock_response)
+
+    @staticmethod
+    def test_401_raises_auth_error() -> None:
+        """HTTP 401 raises AzureDevOpsAuthError."""
+        mock_response = make_mock_response(
+            json_data={"message": "unauthorized"},
+            raise_for_status_exc=requests.HTTPError("401"),
+        )
+        mock_response.status_code = 401
+        with pytest.raises(AzureDevOpsAuthError):
+            ApiCall._parse_response(mock_response)
+
+    @staticmethod
+    def test_403_raises_auth_error() -> None:
+        """HTTP 403 raises AzureDevOpsAuthError."""
+        mock_response = make_mock_response(
+            json_data={"message": "forbidden"},
+            raise_for_status_exc=requests.HTTPError("403"),
+        )
+        mock_response.status_code = 403
+        with pytest.raises(AzureDevOpsAuthError):
+            ApiCall._parse_response(mock_response)
+
+    @staticmethod
+    def test_404_raises_not_found_error() -> None:
+        """HTTP 404 raises AzureDevOpsNotFoundError."""
         mock_response = make_mock_response(
             json_data={"message": "not found"},
             raise_for_status_exc=requests.HTTPError("404"),
         )
-        with pytest.raises(RuntimeError, match="not found"):
+        mock_response.status_code = 404
+        with pytest.raises(AzureDevOpsNotFoundError):
+            ApiCall._parse_response(mock_response)
+
+    @staticmethod
+    def test_409_raises_conflict_error() -> None:
+        """HTTP 409 raises AzureDevOpsConflictError."""
+        mock_response = make_mock_response(
+            json_data={"message": "conflict"},
+            raise_for_status_exc=requests.HTTPError("409"),
+        )
+        mock_response.status_code = 409
+        with pytest.raises(AzureDevOpsConflictError):
+            ApiCall._parse_response(mock_response)
+
+    @staticmethod
+    def test_http_error_preserves_status_code() -> None:
+        """The raised exception carries the HTTP status code."""
+        mock_response = make_mock_response(
+            json_data={"message": "gone"},
+            raise_for_status_exc=requests.HTTPError("410"),
+        )
+        mock_response.status_code = 410
+        with pytest.raises(AzureDevOpsHttpError) as exc_info:
+            ApiCall._parse_response(mock_response)
+        assert exc_info.value.status_code == 410
+
+    @staticmethod
+    def test_specific_subtypes_are_http_error_subtypes() -> None:
+        """All specific exception types are subclasses of AzureDevOpsHttpError."""
+        mock_response = make_mock_response(
+            json_data={"message": "not found"},
+            raise_for_status_exc=requests.HTTPError("404"),
+        )
+        mock_response.status_code = 404
+        with pytest.raises(AzureDevOpsHttpError):
             ApiCall._parse_response(mock_response)
 
     @staticmethod
@@ -282,45 +366,67 @@ class TestApiCallParseResponse:
             ApiCall._parse_response(mock_response)
 
 
-class TestGetSessionPrivate:
-    """Tests for _get_session module-level helper."""
-
-    @staticmethod
-    def test_creates_session_with_auth() -> None:
-        """Session is created with basic auth using the access token."""
-        session = _get_session("mytoken")
-        assert isinstance(session, requests.Session)
-        assert session.auth is not None
-
-    @staticmethod
-    def test_same_token_returns_cached_session() -> None:
-        """The same token always returns the same session object."""
-        session_1 = _get_session("token_a")
-        session_2 = _get_session("token_a")
-        assert session_1 is session_2
-
-    @staticmethod
-    def test_different_tokens_return_different_sessions() -> None:
-        """Different tokens produce distinct session objects."""
-        session_1 = _get_session("token_a")
-        session_2 = _get_session("token_b")
-        assert session_1 is not session_2
-
-
 class TestGetSession:
     """Tests for get_session."""
 
     @staticmethod
-    def test_returns_requests_session() -> None:
-        """Returns a requests.Session object."""
-        session = get_session("mytoken")
+    def test_pat_returns_session_with_basic_auth() -> None:
+        """PAT path returns a session configured with HTTP Basic auth."""
+        session = get_session(pat="mytoken")
         assert isinstance(session, requests.Session)
+        assert isinstance(session.auth, requests.auth.HTTPBasicAuth)
 
     @staticmethod
-    def test_returns_same_instance_as_private_helper() -> None:
-        """Returns the same session object as the internal _get_session helper."""
-        session = get_session("mytoken")
-        assert session is _get_session("mytoken")
+    def test_each_call_returns_fresh_session() -> None:
+        """get_session always returns a new session object."""
+        session_1 = get_session(pat="token_a")
+        session_2 = get_session(pat="token_a")
+        assert session_1 is not session_2
+
+    @staticmethod
+    def test_different_pats_return_different_sessions() -> None:
+        """Different PATs produce distinct session objects."""
+        session_1 = get_session(pat="token_x")
+        session_2 = get_session(pat="token_y")
+        assert session_1 is not session_2
+
+    @staticmethod
+    def test_no_args_returns_raw_session(monkeypatch: pytest.MonkeyPatch) -> None:
+        """get_session() with no credentials returns a session with no auth."""
+        monkeypatch.delenv("AZURE_DEVOPS_EXT_PAT", raising=False)
+        session = get_session()
+        assert session.auth is None
+
+    @staticmethod
+    def test_bearer_token_returns_session() -> None:
+        """bearer_token path returns a session with bearer auth."""
+        token = "bearer_test_token_unique_xyz"
+        session = get_session(bearer_token=token)
+        assert isinstance(session, requests.Session)
+        # Verify the Authorization header is set correctly via auth callable
+        auth = session.auth
+        assert isinstance(auth, _BearerAuth)
+        prep = requests.Request("GET", "https://example.com").prepare()
+        auth(prep)
+        assert prep.headers.get("Authorization") == f"Bearer {token}"
+
+    @staticmethod
+    def test_bearer_token_returns_fresh_session_each_call() -> None:
+        """get_session always returns a new session object for bearer tokens."""
+        token = "bearer_cached_token_unique_abc"
+        session_1 = get_session(bearer_token=token)
+        session_2 = get_session(bearer_token=token)
+        assert session_1 is not session_2
+
+    @staticmethod
+    def test_azure_credentials_extracts_bearer_token() -> None:
+        """azure_credentials path calls get_token and uses the result."""
+        mock_creds = MagicMock()
+        unique_token = "az_cred_token_unique_789xyz"
+        mock_creds.get_token.return_value.token = unique_token
+        session = get_session(azure_credentials=mock_creds)
+        assert isinstance(session, requests.Session)
+        mock_creds.get_token.assert_called_once()
 
 
 class TestApiCallRequest:

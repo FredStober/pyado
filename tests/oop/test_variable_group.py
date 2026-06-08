@@ -1,4 +1,4 @@
-"""Tests for pyado.oop._variable_group — OOP layer."""
+"""Tests for pyado.oop.pipelines._variable_group — OOP layer."""
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
@@ -10,7 +10,7 @@ import pytest
 import requests
 
 from pyado.oop import Project, VariableGroup
-from pyado.oop._variable_group import update_variable_group
+from pyado.oop.pipelines._variable_group import update_variable_group
 from pyado.raw import (
     ApiCall,
     VariableGroupInfo,
@@ -145,7 +145,7 @@ class TestVariableGroup:
         new_vars = {"BAR": VariableInfo(value="baz")}
         updated_info = _variable_group_info()
         with patch(
-            "pyado.oop.variable_group._variable_group.update_variable_group"
+            "pyado.oop.pipelines.variable_group._variable_group.update_variable_group"
         ) as mock_upd:
             mock_upd.return_value = updated_info
             vg.update(new_vars)
@@ -157,7 +157,7 @@ class TestVariableGroup:
         vg = _make_variable_group(name="OrigName")
         updated_info = _variable_group_info(name="OrigName")
         with patch(
-            "pyado.oop.variable_group._variable_group.update_variable_group"
+            "pyado.oop.pipelines.variable_group._variable_group.update_variable_group"
         ) as mock_upd:
             mock_upd.return_value = updated_info
             vg.update({})
@@ -168,7 +168,7 @@ class TestVariableGroup:
         vg = _make_variable_group(name="OldName")
         updated_info = _variable_group_info(name="NewName")
         with patch(
-            "pyado.oop.variable_group._variable_group.update_variable_group"
+            "pyado.oop.pipelines.variable_group._variable_group.update_variable_group"
         ) as mock_upd:
             mock_upd.return_value = updated_info
             vg.update({}, name="NewName")
@@ -179,7 +179,7 @@ class TestVariableGroup:
         vg = _make_variable_group()
         new_info = _variable_group_info(group_id=1, name="Updated")
         with patch(
-            "pyado.oop.variable_group._variable_group.update_variable_group"
+            "pyado.oop.pipelines.variable_group._variable_group.update_variable_group"
         ) as mock_upd:
             mock_upd.return_value = new_info
             vg.update({})
@@ -188,7 +188,7 @@ class TestVariableGroup:
     def test_set_variable_merges_and_updates(self) -> None:
         vg = _make_variable_group()
         with patch(
-            "pyado.oop.variable_group._variable_group.update_variable_group"
+            "pyado.oop.pipelines.variable_group._variable_group.update_variable_group"
         ) as mock_upd:
             mock_upd.return_value = _variable_group_info()
             vg.set_variable("NEW_KEY", "new-val")
@@ -201,7 +201,7 @@ class TestVariableGroup:
     def test_set_variable_secret_flag(self) -> None:
         vg = _make_variable_group()
         with patch(
-            "pyado.oop.variable_group._variable_group.update_variable_group"
+            "pyado.oop.pipelines.variable_group._variable_group.update_variable_group"
         ) as mock_upd:
             mock_upd.return_value = _variable_group_info()
             vg.set_variable("SECRET", "s3cr3t", is_secret=True)
@@ -212,7 +212,7 @@ class TestVariableGroup:
     def test_delete_variable_removes_key(self) -> None:
         vg = _make_variable_group()
         with patch(
-            "pyado.oop.variable_group._variable_group.update_variable_group"
+            "pyado.oop.pipelines.variable_group._variable_group.update_variable_group"
         ) as mock_upd:
             mock_upd.return_value = _variable_group_info()
             vg.delete_variable("FOO")
@@ -258,7 +258,7 @@ class TestVariableGroup:
         )
         vg = VariableGroup(proj, _api_call(), info)
         with patch(
-            "pyado.oop.variable_group._variable_group.update_variable_group"
+            "pyado.oop.pipelines.variable_group._variable_group.update_variable_group"
         ) as mock_upd:
             mock_upd.return_value = info
             vg.update({})
@@ -270,7 +270,7 @@ class TestVariableGroup:
         vg = _make_variable_group(group_id=1)
         refreshed = _variable_group_info(group_id=1, name="Refreshed")
         with patch(
-            "pyado.oop.variable_group.raw.get_variable_group_details"
+            "pyado.oop.pipelines.variable_group.raw.get_variable_group_details"
         ) as mock_get:
             mock_get.return_value = refreshed
             vg.refresh()
@@ -281,6 +281,12 @@ class TestVariableGroup:
 
     def test_delete_delegates(self) -> None:
         vg = _make_variable_group()
-        with patch("pyado.oop.variable_group.raw.delete_variable_group") as mock_del:
+        with patch(
+            "pyado.oop.pipelines.variable_group.raw.delete_variable_group"
+        ) as mock_del:
             vg.delete()
-        mock_del.assert_called_once_with(vg.api_call)
+        mock_del.assert_called_once_with(
+            vg._project._service.api_call,
+            vg.id,
+            [str(vg._project.id)],
+        )

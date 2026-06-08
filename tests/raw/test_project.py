@@ -57,6 +57,46 @@ def test_project_info_parses_from_dict() -> None:
     assert project.state == "wellFormed"
     assert project.visibility == "private"
     assert project.revision == 42
+    assert project.url is None
+    assert project.default_team is None
+    assert project.capabilities is None
+
+
+def test_project_info_parses_url_and_capabilities() -> None:
+    """ProjectInfo parses url, defaultTeam, and capabilities when present."""
+    data = {
+        "id": str(uuid4()),
+        "name": "My Project",
+        "state": "wellFormed",
+        "revision": 1,
+        "visibility": "private",
+        "lastUpdateTime": "2024-01-01T00:00:00+00:00",
+        "url": "https://dev.azure.com/myorg/_apis/projects/abc",
+        "defaultTeam": {
+            "id": "team-id-1",
+            "name": "My Project Team",
+            "url": "https://dev.azure.com/myorg/_apis/projects/abc/teams/team-id-1",
+        },
+        "capabilities": {
+            "processTemplate": {
+                "templateName": "Agile",
+                "templateTypeId": "adcc42ab-9882-485e-a3ed-7678f01f66bc",
+            },
+            "versioncontrol": {
+                "sourceControlType": "Git",
+                "gitEnabled": "True",
+                "tfvcEnabled": "False",
+            },
+        },
+    }
+    project = ProjectInfo.model_validate(data)
+    assert project.url is not None
+    assert project.default_team is not None
+    assert project.default_team.name == "My Project Team"
+    assert project.capabilities is not None
+    assert project.capabilities.process_template.template_name == "Agile"
+    assert project.capabilities.version_control.source_control_type == "Git"
+    assert project.capabilities.version_control.git_enabled == "True"
 
 
 class TestIterProjects:
@@ -157,6 +197,8 @@ class TestSmokeIterProjects:
         assert result[0].name == "main"
         assert result[0].state == "wellFormed"
         assert result[0].revision == 20
+        assert result[0].default_team is not None
+        assert result[0].default_team.name == "main Team"
 
     @staticmethod
     def test_parses_sentinel_last_update_time(api_call: ApiCall) -> None:
@@ -171,7 +213,7 @@ class TestSmokeIterProjects:
 class TestListProjects:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
-        with patch("pyado.raw.project.iter_projects", return_value=iter([])) as m:
+        with patch("pyado.raw.core.project.iter_projects", return_value=iter([])) as m:
             result = list_projects(api_call)
         assert result == []
         m.assert_called_once_with(api_call)

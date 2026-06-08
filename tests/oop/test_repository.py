@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from pyado import AzureDevOpsNotFoundError
 from pyado.oop import (
     AddFile,
     Commit,
@@ -19,12 +20,14 @@ from pyado.oop import (
 )
 from pyado.raw import (
     AccessControlList,
+    AnnotatedTagInfo,
     BranchStatistics,
     GitItem,
     GitRef,
     PullRequestSearchCriteria,
     PullRequestStatus,
     RecursionLevel,
+    VersionDescriptorType,
 )
 from tests.oop.conftest import (
     ORG_URL,
@@ -75,7 +78,7 @@ class TestRepository:
 
     def test_refresh_refetches(self) -> None:
         repo = _make_repo()
-        with patch("pyado.oop.repository.raw.get_repository_info") as mock_get:
+        with patch("pyado.oop.repos.repository.raw.get_repository_info") as mock_get:
             mock_get.return_value = _repo_info()
             repo.refresh()
             # refresh() lazily invalidates; the actual fetch happens on next info access
@@ -84,8 +87,12 @@ class TestRepository:
 
     def test_get_pull_request_delegates_to_get_pr_details(self) -> None:
         with (
-            patch("pyado.oop.repository.raw.get_pull_request_api_call") as mock_call,
-            patch("pyado.oop.repository.raw.get_pull_request_details") as mock_details,
+            patch(
+                "pyado.oop.repos.repository.raw.get_pull_request_api_call"
+            ) as mock_call,
+            patch(
+                "pyado.oop.repos.repository.raw.get_pull_request_details"
+            ) as mock_details,
         ):
             mock_call.return_value = _api_call()
             mock_details.return_value = _pr_list_item(7)
@@ -94,8 +101,10 @@ class TestRepository:
 
     def test_iter_pull_requests_filters_by_repo(self) -> None:
         with (
-            patch("pyado.oop.repository.raw.iter_pull_requests") as mock_iter,
-            patch("pyado.oop.repository.raw.get_pull_request_api_call") as mock_call,
+            patch("pyado.oop.repos.repository.raw.iter_pull_requests") as mock_iter,
+            patch(
+                "pyado.oop.repos.repository.raw.get_pull_request_api_call"
+            ) as mock_call,
         ):
             mock_iter.return_value = iter([_pr_list_item(1), _pr_list_item(2)])
             mock_call.return_value = _api_call()
@@ -107,8 +116,10 @@ class TestRepository:
 
     def test_iter_pull_requests_status_override(self) -> None:
         with (
-            patch("pyado.oop.repository.raw.iter_pull_requests") as mock_iter,
-            patch("pyado.oop.repository.raw.get_pull_request_api_call") as mock_call,
+            patch("pyado.oop.repos.repository.raw.iter_pull_requests") as mock_iter,
+            patch(
+                "pyado.oop.repos.repository.raw.get_pull_request_api_call"
+            ) as mock_call,
         ):
             mock_iter.return_value = iter([])
             mock_call.return_value = _api_call()
@@ -118,8 +129,8 @@ class TestRepository:
 
     def test_iter_pull_requests_passes_expand(self) -> None:
         with (
-            patch("pyado.oop.repository.raw.iter_pull_requests") as mock_iter,
-            patch("pyado.oop.repository.raw.get_pull_request_api_call"),
+            patch("pyado.oop.repos.repository.raw.iter_pull_requests") as mock_iter,
+            patch("pyado.oop.repos.repository.raw.get_pull_request_api_call"),
         ):
             mock_iter.return_value = iter([])
             list(_make_repo().iter_pull_requests(expand="labels"))
@@ -131,8 +142,10 @@ class TestRepository:
             status=PullRequestStatus.COMPLETED, min_time=min_time
         )
         with (
-            patch("pyado.oop.repository.raw.iter_pull_requests") as mock_iter,
-            patch("pyado.oop.repository.raw.get_pull_request_api_call") as mock_call,
+            patch("pyado.oop.repos.repository.raw.iter_pull_requests") as mock_iter,
+            patch(
+                "pyado.oop.repos.repository.raw.get_pull_request_api_call"
+            ) as mock_call,
         ):
             mock_iter.return_value = iter([])
             mock_call.return_value = _api_call()
@@ -145,89 +158,121 @@ class TestRepository:
     def test_create_pull_request_returns_pull_request(self) -> None:
         with (
             patch(
-                "pyado.oop.repository._pull_request.create_pull_request"
+                "pyado.oop.repos.repository._pull_request.create_pull_request"
             ) as mock_create,
-            patch("pyado.oop.repository.raw.get_pull_request_api_call") as mock_call,
+            patch(
+                "pyado.oop.repos.repository.raw.get_pull_request_api_call"
+            ) as mock_call,
         ):
             mock_create.return_value = _pr_list_item(5)
             mock_call.return_value = _api_call()
             pr = _make_repo().create_pull_request("My PR", "feature/x", "main")
         assert pr.id == 5
 
-    def test_get_file_at_branch_delegates(self) -> None:
-        with patch("pyado.oop.repository._git.get_file_content_at_branch") as mock_get:
+    def test_get_file_by_branch_delegates(self) -> None:
+        with patch(
+            "pyado.oop.repos.repository._git.get_file_content_at_branch"
+        ) as mock_get:
             mock_get.return_value = "file content"
-            result = _make_repo().get_file_at_branch("/foo.py", "main")
+            result = _make_repo().get_file_by_branch("/foo.py", "main")
         assert result == "file content"
 
-    def test_get_file_at_commit_delegates(self) -> None:
-        with patch("pyado.oop.repository._git.get_file_content_at_commit") as mock_get:
+    def test_get_file_by_branch_uses_default_when_none(self) -> None:
+        with patch(
+            "pyado.oop.repos.repository._git.get_file_content_at_branch"
+        ) as mock_get:
+            mock_get.return_value = "content"
+            _make_repo().get_file_by_branch("/foo.py")
+        _, _, branch_arg = mock_get.call_args.args
+        assert branch_arg == "refs/heads/main"
+
+    def test_get_file_by_commit_delegates(self) -> None:
+        with patch(
+            "pyado.oop.repos.repository._git.get_file_content_at_commit"
+        ) as mock_get:
             mock_get.return_value = "commit content"
-            result = _make_repo().get_file_at_commit("/bar.py", "abc123")
+            result = _make_repo().get_file_by_commit("/bar.py", "abc123")
         assert result == "commit content"
 
     def test_iter_refs_delegates(self) -> None:
-        with patch("pyado.oop.repository.raw.iter_refs") as mock_iter:
+        with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_iter:
             mock_iter.return_value = iter([MagicMock()])
             result = list(_make_repo().iter_refs(name_filter="heads/main"))
         assert len(result) == 1
         assert mock_iter.call_args.args[1].name_filter == "heads/main"
 
     def test_create_branch_delegates(self) -> None:
-        with patch("pyado.oop.repository._git.create_branch") as mock_create:
+        with patch("pyado.oop.repos.repository._git.create_branch") as mock_create:
             _make_repo().create_branch("feature/new", "abc123")
         mock_create.assert_called_once()
 
-    def test_delete_branch_delegates(self) -> None:
-        with patch("pyado.oop.repository._git.delete_branch") as mock_del:
+    def test_delete_branch_with_commit_delegates(self) -> None:
+        with patch("pyado.oop.repos.repository._git.delete_branch") as mock_del:
             _make_repo().delete_branch("feature/old", "def456")
         mock_del.assert_called_once()
 
     def test_iter_commit_diff_delegates(self) -> None:
-        with patch("pyado.oop.repository._git.iter_commit_diff") as mock_iter:
+        with patch("pyado.oop.repos.repository._git.iter_commit_diff") as mock_iter:
             mock_iter.return_value = iter([MagicMock()])
             result = list(_make_repo().iter_commit_diff("abc", "def"))
         assert len(result) == 1
 
     def test_push_commits_delegates(self) -> None:
-        with patch("pyado.oop.repository._git.push_commits") as mock_push:
+        with patch("pyado.oop.repos.repository._git.push_commits") as mock_push:
             mock_push.return_value = MagicMock()
             _make_repo().push_commits([], [])
         mock_push.assert_called_once()
 
-    def test_get_file_bytes_at_branch_delegates(self) -> None:
-        with patch("pyado.oop.repository.raw.get_repository_item_bytes") as mock_get:
+    def test_get_file_bytes_by_branch_delegates(self) -> None:
+        with patch(
+            "pyado.oop.repos.repository.raw.get_repository_item_bytes"
+        ) as mock_get:
             mock_get.return_value = b"binary"
-            result = _make_repo().get_file_bytes_at_branch("/img.png", "main")
+            result = _make_repo().get_file_bytes_by_branch("/img.png", "main")
         assert result == b"binary"
         _, _, version, version_type = mock_get.call_args.args
         assert version == "main"
         assert version_type == "branch"
 
-    def test_get_file_bytes_at_branch_strips_refs_prefix(self) -> None:
-        with patch("pyado.oop.repository.raw.get_repository_item_bytes") as mock_get:
+    def test_get_file_bytes_by_branch_strips_refs_prefix(self) -> None:
+        with patch(
+            "pyado.oop.repos.repository.raw.get_repository_item_bytes"
+        ) as mock_get:
             mock_get.return_value = b"data"
-            _make_repo().get_file_bytes_at_branch("/x", "refs/heads/main")
+            _make_repo().get_file_bytes_by_branch("/x", "refs/heads/main")
         _, _, version, _ = mock_get.call_args.args
         assert version == "main"
 
-    def test_get_file_bytes_at_commit_delegates(self) -> None:
-        with patch("pyado.oop.repository.raw.get_repository_item_bytes") as mock_get:
+    def test_get_file_bytes_by_branch_uses_default_when_none(self) -> None:
+        with patch(
+            "pyado.oop.repos.repository.raw.get_repository_item_bytes"
+        ) as mock_get:
+            mock_get.return_value = b"data"
+            _make_repo().get_file_bytes_by_branch("/x")
+        _, _, version, _ = mock_get.call_args.args
+        assert version == "main"
+
+    def test_get_file_bytes_by_commit_delegates(self) -> None:
+        with patch(
+            "pyado.oop.repos.repository.raw.get_repository_item_bytes"
+        ) as mock_get:
             mock_get.return_value = b"binary"
-            result = _make_repo().get_file_bytes_at_commit("/img.png", "abc123")
+            result = _make_repo().get_file_bytes_by_commit("/img.png", "abc123")
         assert result == b"binary"
         _, _, version, version_type = mock_get.call_args.args
         assert version == "abc123"
         assert version_type == "commit"
 
     def test_get_file_bytes_returns_none_when_missing(self) -> None:
-        with patch("pyado.oop.repository.raw.get_repository_item_bytes") as mock_get:
+        with patch(
+            "pyado.oop.repos.repository.raw.get_repository_item_bytes"
+        ) as mock_get:
             mock_get.return_value = None
-            result = _make_repo().get_file_bytes_at_branch("/missing", "main")
+            result = _make_repo().get_file_bytes_by_branch("/missing", "main")
         assert result is None
 
     def test_iter_commits_returns_commit_objects(self) -> None:
-        with patch("pyado.oop.repository.raw.get_repository_commits") as mock_get:
+        with patch("pyado.oop.repos.repository.raw.get_repository_commits") as mock_get:
             mock_get.return_value = [_git_commit_ref("sha1"), _git_commit_ref("sha2")]
             result = list(_make_repo().iter_commits())
         assert len(result) == 2
@@ -236,7 +281,7 @@ class TestRepository:
         assert result[1].sha == "sha2"
 
     def test_iter_commits_passes_item_path(self) -> None:
-        with patch("pyado.oop.repository.raw.get_repository_commits") as mock_get:
+        with patch("pyado.oop.repos.repository.raw.get_repository_commits") as mock_get:
             mock_get.return_value = []
             list(_make_repo().iter_commits(item_path="/src/foo.py", top=10))
         criteria = mock_get.call_args.args[1]
@@ -244,7 +289,7 @@ class TestRepository:
         assert criteria.top == 10
 
     def test_get_commit_returns_commit_object(self) -> None:
-        with patch("pyado.oop.repository.raw.get_commit_by_id") as mock_get:
+        with patch("pyado.oop.repos.repository.raw.get_commit_by_id") as mock_get:
             mock_get.return_value = _git_commit_ref("deadbeef")
             result = _make_repo().get_commit("deadbeef")
         assert isinstance(result, Commit)
@@ -252,16 +297,16 @@ class TestRepository:
         mock_get.assert_called_once()
 
     def test_make_ref_update_delegates(self) -> None:
-        with patch("pyado.oop.repository._git.create_ref_update") as mock_create:
+        with patch("pyado.oop.repos.repository._git.create_ref_update") as mock_create:
             mock_create.return_value = MagicMock()
             _make_repo().make_ref_update("main")
         mock_create.assert_called_once()
 
     def test_commit_delegates_to_push(self) -> None:
         with (
-            patch("pyado.oop.repository._git.create_ref_update") as mock_ref,
-            patch("pyado.oop.repository._git.make_commit") as mock_commit,
-            patch("pyado.oop.repository._git.push_commits") as mock_push,
+            patch("pyado.oop.repos.repository._git.create_ref_update") as mock_ref,
+            patch("pyado.oop.repos.repository._git.make_commit") as mock_commit,
+            patch("pyado.oop.repos.repository._git.push_commits") as mock_push,
         ):
             mock_ref.return_value = MagicMock()
             mock_commit.return_value = MagicMock()
@@ -273,9 +318,9 @@ class TestRepository:
 
     def test_commit_passes_branch_and_message(self) -> None:
         with (
-            patch("pyado.oop.repository._git.create_ref_update") as mock_ref,
-            patch("pyado.oop.repository._git.make_commit") as mock_commit,
-            patch("pyado.oop.repository._git.push_commits") as mock_push,
+            patch("pyado.oop.repos.repository._git.create_ref_update") as mock_ref,
+            patch("pyado.oop.repos.repository._git.make_commit") as mock_commit,
+            patch("pyado.oop.repos.repository._git.push_commits") as mock_push,
         ):
             mock_ref.return_value = MagicMock()
             mock_commit.return_value = MagicMock()
@@ -286,9 +331,9 @@ class TestRepository:
 
     def test_commit_converts_file_changes_to_git_changes(self) -> None:
         with (
-            patch("pyado.oop.repository._git.create_ref_update") as mock_ref,
-            patch("pyado.oop.repository._git.make_commit") as mock_commit,
-            patch("pyado.oop.repository._git.push_commits") as mock_push,
+            patch("pyado.oop.repos.repository._git.create_ref_update") as mock_ref,
+            patch("pyado.oop.repos.repository._git.make_commit") as mock_commit,
+            patch("pyado.oop.repos.repository._git.push_commits") as mock_push,
         ):
             mock_ref.return_value = MagicMock()
             mock_commit.return_value = MagicMock()
@@ -307,7 +352,9 @@ class TestRepository:
         stats = BranchStatistics.model_validate(
             {"name": "main", "aheadCount": 2, "behindCount": 0}
         )
-        with patch("pyado.oop.repository.raw.get_repository_statistics") as mock_get:
+        with patch(
+            "pyado.oop.repos.repository.raw.get_repository_statistics"
+        ) as mock_get:
             mock_get.return_value = stats
             result = _make_repo().get_statistics("main")
         mock_get.assert_called_once()
@@ -316,8 +363,10 @@ class TestRepository:
 
     def test_get_pr_for_branch_returns_pull_request(self) -> None:
         with (
-            patch("pyado.oop.repository.raw.iter_pull_requests") as mock_iter,
-            patch("pyado.oop.repository.raw.get_pull_request_api_call") as mock_call,
+            patch("pyado.oop.repos.repository.raw.iter_pull_requests") as mock_iter,
+            patch(
+                "pyado.oop.repos.repository.raw.get_pull_request_api_call"
+            ) as mock_call,
         ):
             mock_iter.return_value = iter([_pr_list_item(11)])
             mock_call.return_value = _api_call()
@@ -327,8 +376,10 @@ class TestRepository:
 
     def test_get_pr_for_branch_normalises_short_branch(self) -> None:
         with (
-            patch("pyado.oop.repository.raw.iter_pull_requests") as mock_iter,
-            patch("pyado.oop.repository.raw.get_pull_request_api_call") as mock_call,
+            patch("pyado.oop.repos.repository.raw.iter_pull_requests") as mock_iter,
+            patch(
+                "pyado.oop.repos.repository.raw.get_pull_request_api_call"
+            ) as mock_call,
         ):
             mock_iter.return_value = iter([_pr_list_item(1)])
             mock_call.return_value = _api_call()
@@ -337,7 +388,7 @@ class TestRepository:
         assert criteria.source_ref_name == "refs/heads/main"
 
     def test_get_pr_for_branch_returns_none_when_no_match(self) -> None:
-        with patch("pyado.oop.repository.raw.iter_pull_requests") as mock_iter:
+        with patch("pyado.oop.repos.repository.raw.iter_pull_requests") as mock_iter:
             mock_iter.return_value = iter([])
             result = _make_repo().get_pr_for_branch("no-such-branch")
         assert result is None
@@ -346,7 +397,7 @@ class TestRepository:
 class TestRepositoryAcl:
     def test_get_acl_delegates(self) -> None:
         repo = _make_repo()
-        with patch("pyado.oop.repository.raw.get_git_acl") as mock_acl:
+        with patch("pyado.oop.repos.repository.raw.get_git_acl") as mock_acl:
             mock_acl.return_value = [_make_acl()]
             result = repo.get_acl()
         assert len(result) == 1
@@ -354,7 +405,7 @@ class TestRepositoryAcl:
 
     def test_get_acl_passes_project_and_repo_ids(self) -> None:
         repo = _make_repo()
-        with patch("pyado.oop.repository.raw.get_git_acl") as mock_acl:
+        with patch("pyado.oop.repos.repository.raw.get_git_acl") as mock_acl:
             mock_acl.return_value = []
             repo.get_acl()
         call = mock_acl.call_args
@@ -363,7 +414,7 @@ class TestRepositoryAcl:
 
     def test_get_acl_uses_org_base_url(self) -> None:
         repo = _make_repo()
-        with patch("pyado.oop.repository.raw.get_git_acl") as mock_acl:
+        with patch("pyado.oop.repos.repository.raw.get_git_acl") as mock_acl:
             mock_acl.return_value = []
             repo.get_acl()
         org_call = mock_acl.call_args.args[0]
@@ -375,7 +426,7 @@ class TestRepositoryGetLastCommit:
     def test_delegates_to_high(self) -> None:
         repo = _make_repo()
         with patch(
-            "pyado.oop.repository._git.get_last_commit_touching_file"
+            "pyado.oop.repos.repository._git.get_last_commit_touching_file"
         ) as mock_fn:
             mock_fn.return_value = "abc123"
             result = repo.get_last_commit_touching_file("/src/foo.py", "abc123")
@@ -385,7 +436,7 @@ class TestRepositoryGetLastCommit:
     def test_returns_fallback_when_no_commit_found(self) -> None:
         repo = _make_repo()
         with patch(
-            "pyado.oop.repository._git.get_last_commit_touching_file"
+            "pyado.oop.repos.repository._git.get_last_commit_touching_file"
         ) as mock_fn:
             mock_fn.return_value = "fallback-sha"
             result = repo.get_last_commit_touching_file("/missing.py", "fallback-sha")
@@ -396,8 +447,8 @@ class TestRepositoryGetDefaultBranchCommit:
     def test_returns_commit_at_branch_tip(self) -> None:
         ref = GitRef.model_validate({"name": "heads/main", "objectId": "deadbeef"})
         with (
-            patch("pyado.oop.repository.raw.iter_refs") as mock_iter,
-            patch("pyado.oop.repository.raw.get_commit_by_id") as mock_commit,
+            patch("pyado.oop.repos.repository.raw.iter_refs") as mock_iter,
+            patch("pyado.oop.repos.repository.raw.get_commit_by_id") as mock_commit,
         ):
             mock_iter.return_value = iter([ref])
             mock_commit.return_value = _git_commit_ref("deadbeef")
@@ -415,7 +466,7 @@ class TestRepositoryGetDefaultBranchCommit:
             repo.get_default_branch_commit()
 
     def test_raises_key_error_when_ref_not_found(self) -> None:
-        with patch("pyado.oop.repository.raw.iter_refs") as mock_iter:
+        with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_iter:
             mock_iter.return_value = iter([])
             with pytest.raises(KeyError):
                 _make_repo().get_default_branch_commit()
@@ -425,7 +476,7 @@ class TestRepositoryDeleteFile:
     def test_delegates_to_commit_with_delete_change(self) -> None:
         repo = _make_repo()
         push_result = MagicMock()
-        with patch("pyado.oop.repository.Repository.commit") as mock_commit:
+        with patch("pyado.oop.repos.repository.Repository.commit") as mock_commit:
             mock_commit.return_value = push_result
             result = repo.delete_file("main", "/old.txt", "Remove old file")
         assert result is push_result
@@ -436,7 +487,7 @@ class TestRepositoryDeleteFile:
 
     def test_passes_branch_and_message(self) -> None:
         repo = _make_repo()
-        with patch("pyado.oop.repository.Repository.commit") as mock_commit:
+        with patch("pyado.oop.repos.repository.Repository.commit") as mock_commit:
             mock_commit.return_value = MagicMock()
             repo.delete_file("feature/x", "/f.txt", "Delete it")
         branch, msg, _ = mock_commit.call_args.args
@@ -448,7 +499,7 @@ class TestRepositoryRenameFile:
     def test_delegates_to_commit_with_rename_change(self) -> None:
         repo = _make_repo()
         push_result = MagicMock()
-        with patch("pyado.oop.repository.Repository.commit") as mock_commit:
+        with patch("pyado.oop.repos.repository.Repository.commit") as mock_commit:
             mock_commit.return_value = push_result
             result = repo.rename_file("main", "/a.txt", "/b.txt", "Rename file")
         assert result is push_result
@@ -459,7 +510,7 @@ class TestRepositoryRenameFile:
 
     def test_passes_branch_and_message(self) -> None:
         repo = _make_repo()
-        with patch("pyado.oop.repository.Repository.commit") as mock_commit:
+        with patch("pyado.oop.repos.repository.Repository.commit") as mock_commit:
             mock_commit.return_value = MagicMock()
             repo.rename_file("main", "/a.txt", "/b.txt", "Move file")
         branch, msg, _ = mock_commit.call_args.args
@@ -469,7 +520,7 @@ class TestRepositoryRenameFile:
 
 class TestRepositoryIterBranches:
     def test_calls_iter_refs_with_heads_filter(self) -> None:
-        with patch("pyado.oop.repository.raw.iter_refs") as mock_iter:
+        with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_iter:
             mock_iter.return_value = iter([])
             list(_make_repo().iter_branches())
         ref_filter = mock_iter.call_args.args[1]
@@ -477,7 +528,7 @@ class TestRepositoryIterBranches:
 
     def test_yields_git_refs(self) -> None:
         ref = GitRef.model_validate({"name": "refs/heads/main", "objectId": "abc123"})
-        with patch("pyado.oop.repository.raw.iter_refs") as mock_iter:
+        with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_iter:
             mock_iter.return_value = iter([ref])
             result = list(_make_repo().iter_branches())
         assert len(result) == 1
@@ -488,10 +539,10 @@ class TestRepositoryGetPrForCommit:
     def test_returns_pull_request_when_pr_exists(self) -> None:
         repo = _make_repo()
         pr_item = _pr_list_item(55)
-        with patch("pyado.oop.repository.raw.iter_pull_requests") as mock_iter:
+        with patch("pyado.oop.repos.repository.raw.iter_pull_requests") as mock_iter:
             mock_iter.return_value = iter([pr_item])
             with patch(
-                "pyado.oop.repository.raw.get_pull_request_api_call"
+                "pyado.oop.repos.repository.raw.get_pull_request_api_call"
             ) as mock_pr_call:
                 mock_pr_call.return_value = _api_call()
                 result = repo.get_pr_for_commit("abc123")
@@ -500,7 +551,7 @@ class TestRepositoryGetPrForCommit:
 
     def test_returns_none_when_no_pr(self) -> None:
         repo = _make_repo()
-        with patch("pyado.oop.repository.raw.iter_pull_requests") as mock_iter:
+        with patch("pyado.oop.repos.repository.raw.iter_pull_requests") as mock_iter:
             mock_iter.return_value = iter([])
             result = repo.get_pr_for_commit("abc123")
         assert result is None
@@ -509,22 +560,23 @@ class TestRepositoryGetPrForCommit:
 class TestRepositoryTags:
     def test_iter_tags_delegates_to_raw(self) -> None:
         tag = GitRef.model_validate({"name": "refs/tags/v1.0", "objectId": "abc123"})
-        with patch("pyado.oop.repository.raw.iter_tags") as mock_iter:
+        repo = _make_repo()
+        with patch("pyado.oop.repos.repository.raw.iter_tags") as mock_iter:
             mock_iter.return_value = iter([tag])
-            result = list(_make_repo().iter_tags())
+            result = list(repo.iter_tags())
         assert len(result) == 1
         assert result[0] is tag
-        mock_iter.assert_called_once_with(_make_repo()._api_call)
+        mock_iter.assert_called_once_with(repo._api_call)
 
     def test_create_tag_delegates_to_raw(self) -> None:
-        with patch("pyado.oop.repository.raw.create_tag") as mock_create:
+        with patch("pyado.oop.repos.repository.raw.create_tag") as mock_create:
             _make_repo().create_tag("v1.0", "abc123")
         mock_create.assert_called_once()
         assert mock_create.call_args.args[1] == "v1.0"
         assert mock_create.call_args.args[2] == "abc123"
 
     def test_delete_tag_delegates_to_raw(self) -> None:
-        with patch("pyado.oop.repository.raw.delete_tag") as mock_delete:
+        with patch("pyado.oop.repos.repository.raw.delete_tag") as mock_delete:
             _make_repo().delete_tag("v1.0", "abc123")
         mock_delete.assert_called_once()
         assert mock_delete.call_args.args[1] == "v1.0"
@@ -586,7 +638,7 @@ class TestRepositoryIterItems:
                 "isSymLink": False,
             }
         )
-        with patch("pyado.oop.repository.raw.iter_repository_items") as mock_iter:
+        with patch("pyado.oop.repos.repository.raw.iter_repository_items") as mock_iter:
             mock_iter.return_value = iter([item])
             result = list(repo.iter_items("/", branch="main"))
         mock_iter.assert_called_once_with(
@@ -611,3 +663,485 @@ class TestRepositoryIterItems:
         mock_iter.assert_called_once_with(
             "/src", branch="main", recursion_level=RecursionLevel.FULL
         )
+
+
+# ---------------------------------------------------------------------------
+# A3 — get_branch_head / check_branch_exists
+# ---------------------------------------------------------------------------
+
+
+class TestRepositoryBranchHead:
+    def test_get_branch_head_returns_sha(self) -> None:
+        ref = GitRef.model_validate({"name": "refs/heads/main", "objectId": "abc123"})
+        with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_iter:
+            mock_iter.return_value = iter([ref])
+            result = _make_repo().get_branch_head("main")
+        assert result == "abc123"
+
+    def test_get_branch_head_strips_full_ref_prefix(self) -> None:
+        ref = GitRef.model_validate({"name": "refs/heads/main", "objectId": "abc123"})
+        with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_iter:
+            mock_iter.return_value = iter([ref])
+            result = _make_repo().get_branch_head("refs/heads/main")
+        assert result == "abc123"
+
+    def test_get_branch_head_raises_not_found_when_absent(self) -> None:
+        with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_iter:
+            mock_iter.return_value = iter([])
+            with pytest.raises(AzureDevOpsNotFoundError):
+                _make_repo().get_branch_head("no-such-branch")
+
+    def test_check_branch_exists_returns_true(self) -> None:
+        ref = GitRef.model_validate({"name": "refs/heads/main", "objectId": "abc123"})
+        with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_iter:
+            mock_iter.return_value = iter([ref])
+            assert _make_repo().check_branch_exists("main") is True
+
+    def test_check_branch_exists_returns_false(self) -> None:
+        with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_iter:
+            mock_iter.return_value = iter([])
+            assert _make_repo().check_branch_exists("no-such") is False
+
+    def test_check_branch_exists_strips_full_ref_prefix(self) -> None:
+        with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_iter:
+            mock_iter.return_value = iter([])
+            _make_repo().check_branch_exists("refs/heads/main")
+        ref_filter = mock_iter.call_args.args[1]
+        assert ref_filter.name_filter == "heads/main"
+
+
+# ---------------------------------------------------------------------------
+# A4 — optional current_commit on delete_branch and commit
+# ---------------------------------------------------------------------------
+
+
+class TestRepositoryDeleteBranchOptional:
+    def test_delete_branch_with_explicit_commit_skips_head_fetch(self) -> None:
+        with (
+            patch("pyado.oop.repos.repository._git.delete_branch") as mock_del,
+            patch.object(_make_repo().__class__, "get_branch_head") as mock_head,
+        ):
+            mock_del.return_value = None
+            _make_repo().delete_branch("feature/old", "def456")
+        mock_del.assert_called_once()
+        mock_head.assert_not_called()
+
+    def test_delete_branch_without_commit_fetches_head(self) -> None:
+        repo = _make_repo()
+        with (
+            patch.object(
+                repo, "get_branch_head", return_value="fetched-sha"
+            ) as mock_head,
+            patch("pyado.oop.repos.repository._git.delete_branch") as mock_del,
+        ):
+            repo.delete_branch("main")
+        mock_head.assert_called_once_with("main")
+        assert mock_del.call_args.args[2] == "fetched-sha"
+
+
+class TestRepositoryCommitOptional:
+    def test_commit_with_sha_uses_create_ref_from_sha(self) -> None:
+        with (
+            patch(
+                "pyado.oop.repos.repository._git.create_ref_update_from_sha"
+            ) as mock_from_sha,
+            patch("pyado.oop.repos.repository._git.create_ref_update") as mock_ref,
+            patch("pyado.oop.repos.repository._git.make_commit") as mock_commit,
+            patch("pyado.oop.repos.repository._git.push_commits") as mock_push,
+        ):
+            mock_from_sha.return_value = MagicMock()
+            mock_commit.return_value = MagicMock()
+            mock_push.return_value = MagicMock()
+            _make_repo().commit(
+                "main", "msg", [EditFile("/f", "x")], current_commit="abc"
+            )
+        mock_from_sha.assert_called_once()
+        mock_ref.assert_not_called()
+
+    def test_commit_without_sha_uses_create_ref_update(self) -> None:
+        with (
+            patch("pyado.oop.repos.repository._git.create_ref_update") as mock_ref,
+            patch(
+                "pyado.oop.repos.repository._git.create_ref_update_from_sha"
+            ) as mock_from_sha,
+            patch("pyado.oop.repos.repository._git.make_commit") as mock_commit,
+            patch("pyado.oop.repos.repository._git.push_commits") as mock_push,
+        ):
+            mock_ref.return_value = MagicMock()
+            mock_commit.return_value = MagicMock()
+            mock_push.return_value = MagicMock()
+            _make_repo().commit("main", "msg", [EditFile("/f", "x")])
+        mock_ref.assert_called_once()
+        mock_from_sha.assert_not_called()
+
+    def test_commit_with_none_branch_uses_default_branch(self) -> None:
+        with (
+            patch("pyado.oop.repos.repository._git.create_ref_update") as mock_ref,
+            patch("pyado.oop.repos.repository._git.make_commit") as mock_commit,
+            patch("pyado.oop.repos.repository._git.push_commits") as mock_push,
+        ):
+            mock_ref.return_value = MagicMock()
+            mock_commit.return_value = MagicMock()
+            mock_push.return_value = MagicMock()
+            _make_repo().commit(None, "msg", [EditFile("/f", "x")])
+        # _repo_info default_branch is "refs/heads/main"
+        assert mock_ref.call_args.args[1] == "refs/heads/main"
+
+
+# ---------------------------------------------------------------------------
+# A5 — iter_items_by_* / get_item_by_*
+# ---------------------------------------------------------------------------
+
+
+def _make_git_item(path: str = "/f.py") -> GitItem:
+    return GitItem.model_validate(
+        {
+            "objectId": "a" * 40,
+            "gitObjectType": "blob",
+            "path": path,
+            "isFolder": False,
+            "isSymLink": False,
+        }
+    )
+
+
+class TestRepositoryIterItemsBy:
+    def test_iter_items_by_commit_passes_version(self) -> None:
+        repo = _make_repo()
+        with patch("pyado.oop.repos.repository.raw.iter_repository_items") as mock_iter:
+            mock_iter.return_value = iter([])
+            list(repo.iter_items_by_commit(commit="abc123"))
+        assert mock_iter.call_args.kwargs["version"] == "abc123"
+        assert (
+            mock_iter.call_args.kwargs["version_type"] == VersionDescriptorType.COMMIT
+        )
+
+    def test_iter_items_by_tag_strips_refs_tags_prefix(self) -> None:
+        repo = _make_repo()
+        with patch("pyado.oop.repos.repository.raw.iter_repository_items") as mock_iter:
+            mock_iter.return_value = iter([])
+            list(repo.iter_items_by_tag(tag="refs/tags/v1.0"))
+        assert mock_iter.call_args.kwargs["version"] == "v1.0"
+        assert mock_iter.call_args.kwargs["version_type"] == VersionDescriptorType.TAG
+
+    def test_iter_items_by_tag_short_name(self) -> None:
+        repo = _make_repo()
+        with patch("pyado.oop.repos.repository.raw.iter_repository_items") as mock_iter:
+            mock_iter.return_value = iter([])
+            list(repo.iter_items_by_tag(tag="v1.0"))
+        assert mock_iter.call_args.kwargs["version"] == "v1.0"
+
+    def test_iter_items_by_ref_resolves_to_commit(self) -> None:
+        repo = _make_repo()
+        ref = GitRef.model_validate(
+            {"name": "refs/pull/5/merge", "objectId": "resolved-sha"}
+        )
+        with (
+            patch("pyado.oop.repos.repository.raw.iter_refs") as mock_refs,
+            patch("pyado.oop.repos.repository.raw.iter_repository_items") as mock_iter,
+        ):
+            mock_refs.return_value = iter([ref])
+            mock_iter.return_value = iter([])
+            list(repo.iter_items_by_ref(ref="refs/pull/5/merge"))
+        assert mock_iter.call_args.kwargs["version"] == "resolved-sha"
+        assert (
+            mock_iter.call_args.kwargs["version_type"] == VersionDescriptorType.COMMIT
+        )
+
+    def test_iter_items_by_ref_raises_when_ref_not_found(self) -> None:
+        repo = _make_repo()
+        with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_refs:
+            mock_refs.return_value = iter([])
+            with pytest.raises(AzureDevOpsNotFoundError):
+                list(repo.iter_items_by_ref(ref="refs/pull/999/merge"))
+
+    def test_list_items_by_commit_returns_list(self) -> None:
+        repo = _make_repo()
+        with patch.object(repo, "iter_items_by_commit", return_value=iter([])):
+            assert repo.list_items_by_commit(commit="abc123") == []
+
+    def test_list_items_by_tag_returns_list(self) -> None:
+        repo = _make_repo()
+        with patch.object(repo, "iter_items_by_tag", return_value=iter([])):
+            assert repo.list_items_by_tag(tag="v1.0") == []
+
+    def test_list_items_by_ref_returns_list(self) -> None:
+        repo = _make_repo()
+        with patch.object(repo, "iter_items_by_ref", return_value=iter([])):
+            assert repo.list_items_by_ref(ref="refs/pull/5/merge") == []
+
+
+class TestRepositoryGetItemBy:
+    def test_get_item_by_branch_returns_item(self) -> None:
+        item = _make_git_item()
+        with patch("pyado.oop.repos.repository.raw.get_repository_item") as mock_get:
+            mock_get.return_value = item
+            result = _make_repo().get_item_by_branch("/f.py", "main")
+        assert result is item
+        _, _, version, version_type = mock_get.call_args.args
+        assert version == "main"
+        assert version_type == VersionDescriptorType.BRANCH
+
+    def test_get_item_by_branch_returns_none_when_absent(self) -> None:
+        with patch("pyado.oop.repos.repository.raw.get_repository_item") as mock_get:
+            mock_get.return_value = None
+            assert _make_repo().get_item_by_branch("/missing.py", "main") is None
+
+    def test_get_item_by_branch_uses_default_when_none(self) -> None:
+        with patch("pyado.oop.repos.repository.raw.get_repository_item") as mock_get:
+            mock_get.return_value = None
+            _make_repo().get_item_by_branch("/f.py")
+        _, _, version, _ = mock_get.call_args.args
+        # default_branch is "refs/heads/main" → stripped to "main"
+        assert version == "main"
+
+    def test_get_item_by_commit_uses_commit_type(self) -> None:
+        with patch("pyado.oop.repos.repository.raw.get_repository_item") as mock_get:
+            mock_get.return_value = None
+            _make_repo().get_item_by_commit("/f.py", "abc123")
+        _, _, version, version_type = mock_get.call_args.args
+        assert version == "abc123"
+        assert version_type == VersionDescriptorType.COMMIT
+
+    def test_get_item_by_tag_strips_refs_tags_prefix(self) -> None:
+        with patch("pyado.oop.repos.repository.raw.get_repository_item") as mock_get:
+            mock_get.return_value = None
+            _make_repo().get_item_by_tag("/f.py", "refs/tags/v1.0")
+        _, _, version, version_type = mock_get.call_args.args
+        assert version == "v1.0"
+        assert version_type == VersionDescriptorType.TAG
+
+    def test_get_item_by_ref_resolves_to_commit(self) -> None:
+        ref = GitRef.model_validate(
+            {"name": "refs/pull/42/merge", "objectId": "resolved-sha"}
+        )
+        with (
+            patch("pyado.oop.repos.repository.raw.iter_refs") as mock_refs,
+            patch("pyado.oop.repos.repository.raw.get_repository_item") as mock_get,
+        ):
+            mock_refs.return_value = iter([ref])
+            mock_get.return_value = None
+            _make_repo().get_item_by_ref("/f.py", "refs/pull/42/merge")
+        _, _, version, version_type = mock_get.call_args.args
+        assert version == "resolved-sha"
+        assert version_type == VersionDescriptorType.COMMIT
+
+    def test_get_item_by_ref_raises_when_ref_not_found(self) -> None:
+        with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_refs:
+            mock_refs.return_value = iter([])
+            with pytest.raises(AzureDevOpsNotFoundError):
+                _make_repo().get_item_by_ref("/f.py", "refs/pull/999/merge")
+
+
+# ---------------------------------------------------------------------------
+# A6 — check_file_exists_by_*
+# ---------------------------------------------------------------------------
+
+
+class TestRepositoryCheckFileExists:
+    def test_check_file_exists_by_branch_true(self) -> None:
+        repo = _make_repo()
+        with patch.object(repo, "get_item_by_branch", return_value=_make_git_item()):
+            assert repo.check_file_exists_by_branch("/f.py", "main") is True
+
+    def test_check_file_exists_by_branch_false(self) -> None:
+        repo = _make_repo()
+        with patch.object(repo, "get_item_by_branch", return_value=None):
+            assert repo.check_file_exists_by_branch("/f.py", "main") is False
+
+    def test_check_file_exists_by_commit_true(self) -> None:
+        repo = _make_repo()
+        with patch.object(repo, "get_item_by_commit", return_value=_make_git_item()):
+            assert repo.check_file_exists_by_commit("/f.py", "abc123") is True
+
+    def test_check_file_exists_by_commit_false(self) -> None:
+        repo = _make_repo()
+        with patch.object(repo, "get_item_by_commit", return_value=None):
+            assert repo.check_file_exists_by_commit("/f.py", "abc123") is False
+
+    def test_check_file_exists_by_tag_true(self) -> None:
+        repo = _make_repo()
+        with patch.object(repo, "get_item_by_tag", return_value=_make_git_item()):
+            assert repo.check_file_exists_by_tag("/f.py", "v1.0") is True
+
+    def test_check_file_exists_by_tag_false(self) -> None:
+        repo = _make_repo()
+        with patch.object(repo, "get_item_by_tag", return_value=None):
+            assert repo.check_file_exists_by_tag("/f.py", "v1.0") is False
+
+    def test_check_file_exists_by_ref_true(self) -> None:
+        repo = _make_repo()
+        with patch.object(repo, "get_item_by_ref", return_value=_make_git_item()):
+            assert repo.check_file_exists_by_ref("/f.py", "refs/pull/1/merge") is True
+
+    def test_check_file_exists_by_ref_false(self) -> None:
+        repo = _make_repo()
+        with patch.object(repo, "get_item_by_ref", return_value=None):
+            assert repo.check_file_exists_by_ref("/f.py", "refs/pull/1/merge") is False
+
+
+# ---------------------------------------------------------------------------
+# A7 — commit_file
+# ---------------------------------------------------------------------------
+
+
+class TestRepositoryCommitFile:
+    def test_commit_file_uses_edit_when_file_exists(self) -> None:
+        repo = _make_repo()
+        push_result = MagicMock()
+        with (
+            patch.object(repo, "check_file_exists_by_branch", return_value=True),
+            patch.object(repo, "commit", return_value=push_result) as mock_commit,
+        ):
+            result = repo.commit_file("/f.py", "new content", "Update file", "main")
+        assert result is push_result
+        _branch, _msg, changes = mock_commit.call_args.args
+        assert len(changes) == 1
+        assert isinstance(changes[0], EditFile)
+
+    def test_commit_file_uses_add_when_file_absent(self) -> None:
+        repo = _make_repo()
+        push_result = MagicMock()
+        with (
+            patch.object(repo, "check_file_exists_by_branch", return_value=False),
+            patch.object(repo, "commit", return_value=push_result) as mock_commit,
+        ):
+            result = repo.commit_file("/new.py", "content", "Add file", "main")
+        assert result is push_result
+        _branch, _msg, changes = mock_commit.call_args.args
+        assert isinstance(changes[0], AddFile)
+
+    def test_commit_file_passes_branch_and_message(self) -> None:
+        repo = _make_repo()
+        with (
+            patch.object(repo, "check_file_exists_by_branch", return_value=True),
+            patch.object(repo, "commit", return_value=MagicMock()) as mock_commit,
+        ):
+            repo.commit_file("/f.py", "content", "My msg", "feature/x")
+        branch, msg, _ = mock_commit.call_args.args
+        assert branch == "feature/x"
+        assert msg == "My msg"
+
+    def test_commit_file_passes_current_commit(self) -> None:
+        repo = _make_repo()
+        with (
+            patch.object(repo, "check_file_exists_by_branch", return_value=True),
+            patch.object(repo, "commit", return_value=MagicMock()) as mock_commit,
+        ):
+            repo.commit_file("/f.py", "content", "msg", "main", current_commit="sha123")
+        assert mock_commit.call_args.kwargs.get("current_commit") == "sha123"
+
+    def test_commit_file_with_none_branch_checks_default_branch(self) -> None:
+        repo = _make_repo()
+        with (
+            patch.object(
+                repo, "check_file_exists_by_branch", return_value=False
+            ) as mock_check,
+            patch.object(repo, "commit", return_value=MagicMock()),
+        ):
+            repo.commit_file("/new.py", "content", "Add")
+        # branch=None is passed through to check_file_exists_by_branch
+        mock_check.assert_called_once_with("/new.py", None)
+
+
+# ---------------------------------------------------------------------------
+# iter_commits_by_* / list_commits_by_*
+# ---------------------------------------------------------------------------
+
+
+class TestRepositoryIterCommitsBy:
+    def test_iter_commits_by_commit_passes_version_type(self) -> None:
+        repo = _make_repo()
+        with patch("pyado.oop.repos.repository.raw.get_repository_commits") as mock_get:
+            mock_get.return_value = []
+            list(repo.iter_commits_by_commit("abc123"))
+        criteria = mock_get.call_args.args[1]
+        assert criteria.item_version == "abc123"
+        assert criteria.item_version_type == VersionDescriptorType.COMMIT
+
+    def test_iter_commits_by_tag_strips_refs_tags_prefix(self) -> None:
+        repo = _make_repo()
+        with patch("pyado.oop.repos.repository.raw.get_repository_commits") as mock_get:
+            mock_get.return_value = []
+            list(repo.iter_commits_by_tag("refs/tags/v1.0"))
+        criteria = mock_get.call_args.args[1]
+        assert criteria.item_version == "v1.0"
+        assert criteria.item_version_type == VersionDescriptorType.TAG
+
+    def test_iter_commits_by_tag_short_name(self) -> None:
+        repo = _make_repo()
+        with patch("pyado.oop.repos.repository.raw.get_repository_commits") as mock_get:
+            mock_get.return_value = []
+            list(repo.iter_commits_by_tag("v2.0"))
+        criteria = mock_get.call_args.args[1]
+        assert criteria.item_version == "v2.0"
+
+    def test_iter_commits_by_commit_returns_commit_objects(self) -> None:
+        repo = _make_repo()
+        with patch("pyado.oop.repos.repository.raw.get_repository_commits") as mock_get:
+            mock_get.return_value = [_git_commit_ref("sha1")]
+            result = list(repo.iter_commits_by_commit("abc"))
+        assert len(result) == 1
+        assert isinstance(result[0], Commit)
+        assert result[0].sha == "sha1"
+
+    def test_list_commits_by_commit_returns_list(self) -> None:
+        repo = _make_repo()
+        with patch.object(repo, "iter_commits_by_commit", return_value=iter([])):
+            assert repo.list_commits_by_commit("abc") == []
+
+    def test_iter_commits_by_tag_returns_commit_objects(self) -> None:
+        repo = _make_repo()
+        with patch("pyado.oop.repos.repository.raw.get_repository_commits") as mock_get:
+            mock_get.return_value = [_git_commit_ref("tagsha1")]
+            result = list(repo.iter_commits_by_tag("v1.0"))
+        assert len(result) == 1
+        assert isinstance(result[0], Commit)
+        assert result[0].sha == "tagsha1"
+
+    def test_list_commits_by_tag_returns_list(self) -> None:
+        repo = _make_repo()
+        with patch.object(repo, "iter_commits_by_tag", return_value=iter([])):
+            assert repo.list_commits_by_tag("v1.0") == []
+
+
+class TestCreateAnnotatedTag:
+    def test_returns_annotated_tag_info(self) -> None:
+        repo = _make_repo()
+        info = AnnotatedTagInfo.model_validate(
+            {"objectId": "abc123", "name": "v1.0", "message": "Release 1.0"}
+        )
+        with patch(
+            "pyado.oop.repos.repository.raw.post_annotated_tag",
+            return_value=info,
+        ) as mock_post:
+            result = repo.create_annotated_tag("v1.0", "Release 1.0", "abc123")
+        assert isinstance(result, AnnotatedTagInfo)
+        assert result.name == "v1.0"
+        assert result.message == "Release 1.0"
+        mock_post.assert_called_once()
+
+    def test_passes_annotated_tag_request_with_correct_fields(self) -> None:
+        repo = _make_repo()
+        info = AnnotatedTagInfo.model_validate({"objectId": "deadbeef", "name": "v2.0"})
+        with patch(
+            "pyado.oop.repos.repository.raw.post_annotated_tag",
+            return_value=info,
+        ) as mock_post:
+            repo.create_annotated_tag("v2.0", "Release 2.0", "deadbeef")
+        call_args = mock_post.call_args
+        request = call_args.args[1]
+        assert request.name == "v2.0"
+        assert request.message == "Release 2.0"
+        assert request.tagged_object.object_id == "deadbeef"
+
+    def test_uses_repository_api_call(self) -> None:
+        repo = _make_repo()
+        info = AnnotatedTagInfo.model_validate({"objectId": "sha1", "name": "v0.1"})
+        with patch(
+            "pyado.oop.repos.repository.raw.post_annotated_tag",
+            return_value=info,
+        ) as mock_post:
+            repo.create_annotated_tag("v0.1", "Initial", "sha1")
+        call_args = mock_post.call_args
+        assert call_args.args[0] is repo.api_call

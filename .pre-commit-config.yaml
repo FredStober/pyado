@@ -3,16 +3,10 @@ repos:
   rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
   hooks:
   - id: check-added-large-files
-  - id: check-toml
   - id: check-yaml
+  - id: check-toml
   - id: end-of-file-fixer
   - id: trailing-whitespace
-
-- repo: https://github.com/Yelp/detect-secrets
-  rev: 68e8b45440415753fff70a312ece8da92ba85b4a  # frozen: v1.5.0
-  hooks:
-  - id: detect-secrets
-    args: [--baseline, .secrets.baseline]
 
 - repo: https://github.com/macisamuele/language-formatters-pre-commit-hooks
   rev: 4380fbb73a154b5f5624794c1c78d9719ccc860f  # frozen: v2.16.0
@@ -24,12 +18,18 @@ repos:
     args:
     - --autofix
 
+- repo: https://github.com/Yelp/detect-secrets
+  rev: 68e8b45440415753fff70a312ece8da92ba85b4a  # frozen: v1.5.0
+  hooks:
+  - id: detect-secrets
+    args: [--baseline, .secrets.baseline]
+
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: 0671d8ab202c4ac093b78433ae5baf74f3fc7246  # frozen: v0.15.15
   hooks:
+  - id: ruff-format
   - id: ruff-check
     args: [--fix]
-  - id: ruff-format
 
 - repo: local
   hooks:
@@ -50,14 +50,6 @@ repos:
     pass_filenames: false
     args: [run, ty, check, src]
 
-  - id: pytest
-    name: pytest
-    entry: uv
-    language: system
-    pass_filenames: false
-    always_run: true
-    args: [run, pytest]
-
   - id: sphinx
     name: sphinx
     entry: uv
@@ -65,3 +57,11 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+
+  - id: pytest
+    name: pytest
+    entry: uv
+    language: system
+    pass_filenames: false
+    always_run: true
+    args: [run, pytest]

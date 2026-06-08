@@ -12,15 +12,20 @@ or import directly from this subpackage::
 Design
 ------
 Each class wraps one ADO resource and delegates all HTTP calls to the
-underlying :mod:`pyado.raw` layer.  The classes form
-a scope hierarchy:
+underlying :mod:`pyado.raw` layer.  The classes form a scope hierarchy:
 
 * :class:`AzureDevOpsService` → :class:`Organization`
 * :class:`Organization` → :class:`Project`
-* :class:`Project` → :class:`Repository`, :class:`WorkItem`,
-  :class:`Build`, :class:`Pipeline`, :class:`VariableGroup`,
-  :class:`Iteration`, :class:`Area`
-* :class:`Repository` → :class:`PullRequest`
+* :class:`Project` exposes five section objects:
+  - :attr:`~Project.repos` (:class:`ProjectRepos`) — repositories, pull
+    requests, branches, and tags
+  - :attr:`~Project.boards` (:class:`ProjectBoards`) — work items, iterations,
+    areas, and teams
+  - :attr:`~Project.pipelines` (:class:`ProjectPipelines`) — builds, pipeline
+    runs, approvals, environments, agent queues, and the library sub-section
+    (:class:`PipelineLibrary`) with variable groups and secure files
+  - :attr:`~Project.search` (:class:`ProjectSearch`) — full-text search
+  - :attr:`~Project.settings` (:class:`ProjectSettings`) — project settings
 
 Navigation back up the hierarchy is always zero-cost (no API calls):
 ``build.project``, ``pr.repo``, ``wi.org``, etc.
@@ -38,19 +43,17 @@ Quick start::
     proj = org.get_project("ICS")
     print(proj.name)                         # "ICS"
 
-    repo = proj.get_repository("myrepo")
+    repo = proj.repos.get_repository("myrepo")
     print(repo.default_branch)               # "refs/heads/main"
 
     pr = repo.get_pull_request(32)
     print(pr.title, pr.status)              # "My PR"  "active"
 
-    wi = proj.get_work_item(153)
+    wi = proj.boards.get_work_item(153)
     print(wi.title)                          # "Fix the bug"
     wi.update({"System.Title": "Fixed"})
 
-    pr.link_work_item(wi)
-
-    build = proj.get_build(456)
+    build = proj.pipelines.get_build(456)
     assert build.project is wi.project       # shared identity
     print(build.pipeline.name)               # zero-cost back-navigation
 """
@@ -58,49 +61,121 @@ Quick start::
 # SPDX-License-Identifier: MIT
 
 __all__ = [
-    "ActiveBuildTask",
     "AddFile",
+    "Agent",
+    "AgentPool",
+    "AgentQueue",
+    "AgentQueueId",
     "Area",
     "AzureDevOpsService",
+    "BasePolicyModel",
+    "Branch",
     "Build",
     "BuildJob",
     "BuildPhase",
+    "BuildPolicy",
     "BuildStage",
     "BuildTask",
+    "CommentRequirementsPolicy",
     "Commit",
+    "CommitAuthorEmailPolicy",
+    "Dashboard",
     "DeleteFile",
+    "DistributedTaskSession",
     "EditFile",
+    "Environment",
+    "FileNamePolicy",
+    "FileSizeRestrictionPolicy",
+    "GitRepositoryPolicy",
     "Iteration",
+    "MergeStrategyPolicy",
+    "MinimumReviewersPolicy",
     "Organization",
+    "OrganizationSearch",
+    "PathLengthPolicy",
     "Pipeline",
+    "PipelineLibrary",
+    "PipelineRun",
+    "PolicyConfiguration",
     "Project",
+    "ProjectBoards",
+    "ProjectPipelines",
+    "ProjectRepos",
+    "ProjectSearch",
+    "ProjectSettings",
     "PullRequest",
     "RenameFile",
+    "RepoPolicyScope",
     "Repository",
+    "RequiredReviewersPolicy",
+    "ReservedNamesPolicy",
+    "SearchBranchesPolicy",
+    "SecureFile",
+    "ServiceEndpoint",
+    "StatusPolicy",
+    "Tag",
     "Team",
     "VariableGroup",
+    "Wiki",
     "WorkItem",
+    "WorkItemLinkingPolicy",
+    "WorkItemType",
 ]
 
-from pyado.oop.active_build_task import ActiveBuildTask as ActiveBuildTask
-from pyado.oop.area import Area as Area
-from pyado.oop.build import Build as Build
-from pyado.oop.build_timeline import BuildJob as BuildJob
-from pyado.oop.build_timeline import BuildPhase as BuildPhase
-from pyado.oop.build_timeline import BuildStage as BuildStage
-from pyado.oop.build_timeline import BuildTask as BuildTask
-from pyado.oop.commit import Commit as Commit
-from pyado.oop.file_change import AddFile as AddFile
-from pyado.oop.file_change import DeleteFile as DeleteFile
-from pyado.oop.file_change import EditFile as EditFile
-from pyado.oop.file_change import RenameFile as RenameFile
-from pyado.oop.iteration import Iteration as Iteration
-from pyado.oop.organization import Organization as Organization
-from pyado.oop.pipeline import Pipeline as Pipeline
-from pyado.oop.project import Project as Project
-from pyado.oop.pull_request import PullRequest as PullRequest
-from pyado.oop.repository import Repository as Repository
-from pyado.oop.service import AzureDevOpsService as AzureDevOpsService
-from pyado.oop.team import Team as Team
-from pyado.oop.variable_group import VariableGroup as VariableGroup
-from pyado.oop.work_item import WorkItem as WorkItem
+from pyado.oop.boards import ProjectBoards
+from pyado.oop.boards.area import Area
+from pyado.oop.boards.iteration import Iteration
+from pyado.oop.boards.team import Team
+from pyado.oop.boards.work_item import WorkItem
+from pyado.oop.boards.work_item_type import WorkItemType
+from pyado.oop.core.search import OrganizationSearch, ProjectSearch
+from pyado.oop.organization import Organization
+from pyado.oop.overview.dashboard import Dashboard
+from pyado.oop.overview.wiki import Wiki
+from pyado.oop.pipelines import PipelineLibrary, ProjectPipelines
+from pyado.oop.pipelines.agent import Agent, AgentPool, AgentQueue
+from pyado.oop.pipelines.build import Build
+from pyado.oop.pipelines.build_timeline import (
+    BuildJob,
+    BuildPhase,
+    BuildStage,
+    BuildTask,
+)
+from pyado.oop.pipelines.distributed_task_session import (
+    DistributedTaskSession,
+)
+from pyado.oop.pipelines.environment import Environment
+from pyado.oop.pipelines.pipeline import Pipeline, PipelineRun
+from pyado.oop.pipelines.secure_file import SecureFile
+from pyado.oop.pipelines.service_endpoint import ServiceEndpoint
+from pyado.oop.pipelines.variable_group import VariableGroup
+from pyado.oop.project import Project
+from pyado.oop.repos import ProjectRepos
+from pyado.oop.repos.branch import Branch
+from pyado.oop.repos.commit import Commit
+from pyado.oop.repos.file_change import AddFile, DeleteFile, EditFile, RenameFile
+from pyado.oop.repos.policy import PolicyConfiguration
+from pyado.oop.repos.policy_types import (
+    BasePolicyModel,
+    BuildPolicy,
+    CommentRequirementsPolicy,
+    CommitAuthorEmailPolicy,
+    FileNamePolicy,
+    FileSizeRestrictionPolicy,
+    GitRepositoryPolicy,
+    MergeStrategyPolicy,
+    MinimumReviewersPolicy,
+    PathLengthPolicy,
+    RepoPolicyScope,
+    RequiredReviewersPolicy,
+    ReservedNamesPolicy,
+    SearchBranchesPolicy,
+    StatusPolicy,
+    WorkItemLinkingPolicy,
+)
+from pyado.oop.repos.pull_request import PullRequest
+from pyado.oop.repos.repository import Repository
+from pyado.oop.repos.tag import Tag
+from pyado.oop.service import AzureDevOpsService
+from pyado.oop.settings import ProjectSettings
+from pyado.raw import AgentQueueId

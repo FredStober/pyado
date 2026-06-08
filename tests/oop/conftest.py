@@ -6,13 +6,13 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from pyado.oop import (
-    ActiveBuildTask,
     Area,
     AzureDevOpsService,
     Build,
     BuildJob,
     BuildPhase,
     BuildStage,
+    DistributedTaskSession,
     Iteration,
     Pipeline,
     Project,
@@ -67,7 +67,7 @@ JOB_ID: UUID = uuid4()
 TASK_ID: UUID = uuid4()
 
 # ---------------------------------------------------------------------------
-# ActiveBuildTask constants
+# DistributedTaskSession constants
 # ---------------------------------------------------------------------------
 
 HUB_NAME = "build"
@@ -84,7 +84,7 @@ TASK_INSTANCE_ID: TaskId = uuid4()
 
 
 def _api_call(url: str = f"{ORG_URL}/_apis") -> ApiCall:
-    return ApiCall(access_token=TOKEN, url=url)
+    return ApiCall(url=url)
 
 
 def _make_service() -> AzureDevOpsService:
@@ -332,12 +332,12 @@ def _make_tl_job(
 
 
 # ---------------------------------------------------------------------------
-# ActiveBuildTask helpers
+# DistributedTaskSession helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_active_task(build: Build | None = None) -> ActiveBuildTask:
-    return ActiveBuildTask(
+def _make_active_task(build: Build | None = None) -> DistributedTaskSession:
+    return DistributedTaskSession(
         build or _make_build(),
         hub_name=HUB_NAME,
         plan_id=PLAN_ID,

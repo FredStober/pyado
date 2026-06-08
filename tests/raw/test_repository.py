@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 import requests
 
-from pyado.oop._git import (
+from pyado.oop.repos._git import (
     create_branch,
     delete_branch,
     get_file_content_at_branch,
@@ -21,6 +21,8 @@ from pyado.raw import (
     GIT_SECURITY_NAMESPACE_ID,
     ZERO_SHA,
     AccessControlList,
+    AnnotatedTagInfo,
+    AnnotatedTagRequest,
     ApiCall,
     BranchStatistics,
     GitCommitChange,
@@ -31,13 +33,16 @@ from pyado.raw import (
     GitRefFilter,
     RecursionLevel,
     RepositoryInfo,
+    VersionDescriptorType,
     create_tag,
     delete_tag,
+    get_annotated_tag,
     get_commit_by_id,
     get_git_acl,
     get_repository_api_call,
     get_repository_commits,
     get_repository_info,
+    get_repository_item,
     get_repository_statistics,
     iter_refs,
     iter_repository_details,
@@ -48,6 +53,7 @@ from pyado.raw import (
     list_repository_items,
     list_tags,
     make_git_acl_token,
+    post_annotated_tag,
 )
 from tests.conftest import _make_mock_response
 
@@ -162,6 +168,7 @@ def _make_raw_mock_response(content: bytes, *, raise_error: bool = False) -> Mag
     mock = MagicMock(spec=requests.Response)
     mock.content = content
     if raise_error:
+        mock.status_code = 404
         mock.raise_for_status.side_effect = requests.exceptions.HTTPError("404")
         mock.json.return_value = {"message": "Not found"}
     else:
@@ -318,8 +325,9 @@ class TestGetLastCommitTouchingFile:
 
     @staticmethod
     def test_returns_before_commit_on_api_error(repo_api_call: ApiCall) -> None:
-        """Falls back to before_commit when the API raises a RuntimeError."""
-        with patch.object(requests.Session, "request", side_effect=RuntimeError("404")):
+        """Falls back to before_commit when the API raises AzureDevopsHttpError."""
+        mock_response = _make_raw_mock_response(b"", raise_error=True)
+        with patch.object(requests.Session, "request", return_value=mock_response):
             result = get_last_commit_touching_file(
                 repo_api_call, "/missing.py", "before456"
             )
@@ -1075,7 +1083,9 @@ class TestListRepositoryDetails:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         """Returns a list wrapping iter_repository_details results."""
-        with patch("pyado.raw.git.iter_repository_details", return_value=iter([])):
+        with patch(
+            "pyado.raw.repos.git.iter_repository_details", return_value=iter([])
+        ):
             result = list_repository_details(api_call)
         assert result == []
 
@@ -1086,7 +1096,7 @@ class TestListRefs:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         """Returns a list wrapping iter_refs results."""
-        with patch("pyado.raw.git.iter_refs", return_value=iter([])):
+        with patch("pyado.raw.repos.git.iter_refs", return_value=iter([])):
             result = list_refs(api_call)
         assert result == []
 
@@ -1097,7 +1107,7 @@ class TestListTags:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         """Returns a list wrapping iter_tags results."""
-        with patch("pyado.raw.git.iter_tags", return_value=iter([])):
+        with patch("pyado.raw.repos.git.iter_tags", return_value=iter([])):
             result = list_tags(api_call)
         assert result == []
 
@@ -1204,6 +1214,186 @@ class TestListRepositoryItems:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         """Returns a list wrapping iter_repository_items results."""
-        with patch("pyado.raw.git.iter_repository_items", return_value=iter([])):
+        with patch("pyado.raw.repos.git.iter_repository_items", return_value=iter([])):
             result = list_repository_items(api_call)
         assert result == []
+
+
+class TestIterRepositoryItemsByVersion:
+    """Tests for iter_repository_items version/version_type parameters."""
+
+    @staticmethod
+    def test_commit_version_adds_version_descriptor_params(api_call: ApiCall) -> None:
+        """Version + version_type=COMMIT sends versionDescriptor params."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(
+                iter_repository_items(
+                    api_call,
+                    version="abc123",
+                    version_type=VersionDescriptorType.COMMIT,
+                )
+            )
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params.get("versionDescriptor.version") == "abc123"
+        assert params.get("versionDescriptor.versionType") == "commit"
+
+    @staticmethod
+    def test_tag_version_adds_version_descriptor_params(api_call: ApiCall) -> None:
+        """Version + version_type=TAG sends versionDescriptor params."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(
+                iter_repository_items(
+                    api_call,
+                    version="v1.0",
+                    version_type=VersionDescriptorType.TAG,
+                )
+            )
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params.get("versionDescriptor.version") == "v1.0"
+        assert params.get("versionDescriptor.versionType") == "tag"
+
+    @staticmethod
+    def test_version_without_version_type_omits_descriptor(api_call: ApiCall) -> None:
+        """Version alone (no version_type) does not add version descriptor params."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(iter_repository_items(api_call, version="abc123"))
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert "versionDescriptor.version" not in params
+
+
+class TestGetRepositoryItem:
+    """Tests for get_repository_item."""
+
+    @staticmethod
+    def test_returns_git_item_on_success(repo_api_call: ApiCall) -> None:
+        """Returns a GitItem when the file exists."""
+        item_data = {
+            "objectId": "a" * 40,
+            "gitObjectType": "blob",
+            "path": "/README.md",
+            "isFolder": False,
+            "isSymLink": False,
+        }
+        mock_response = _make_mock_response(item_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_repository_item(
+                repo_api_call,
+                "/README.md",
+                "main",
+                VersionDescriptorType.BRANCH,
+            )
+        assert isinstance(result, GitItem)
+        assert result.path == "/README.md"
+
+    @staticmethod
+    def test_returns_none_on_404(repo_api_call: ApiCall) -> None:
+        """Returns None when the API responds with 404."""
+        mock_response = _make_raw_mock_response(b"", raise_error=True)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_repository_item(
+                repo_api_call,
+                "/missing.py",
+                "main",
+                VersionDescriptorType.BRANCH,
+            )
+        assert result is None
+
+    @staticmethod
+    def test_passes_version_descriptor_parameters(repo_api_call: ApiCall) -> None:
+        """Passes path and version descriptor as query parameters."""
+        item_data = {
+            "objectId": "b" * 40,
+            "gitObjectType": "blob",
+            "path": "/src/foo.py",
+            "isFolder": False,
+            "isSymLink": False,
+        }
+        mock_response = _make_mock_response(item_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_repository_item(
+                repo_api_call,
+                "/src/foo.py",
+                "abc123",
+                VersionDescriptorType.COMMIT,
+            )
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params.get("path") == "/src/foo.py"
+        assert params.get("versionDescriptor.version") == "abc123"
+        assert params.get("versionDescriptor.versionType") == "commit"
+
+    @staticmethod
+    def test_sends_get_to_items_endpoint(repo_api_call: ApiCall) -> None:
+        """Sends a GET request to the items endpoint."""
+        item_data = {
+            "objectId": "c" * 40,
+            "gitObjectType": "blob",
+            "path": "/f.txt",
+            "isFolder": False,
+            "isSymLink": False,
+        }
+        mock_response = _make_mock_response(item_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_repository_item(
+                repo_api_call,
+                "/f.txt",
+                "main",
+                VersionDescriptorType.BRANCH,
+            )
+        assert mock_req.call_args.args[0] == "GET"
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "items" in url
+
+
+class TestAnnotatedTagRequest:
+    def test_from_commit_builds_request(self) -> None:
+        req = AnnotatedTagRequest.from_commit("v1.0", "abc123sha", "Release 1.0")
+        assert req.name == "v1.0"
+        assert req.message == "Release 1.0"
+        assert req.tagged_object.object_id == "abc123sha"
+        assert req.tagged_object.object_type == "commit"
+
+
+class TestPostAnnotatedTag:
+    def test_returns_annotated_tag_info(self, api_call: ApiCall) -> None:
+        payload = {
+            "name": "v1.0",
+            "objectId": "deadbeef",
+            "message": "Release 1.0",
+            "taggedObject": {"objectId": "abc123", "objectType": "commit"},
+        }
+        mock_resp = _make_mock_response(payload)
+        req = AnnotatedTagRequest.from_commit("v1.0", "abc123", "Release 1.0")
+        with patch.object(requests.Session, "request", return_value=mock_resp):
+            result = post_annotated_tag(api_call, req)
+        assert isinstance(result, AnnotatedTagInfo)
+        assert result.name == "v1.0"
+
+
+class TestGetAnnotatedTag:
+    def test_returns_annotated_tag_info(self, api_call: ApiCall) -> None:
+        payload = {
+            "name": "v1.0",
+            "objectId": "deadbeef",
+            "message": "Release 1.0",
+            "taggedObject": {"objectId": "abc123", "objectType": "commit"},
+        }
+        mock_resp = _make_mock_response(payload)
+        with patch.object(requests.Session, "request", return_value=mock_resp):
+            result = get_annotated_tag(api_call, "deadbeef")
+        assert isinstance(result, AnnotatedTagInfo)
+        assert result.name == "v1.0"
+        assert result.tagged_object is not None
+        assert result.tagged_object.object_id == "abc123"

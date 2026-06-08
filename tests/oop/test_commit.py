@@ -95,7 +95,9 @@ class TestCommit:
 
     def test_get_file_delegates_to_high(self) -> None:
         commit = Commit(_make_repo(), _git_commit_ref("abc123"))
-        with patch("pyado.oop.commit._git.get_file_content_at_commit") as mock_get:
+        with patch(
+            "pyado.oop.repos.commit._git.get_file_content_at_commit"
+        ) as mock_get:
             mock_get.return_value = "file content"
             result = commit.get_file("/src/foo.py")
         assert result == "file content"
@@ -121,7 +123,7 @@ class TestCommit:
         )
         change = MagicMock(spec=GitCommitChange)
         commit = Commit(_make_repo(), ref)
-        with patch("pyado.oop.commit._git.iter_commit_diff") as mock_diff:
+        with patch("pyado.oop.repos.commit._git.iter_commit_diff") as mock_diff:
             mock_diff.return_value = iter([change])
             result = list(commit.iter_changes())
         assert result == [change]
@@ -142,7 +144,7 @@ class TestCommit:
 
     def test_refresh_invalidates_and_refetches(self) -> None:
         commit = Commit(_make_repo(), _git_commit_ref("abc123"))
-        with patch("pyado.oop.commit.raw.get_commit_by_id") as mock_get:
+        with patch("pyado.oop.repos.commit.raw.get_commit_by_id") as mock_get:
             mock_get.return_value = _git_commit_ref("abc123")
             commit.refresh()
             # refresh() lazily invalidates; the actual fetch happens on next info access
@@ -153,7 +155,7 @@ class TestCommit:
     def test_refresh_stores_search_criteria_and_forwards_on_fetch(self) -> None:
         criteria = GitCommitSearchCriteria(item_path="/src")
         commit = Commit(_make_repo(), _git_commit_ref("abc123"))
-        with patch("pyado.oop.commit.raw.get_commit_by_id") as mock_get:
+        with patch("pyado.oop.repos.commit.raw.get_commit_by_id") as mock_get:
             mock_get.return_value = _git_commit_ref("abc123")
             commit.refresh(search_criteria=criteria)
             _ = commit.info
@@ -162,7 +164,7 @@ class TestCommit:
     def test_refresh_preserves_existing_criteria_when_none_passed(self) -> None:
         criteria = GitCommitSearchCriteria(item_path="/src")
         commit = Commit(_make_repo(), _git_commit_ref("abc123"))
-        with patch("pyado.oop.commit.raw.get_commit_by_id") as mock_get:
+        with patch("pyado.oop.repos.commit.raw.get_commit_by_id") as mock_get:
             mock_get.return_value = _git_commit_ref("abc123")
             commit.refresh(search_criteria=criteria)
             _ = commit.info
@@ -175,10 +177,10 @@ class TestCommitGetPullRequest:
     def test_get_pull_request_returns_pull_request_when_found(self) -> None:
         pr_item = _pr_list_item(77)
         repo = _make_repo()
-        with patch("pyado.oop.repository.raw.iter_pull_requests") as mock_iter:
+        with patch("pyado.oop.repos.repository.raw.iter_pull_requests") as mock_iter:
             mock_iter.return_value = iter([pr_item])
             with patch(
-                "pyado.oop.repository.raw.get_pull_request_api_call"
+                "pyado.oop.repos.repository.raw.get_pull_request_api_call"
             ) as mock_pr_call:
                 mock_pr_call.return_value = _api_call()
                 commit = Commit(repo, _git_commit_ref("abc123"))
@@ -187,7 +189,7 @@ class TestCommitGetPullRequest:
 
     def test_get_pull_request_returns_none_when_not_found(self) -> None:
         repo = _make_repo()
-        with patch("pyado.oop.repository.raw.iter_pull_requests") as mock_iter:
+        with patch("pyado.oop.repos.repository.raw.iter_pull_requests") as mock_iter:
             mock_iter.return_value = iter([])
             commit = Commit(repo, _git_commit_ref("abc123"))
             result = commit.get_pull_request()

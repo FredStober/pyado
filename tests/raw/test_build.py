@@ -20,6 +20,7 @@ from pyado.raw import (
     BuildSearchCriteria,
     BuildStatus,
     PipelineDefinitionInfo,
+    TimelineReference,
     delete_build_tag,
     get_build_api_call,
     get_build_artifact_bytes,
@@ -151,6 +152,37 @@ class TestIterTimelineRecords:
         with patch.object(requests.Session, "request", return_value=mock_response):
             result = list(iter_timeline_records(api_call))
         assert len(result[0].previous_attempts) == 1
+
+    @staticmethod
+    def test_yields_record_with_timeline_reference_details(api_call: ApiCall) -> None:
+        """BuildRecordInfo with a non-None details field is parsed correctly."""
+        timeline_id = str(uuid4())
+        details = {
+            "changeId": 3,
+            "id": str(uuid4()),
+            "url": "https://dev.azure.com/org/proj/_apis/build/builds/1/timeline/sub",
+        }
+        record = make_build_record_dict(details=details)
+        response_json = {"id": timeline_id, "records": [record]}
+        mock_response = _make_mock_response(response_json)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = list(iter_timeline_records(api_call))
+        assert isinstance(result[0].details, TimelineReference)
+        assert result[0].details.change_id == 3
+
+    @staticmethod
+    def test_yields_record_ignoring_extra_ado_fields(api_call: ApiCall) -> None:
+        """BuildRecordInfo silently ignores extra fields such as _links from ADO."""
+        timeline_id = str(uuid4())
+        record = make_build_record_dict(
+            _links={"self": {"href": "https://dev.azure.com/"}}
+        )
+        response_json = {"id": timeline_id, "records": [record]}
+        mock_response = _make_mock_response(response_json)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = list(iter_timeline_records(api_call))
+        assert len(result) == 1
+        assert isinstance(result[0], BuildRecordInfo)
 
 
 def make_build_details_dict(**overrides: Any) -> dict[str, Any]:
@@ -1057,7 +1089,9 @@ class TestListBuildArtifacts:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         """Returns a list wrapping iter_build_artifacts results."""
-        with patch("pyado.raw.build.iter_build_artifacts", return_value=iter([])) as m:
+        with patch(
+            "pyado.raw.pipelines.build.iter_build_artifacts", return_value=iter([])
+        ) as m:
             result = list_build_artifacts(api_call)
         assert result == []
         m.assert_called_once_with(api_call)
@@ -1069,7 +1103,9 @@ class TestListBuildLogs:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         """Returns a list wrapping iter_build_logs results."""
-        with patch("pyado.raw.build.iter_build_logs", return_value=iter([])) as m:
+        with patch(
+            "pyado.raw.pipelines.build.iter_build_logs", return_value=iter([])
+        ) as m:
             result = list_build_logs(api_call)
         assert result == []
         m.assert_called_once_with(api_call)
@@ -1081,7 +1117,9 @@ class TestListBuildTags:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         """Returns a list wrapping iter_build_tags results."""
-        with patch("pyado.raw.build.iter_build_tags", return_value=iter([])) as m:
+        with patch(
+            "pyado.raw.pipelines.build.iter_build_tags", return_value=iter([])
+        ) as m:
             result = list_build_tags(api_call)
         assert result == []
         m.assert_called_once_with(api_call)
@@ -1094,7 +1132,7 @@ class TestListBuildWorkItemIds:
     def test_returns_list(api_call: ApiCall) -> None:
         """Returns a list wrapping iter_build_work_item_ids results."""
         with patch(
-            "pyado.raw.build.iter_build_work_item_ids", return_value=iter([])
+            "pyado.raw.pipelines.build.iter_build_work_item_ids", return_value=iter([])
         ) as m:
             result = list_build_work_item_ids(api_call)
         assert result == []
@@ -1107,7 +1145,7 @@ class TestListBuilds:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         """Returns a list wrapping iter_builds results."""
-        with patch("pyado.raw.build.iter_builds", return_value=iter([])) as m:
+        with patch("pyado.raw.pipelines.build.iter_builds", return_value=iter([])) as m:
             result = list_builds(api_call)
         assert result == []
         m.assert_called_once_with(api_call, search_criteria=None)
@@ -1120,7 +1158,7 @@ class TestListPipelineDefinitions:
     def test_returns_list(api_call: ApiCall) -> None:
         """Returns a list wrapping iter_pipeline_definitions results."""
         with patch(
-            "pyado.raw.build.iter_pipeline_definitions", return_value=iter([])
+            "pyado.raw.pipelines.build.iter_pipeline_definitions", return_value=iter([])
         ) as m:
             result = list_pipeline_definitions(api_call)
         assert result == []
@@ -1133,7 +1171,9 @@ class TestListTimelineRecords:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         """Returns a list wrapping iter_timeline_records results."""
-        with patch("pyado.raw.build.iter_timeline_records", return_value=iter([])) as m:
+        with patch(
+            "pyado.raw.pipelines.build.iter_timeline_records", return_value=iter([])
+        ) as m:
             result = list_timeline_records(api_call)
         assert result == []
         m.assert_called_once_with(api_call)
@@ -1146,7 +1186,8 @@ class TestListWorkItemsBetweenBuilds:
     def test_returns_list(api_call: ApiCall) -> None:
         """Returns a list wrapping iter_work_items_between_builds results."""
         with patch(
-            "pyado.raw.build.iter_work_items_between_builds", return_value=iter([])
+            "pyado.raw.pipelines.build.iter_work_items_between_builds",
+            return_value=iter([]),
         ) as m:
             result = list_work_items_between_builds(api_call, 1, 2)
         assert result == []

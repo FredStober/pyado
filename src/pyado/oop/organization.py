@@ -6,8 +6,17 @@ from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, cast
 
 from pyado import raw
+from pyado.oop.core.search import OrganizationSearch
+from pyado.oop.pipelines.agent import AgentPool
 from pyado.oop.project import Project
-from pyado.raw import ApiCall, ConnectionData, GraphGroup, IdentityInfo, UserProfile
+from pyado.raw import (
+    ApiCall,
+    ConnectionData,
+    GraphGroup,
+    IdentityInfo,
+    NotificationSubscription,
+    UserProfile,
+)
 
 if TYPE_CHECKING:
     from pyado.oop.service import AzureDevOpsService
@@ -17,6 +26,19 @@ __all__ = ["Organization"]
 
 class Organization:
     """The Azure DevOps organisation scope.
+
+    **ADO concept:** an ADO organisation (also called a *collection* in older
+    docs) is the top-level tenant at ``https://dev.azure.com/{org}``.
+    It owns projects, agent pools (org-scoped), user profiles, and graph
+    groups.  All other resources are nested under a project, which is itself
+    nested here.
+
+    **Why it exists:** the ADO API distinguishes between org-scoped endpoints
+    (pools, profile, connection data, graph groups) and project-scoped
+    endpoints (builds, repos, pipelines, …).  ``Organization`` is the natural
+    home for org-scoped operations and acts as the factory for
+    :class:`~pyado.oop.project.Project` objects so the service cache is
+    populated consistently.
 
     Obtained via :attr:`AzureDevOpsService.org`. Acts as the factory for
     :class:`~pyado.oop.project.Project` objects and caches them through the
@@ -111,22 +133,11 @@ class Organization:
         Returns:
             UserProfile for the authenticated user.
         """
-        profile_api_call = raw.get_profile_api_call(self._service.oop_api.token)
-        return raw.get_my_profile(profile_api_call)
+        return raw.get_my_profile(self._service.oop_api.profile_api_call)
 
     # ------------------------------------------------------------------
     # Identity / graph
     # ------------------------------------------------------------------
-
-    def _vssps_api_call(self) -> ApiCall:
-        """Build a vssps API call for this organisation.
-
-        Returns:
-            ApiCall scoped to the vssps endpoint for this organisation.
-        """
-        return raw.get_vssps_api_call(
-            self._service.oop_api.token, self._service.oop_api.org_name
-        )
 
     def get_identities(self, descriptors: list[str]) -> list[IdentityInfo]:
         """Return identity info for a list of subject descriptors.
@@ -137,7 +148,7 @@ class Organization:
         Returns:
             List of IdentityInfo objects, one per resolved descriptor.
         """
-        return raw.get_identities(self._vssps_api_call(), descriptors)
+        return raw.get_identities(self._service.oop_api.vssps_api_call, descriptors)
 
     def iter_graph_groups(self) -> Iterator[GraphGroup]:
         """Iterate over all graph groups in the organisation.
@@ -145,7 +156,7 @@ class Organization:
         Yields:
             GraphGroup for each group in the organisation.
         """
-        yield from raw.iter_graph_groups(self._vssps_api_call())
+        yield from raw.iter_graph_groups(self._service.oop_api.vssps_api_call)
 
     def list_projects(self) -> list[Project]:
         """Return all projects in this organisation as a list."""
@@ -154,3 +165,65 @@ class Organization:
     def list_graph_groups(self) -> list[GraphGroup]:
         """Return all graph groups in this organisation as a list."""
         return list(self.iter_graph_groups())
+
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
+
+    @property
+    def search(self) -> OrganizationSearch:
+        """Org-wide search (code, work items, wiki, packages)."""
+        return OrganizationSearch(self._service)
+
+    # ------------------------------------------------------------------
+    # Agent pools
+    # ------------------------------------------------------------------
+
+    def iter_agent_pools(self) -> Iterator[AgentPool]:
+        """Iterate over all agent pools in the organisation.
+
+        Yields:
+            AgentPool for each agent pool.
+        """
+        for info in raw.iter_agent_pools(self._service.api_call):
+            pool_api_call = raw.get_agent_pool_api_call(self._service.api_call, info.id)
+            yield AgentPool(self, pool_api_call, info)
+
+    def get_agent_pool(self, name: str) -> AgentPool:
+        """Return an agent pool by name.
+
+        Args:
+            name: Agent pool name (case-sensitive).
+
+        Returns:
+            AgentPool wrapping the requested pool.
+
+        Raises:
+            KeyError: If no agent pool with the given name exists.
+        """
+        for pool in self.iter_agent_pools():
+            if pool.name == name:
+                return pool
+        raise KeyError(name)
+
+    def list_agent_pools(self) -> list[AgentPool]:
+        """Return all agent pools in the organisation as a list."""
+        return list(self.iter_agent_pools())
+
+    # ------------------------------------------------------------------
+    # Notification subscriptions
+    # ------------------------------------------------------------------
+
+    def iter_notification_subscriptions(
+        self,
+    ) -> Iterator[NotificationSubscription]:
+        """Iterate over all notification subscriptions in this organisation.
+
+        Yields:
+            NotificationSubscription for each subscription.
+        """
+        yield from raw.iter_notification_subscriptions(self.api_call)
+
+    def list_notification_subscriptions(self) -> list[NotificationSubscription]:
+        """Return all notification subscriptions as a list."""
+        return list(self.iter_notification_subscriptions())

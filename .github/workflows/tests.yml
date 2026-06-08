@@ -40,7 +40,12 @@ jobs:
       with:
         python-version: ${{ matrix.python }}
         enable-cache: true
-    - run: uv run pytest --cov-report=xml
+    - run: uv run pytest --cov-report=xml --junit-xml=junit.xml
+    - name: Upload test results to Codecov
+      uses: codecov/test-results-action@v1
+      if: ${{ !cancelled() }}
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v6.0.1
       if: matrix.python == '3.11' && matrix.os == 'ubuntu-latest'

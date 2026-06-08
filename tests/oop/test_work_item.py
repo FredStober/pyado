@@ -1,4 +1,4 @@
-"""Tests for pyado.oop._work_item — OOP layer."""
+"""Tests for pyado.oop.boards._work_item — OOP layer."""
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
@@ -10,7 +10,7 @@ import pytest
 import requests
 
 from pyado.oop import Project, WorkItem
-from pyado.oop._work_item import (
+from pyado.oop.boards._work_item import (
     CustomWorkItemBase,
     WorkItemFieldMap,
     WorkItemLink,
@@ -777,7 +777,7 @@ class TestWorkItem:
 
     def test_refresh_refetches(self) -> None:
         wi = _make_wi()
-        with patch("pyado.oop.work_item.raw.get_work_item") as mock_get:
+        with patch("pyado.oop.boards.work_item.raw.get_work_item") as mock_get:
             mock_get.return_value = _work_item_info()
             wi.refresh()
             # refresh() lazily invalidates; the actual fetch happens on next info access
@@ -785,51 +785,63 @@ class TestWorkItem:
         mock_get.assert_called_once()
 
     def test_update_delegates(self) -> None:
-        with patch("pyado.oop.work_item._work_item.update_work_item") as mock_update:
+        with patch(
+            "pyado.oop.boards.work_item._work_item.update_work_item"
+        ) as mock_update:
             mock_update.return_value = _work_item_info()
             _make_wi().update({"System.Title": "New"})
         mock_update.assert_called_once()
 
     def test_add_tag_delegates(self) -> None:
-        with patch("pyado.oop.work_item._work_item.add_work_item_tag") as mock_tag:
+        with patch(
+            "pyado.oop.boards.work_item._work_item.add_work_item_tag"
+        ) as mock_tag:
             mock_tag.return_value = ["tag-a"]
             result = _make_wi().add_tag("tag-a")
         assert result == ["tag-a"]
 
     def test_add_comment_delegates(self) -> None:
-        with patch("pyado.oop.work_item.raw.post_work_item_comment") as mock_comment:
+        with patch(
+            "pyado.oop.boards.work_item.raw.post_work_item_comment"
+        ) as mock_comment:
             mock_comment.return_value = MagicMock()
             _make_wi().add_comment("hello")
         mock_comment.assert_called_once()
 
     def test_iter_tags_delegates(self) -> None:
-        with patch("pyado.oop.work_item._work_item.get_work_item_tags") as mock_tags:
+        with patch(
+            "pyado.oop.boards.work_item._work_item.get_work_item_tags"
+        ) as mock_tags:
             mock_tags.return_value = ["tag-a", "tag-b"]
             result = list(_make_wi().iter_tags())
         assert result == ["tag-a", "tag-b"]
 
     def test_remove_tag_delegates(self) -> None:
         with patch(
-            "pyado.oop.work_item._work_item.remove_work_item_tag"
+            "pyado.oop.boards.work_item._work_item.remove_work_item_tag"
         ) as mock_remove:
             mock_remove.return_value = ["tag-b"]
             result = _make_wi().remove_tag("tag-a")
         assert result == ["tag-b"]
 
     def test_sync_tags_delegates(self) -> None:
-        with patch("pyado.oop.work_item._work_item.sync_work_item_tags") as mock_sync:
+        with patch(
+            "pyado.oop.boards.work_item._work_item.sync_work_item_tags"
+        ) as mock_sync:
             _make_wi().sync_tags({"tag-a", "tag-b"})
         mock_sync.assert_called_once()
 
     def test_iter_comments_delegates(self) -> None:
-        with patch("pyado.oop.work_item.raw.iter_work_item_comments") as mock_iter:
+        with patch(
+            "pyado.oop.boards.work_item.raw.iter_work_item_comments"
+        ) as mock_iter:
             mock_iter.return_value = iter([MagicMock()])
             result = list(_make_wi().iter_comments())
         assert len(result) == 1
 
     def test_add_attachment_delegates(self) -> None:
         with patch(
-            "pyado.oop.work_item._work_item.add_work_item_attachment"
+            "pyado.oop.boards.work_item._work_item.add_work_item_attachment"
         ) as mock_attach:
             mock_attach.return_value = MagicMock()
             _make_wi().add_attachment("report.txt", b"data")
@@ -837,8 +849,12 @@ class TestWorkItem:
 
     def test_add_link_delegates(self) -> None:
         with (
-            patch("pyado.oop.work_item._work_item.WorkItemLink.wi_link") as mock_link,
-            patch("pyado.oop.work_item._work_item.add_work_item_link") as mock_add,
+            patch(
+                "pyado.oop.boards.work_item._work_item.WorkItemLink.wi_link"
+            ) as mock_link,
+            patch(
+                "pyado.oop.boards.work_item._work_item.add_work_item_link"
+            ) as mock_add,
         ):
             mock_link.return_value = MagicMock()
             _make_wi().add_link(_make_wi(20), WorkItemRelationType.CHILD)
@@ -848,9 +864,11 @@ class TestWorkItem:
     def test_link_pull_request_delegates(self) -> None:
         with (
             patch(
-                "pyado.oop.work_item._work_item.WorkItemLink.pull_request"
+                "pyado.oop.boards.work_item._work_item.WorkItemLink.pull_request"
             ) as mock_link,
-            patch("pyado.oop.work_item._work_item.add_work_item_link") as mock_add,
+            patch(
+                "pyado.oop.boards.work_item._work_item.add_work_item_link"
+            ) as mock_add,
         ):
             mock_link.return_value = MagicMock()
             _make_wi().link_pull_request(_make_pr())
@@ -859,8 +877,12 @@ class TestWorkItem:
 
     def test_link_build_delegates(self) -> None:
         with (
-            patch("pyado.oop.work_item._work_item.WorkItemLink.build") as mock_link,
-            patch("pyado.oop.work_item._work_item.add_work_item_link") as mock_add,
+            patch(
+                "pyado.oop.boards.work_item._work_item.WorkItemLink.build"
+            ) as mock_link,
+            patch(
+                "pyado.oop.boards.work_item._work_item.add_work_item_link"
+            ) as mock_add,
         ):
             mock_link.return_value = MagicMock()
             _make_wi().link_build(_make_build())
@@ -869,8 +891,12 @@ class TestWorkItem:
 
     def test_link_commit_delegates(self) -> None:
         with (
-            patch("pyado.oop.work_item._work_item.WorkItemLink.commit") as mock_link,
-            patch("pyado.oop.work_item._work_item.add_work_item_link") as mock_add,
+            patch(
+                "pyado.oop.boards.work_item._work_item.WorkItemLink.commit"
+            ) as mock_link,
+            patch(
+                "pyado.oop.boards.work_item._work_item.add_work_item_link"
+            ) as mock_add,
         ):
             mock_link.return_value = MagicMock()
             _make_wi().link_commit(_make_repo(), "abc123")
@@ -893,8 +919,10 @@ class TestWorkItem:
         ]
         linked_info = _work_item_info(20)
         with (
-            patch("pyado.oop.work_item._work_item.iter_work_item_details") as mock_iter,
-            patch("pyado.oop.work_item.raw.get_work_item_api_call") as mock_call,
+            patch(
+                "pyado.oop.boards.work_item._work_item.iter_work_item_details"
+            ) as mock_iter,
+            patch("pyado.oop.boards.work_item.raw.get_work_item_api_call") as mock_call,
         ):
             mock_iter.return_value = iter([linked_info])
             mock_call.return_value = _api_call()
@@ -919,8 +947,10 @@ class TestWorkItem:
             ),
         ]
         with (
-            patch("pyado.oop.work_item._work_item.iter_work_item_details") as mock_iter,
-            patch("pyado.oop.work_item.raw.get_work_item_api_call") as mock_call,
+            patch(
+                "pyado.oop.boards.work_item._work_item.iter_work_item_details"
+            ) as mock_iter,
+            patch("pyado.oop.boards.work_item.raw.get_work_item_api_call") as mock_call,
         ):
             mock_iter.return_value = iter([_work_item_info(30)])
             mock_call.return_value = _api_call()
@@ -950,8 +980,10 @@ class TestWorkItem:
         ]
         parent_info = _work_item_info(5)
         with (
-            patch("pyado.oop.work_item._work_item.iter_work_item_details") as mock_iter,
-            patch("pyado.oop.work_item.raw.get_work_item_api_call") as mock_call,
+            patch(
+                "pyado.oop.boards.work_item._work_item.iter_work_item_details"
+            ) as mock_iter,
+            patch("pyado.oop.boards.work_item.raw.get_work_item_api_call") as mock_call,
         ):
             mock_iter.return_value = iter([parent_info])
             mock_call.return_value = _api_call()
@@ -970,8 +1002,10 @@ class TestWorkItem:
             ),
         ]
         with (
-            patch("pyado.oop.work_item._work_item.iter_work_item_details") as mock_iter,
-            patch("pyado.oop.work_item.raw.get_work_item_api_call") as mock_call,
+            patch(
+                "pyado.oop.boards.work_item._work_item.iter_work_item_details"
+            ) as mock_iter,
+            patch("pyado.oop.boards.work_item.raw.get_work_item_api_call") as mock_call,
         ):
             mock_iter.return_value = iter([_work_item_info(20)])
             mock_call.return_value = _api_call()
@@ -981,7 +1015,7 @@ class TestWorkItem:
 
     def test_delete_delegates_to_raw(self) -> None:
         wi = _make_wi(10)
-        with patch("pyado.oop.work_item.raw.delete_work_item") as mock_del:
+        with patch("pyado.oop.boards.work_item.raw.delete_work_item") as mock_del:
             wi.delete()
         mock_del.assert_called_once_with(wi._api_call)
 
@@ -997,7 +1031,9 @@ class TestWorkItem:
                 "url": "https://dev.azure.com/org/proj/_apis/wit/workItems/10/comments/3",
             }
         )
-        with patch("pyado.oop.work_item.raw.patch_work_item_comment") as mock_patch:
+        with patch(
+            "pyado.oop.boards.work_item.raw.patch_work_item_comment"
+        ) as mock_patch:
             mock_patch.return_value = comment
             result = wi.update_comment(3, "Updated")
         mock_patch.assert_called_once_with(wi._api_call, 3, "Updated")
@@ -1005,7 +1041,9 @@ class TestWorkItem:
 
     def test_delete_comment_delegates_to_raw(self) -> None:
         wi = _make_wi(10)
-        with patch("pyado.oop.work_item.raw.delete_work_item_comment") as mock_del:
+        with patch(
+            "pyado.oop.boards.work_item.raw.delete_work_item_comment"
+        ) as mock_del:
             wi.delete_comment(5)
         mock_del.assert_called_once_with(wi._api_call, 5)
 
@@ -1086,11 +1124,11 @@ class TestWorkItemRelationMethods:
         assert len(result) == 1
         assert result[0].rel == WorkItemRelationType.ARTIFACT_LINK
 
-    def test_iter_attachments_yields_attached_files(self) -> None:
+    def test_iter_attachments_yields_attachment_refs(self) -> None:
         wi = self._wi_with_relations()
         result = list(wi.iter_attachments())
         assert len(result) == 1
-        assert result[0].rel == WorkItemRelationType.ATTACHED_FILE
+        assert result[0].id == "guid"
 
     def test_iter_relations_empty_when_no_relations(self) -> None:
         wi = _make_wi()
@@ -1110,7 +1148,7 @@ class TestWorkItemRelationMethods:
 class TestWorkItemRefreshWithExpand:
     def test_refresh_with_expand_updates_stored_expand(self) -> None:
         wi = _make_wi()
-        with patch("pyado.oop.work_item.raw.get_work_item") as mock_get:
+        with patch("pyado.oop.boards.work_item.raw.get_work_item") as mock_get:
             mock_get.return_value = _work_item_info()
             wi.refresh(expand=WorkItemExpand.RELATIONS)
             # refresh() lazily invalidates; the actual fetch happens on next info access
@@ -1176,7 +1214,7 @@ class TestWorkItemRemoveLink:
 
         target = wi._info.relations[1]
         with patch(
-            "pyado.oop.work_item._work_item.remove_work_item_link"
+            "pyado.oop.boards.work_item._work_item.remove_work_item_link"
         ) as mock_remove:
             mock_remove.return_value = _work_item_info()
             wi.remove_link(target)
@@ -1189,7 +1227,7 @@ class TestWorkItemRemoveLink:
         target = wi._info.relations[0]
         new_info = _work_item_info(99)
         with patch(
-            "pyado.oop.work_item._work_item.remove_work_item_link"
+            "pyado.oop.boards.work_item._work_item.remove_work_item_link"
         ) as mock_remove:
             mock_remove.return_value = new_info
             wi.remove_link(target)
@@ -1218,7 +1256,9 @@ class TestWorkItemRemoveLink:
 class TestWorkItemMove:
     def test_move_iteration_path(self) -> None:
         wi = _make_wi()
-        with patch("pyado.oop.work_item._work_item.update_work_item") as mock_update:
+        with patch(
+            "pyado.oop.boards.work_item._work_item.update_work_item"
+        ) as mock_update:
             mock_update.return_value = _work_item_info()
             wi.move(iteration_path="Proj\\Sprint 2")
         fields = mock_update.call_args.args[1]
@@ -1227,7 +1267,9 @@ class TestWorkItemMove:
 
     def test_move_area_path(self) -> None:
         wi = _make_wi()
-        with patch("pyado.oop.work_item._work_item.update_work_item") as mock_update:
+        with patch(
+            "pyado.oop.boards.work_item._work_item.update_work_item"
+        ) as mock_update:
             mock_update.return_value = _work_item_info()
             wi.move(area_path="Proj\\Team A")
         fields = mock_update.call_args.args[1]
@@ -1235,7 +1277,9 @@ class TestWorkItemMove:
 
     def test_move_both_paths(self) -> None:
         wi = _make_wi()
-        with patch("pyado.oop.work_item._work_item.update_work_item") as mock_update:
+        with patch(
+            "pyado.oop.boards.work_item._work_item.update_work_item"
+        ) as mock_update:
             mock_update.return_value = _work_item_info()
             wi.move(iteration_path="Proj\\Sprint 2", area_path="Proj\\Team A")
         fields = mock_update.call_args.args[1]
@@ -1244,7 +1288,9 @@ class TestWorkItemMove:
 
     def test_move_noop_when_no_args(self) -> None:
         wi = _make_wi()
-        with patch("pyado.oop.work_item._work_item.update_work_item") as mock_update:
+        with patch(
+            "pyado.oop.boards.work_item._work_item.update_work_item"
+        ) as mock_update:
             wi.move()
         mock_update.assert_not_called()
 
@@ -1315,51 +1361,89 @@ class TestWorkItemRemoveWorkItemLinks:
 class TestWorkItemCreateChild:
     def test_calls_create_work_item_on_project(self) -> None:
         self_wi = _make_wi(10)
-        child_wi = _make_wi(20)
+        child_info = _work_item_info(20)
         with (
-            patch.object(
-                self_wi._project, "create_work_item", return_value=child_wi
+            patch(
+                "pyado.oop.boards._work_item.create_work_item",
+                return_value=child_info,
             ) as mock_create,
-            patch.object(child_wi, "add_link"),
+            patch(
+                "pyado.oop.boards.project_boards.raw.get_work_item_api_call",
+                return_value=_api_call(),
+            ),
+            patch(
+                "pyado.oop.boards.project_boards.raw.get_work_item",
+                return_value=child_info,
+            ),
+            patch.object(WorkItem, "add_link"),
         ):
             result = self_wi.create_child("Task", "My Task")
-        assert result is child_wi
-        assert mock_create.call_args.args[0] == "Task"
-        fields = mock_create.call_args.args[1]
-        assert fields["System.Title"] == "My Task"
+        assert result.id == 20
+        all_fields = mock_create.call_args.args[1]
+        assert all_fields["System.WorkItemType"] == "Task"
+        assert all_fields["System.Title"] == "My Task"
 
     def test_calls_add_link_with_parent_relation(self) -> None:
         self_wi = _make_wi(10)
-        child_wi = _make_wi(20)
+        child_info = _work_item_info(20)
         with (
-            patch.object(self_wi._project, "create_work_item", return_value=child_wi),
-            patch.object(child_wi, "add_link") as mock_add_link,
+            patch(
+                "pyado.oop.boards._work_item.create_work_item",
+                return_value=child_info,
+            ),
+            patch(
+                "pyado.oop.boards.project_boards.raw.get_work_item_api_call",
+                return_value=_api_call(),
+            ),
+            patch(
+                "pyado.oop.boards.project_boards.raw.get_work_item",
+                return_value=child_info,
+            ),
+            patch.object(WorkItem, "add_link") as mock_add_link,
         ):
             self_wi.create_child("Task", "My Task")
         mock_add_link.assert_called_once_with(self_wi, WorkItemRelationType.PARENT)
 
     def test_forwards_extra_fields(self) -> None:
         self_wi = _make_wi(10)
-        child_wi = _make_wi(20)
+        child_info = _work_item_info(20)
         with (
-            patch.object(
-                self_wi._project, "create_work_item", return_value=child_wi
+            patch(
+                "pyado.oop.boards._work_item.create_work_item",
+                return_value=child_info,
             ) as mock_create,
-            patch.object(child_wi, "add_link"),
+            patch(
+                "pyado.oop.boards.project_boards.raw.get_work_item_api_call",
+                return_value=_api_call(),
+            ),
+            patch(
+                "pyado.oop.boards.project_boards.raw.get_work_item",
+                return_value=child_info,
+            ),
+            patch.object(WorkItem, "add_link"),
         ):
             self_wi.create_child("Task", "My Task", {"System.Description": "details"})
-        fields = mock_create.call_args.args[1]
-        assert fields.get("System.Description") == "details"
+        all_fields = mock_create.call_args.args[1]
+        assert all_fields.get("System.Description") == "details"
 
     def test_forwards_multiline_fields_format(self) -> None:
         self_wi = _make_wi(10)
-        child_wi = _make_wi(20)
+        child_info = _work_item_info(20)
         fmt = {"System.Description": TextFormat.MARKDOWN}
         with (
-            patch.object(
-                self_wi._project, "create_work_item", return_value=child_wi
+            patch(
+                "pyado.oop.boards._work_item.create_work_item",
+                return_value=child_info,
             ) as mock_create,
-            patch.object(child_wi, "add_link"),
+            patch(
+                "pyado.oop.boards.project_boards.raw.get_work_item_api_call",
+                return_value=_api_call(),
+            ),
+            patch(
+                "pyado.oop.boards.project_boards.raw.get_work_item",
+                return_value=child_info,
+            ),
+            patch.object(WorkItem, "add_link"),
         ):
             self_wi.create_child("Task", "t", multiline_fields_format=fmt)
         assert mock_create.call_args.kwargs.get("multiline_fields_format") is fmt
@@ -1374,7 +1458,9 @@ class TestWorkItemIterRevisions:
     def test_delegates_to_raw(self) -> None:
         wi = _make_wi(10)
         rev1 = _work_item_info(10)
-        with patch("pyado.oop.work_item.raw.iter_work_item_revisions") as mock_iter:
+        with patch(
+            "pyado.oop.boards.work_item.raw.iter_work_item_revisions"
+        ) as mock_iter:
             mock_iter.return_value = iter([rev1])
             result = list(wi.iter_revisions())
         assert len(result) == 1
@@ -1383,7 +1469,9 @@ class TestWorkItemIterRevisions:
 
     def test_yields_empty_when_no_revisions(self) -> None:
         wi = _make_wi(10)
-        with patch("pyado.oop.work_item.raw.iter_work_item_revisions") as mock_iter:
+        with patch(
+            "pyado.oop.boards.work_item.raw.iter_work_item_revisions"
+        ) as mock_iter:
             mock_iter.return_value = iter([])
             result = list(wi.iter_revisions())
         assert result == []
@@ -1394,7 +1482,7 @@ class TestWorkItemIterRevisions:
 # ---------------------------------------------------------------------------
 
 
-class TestWorkItemGetAttachmentBytes:
+class TestWorkItemDownloadAttachment:
     def test_delegates_to_raw(self) -> None:
         wi = _make_wi(10)
         ref = WorkItemAttachmentRef.model_validate(
@@ -1403,9 +1491,11 @@ class TestWorkItemGetAttachmentBytes:
                 "url": "https://dev.azure.com/testorg/_apis/wit/attachments/aaaaaaaa",
             }
         )
-        with patch("pyado.oop.work_item.raw.get_work_item_attachment_bytes") as mock_dl:
+        with patch(
+            "pyado.oop.boards.work_item.raw.get_work_item_attachment_bytes"
+        ) as mock_dl:
             mock_dl.return_value = b"file content"
-            result = wi.get_attachment_bytes(ref)
+            result = wi.download_attachment(ref)
         assert result == b"file content"
         mock_dl.assert_called_once_with(wi._project.api_call, ref.id)
 
@@ -1455,13 +1545,17 @@ class TestWorkItemListMethods:
 class TestWorkItemSyncTags:
     def test_sync_tags_delegates_to_helper(self) -> None:
         wi = _make_wi()
-        with patch("pyado.oop.work_item._work_item.sync_work_item_tags") as mock_sync:
+        with patch(
+            "pyado.oop.boards.work_item._work_item.sync_work_item_tags"
+        ) as mock_sync:
             wi.sync_tags({"alpha", "beta"})
         mock_sync.assert_called_once_with(wi._api_call, {"alpha", "beta"})
 
     def test_sync_tags_passes_empty_set(self) -> None:
         wi = _make_wi()
-        with patch("pyado.oop.work_item._work_item.sync_work_item_tags") as mock_sync:
+        with patch(
+            "pyado.oop.boards.work_item._work_item.sync_work_item_tags"
+        ) as mock_sync:
             wi.sync_tags(set())
         mock_sync.assert_called_once_with(wi._api_call, set())
 
@@ -1469,14 +1563,14 @@ class TestWorkItemSyncTags:
 class TestWorkItemRestore:
     def test_restore_calls_raw(self) -> None:
         wi = _make_wi()
-        with patch("pyado.oop.work_item.raw.restore_work_item") as mock_restore:
+        with patch("pyado.oop.boards.work_item.raw.restore_work_item") as mock_restore:
             wi.restore()
         mock_restore.assert_called_once()
 
     def test_restore_passes_project_api_call_and_id(self) -> None:
         wi = _make_wi()
         wi_id = wi.id
-        with patch("pyado.oop.work_item.raw.restore_work_item") as mock_restore:
+        with patch("pyado.oop.boards.work_item.raw.restore_work_item") as mock_restore:
             wi.restore()
         args = mock_restore.call_args.args
         assert args[0] == wi._project.api_call
@@ -1485,7 +1579,7 @@ class TestWorkItemRestore:
     def test_restore_calls_refresh(self) -> None:
         wi = _make_wi()
         with (
-            patch("pyado.oop.work_item.raw.restore_work_item"),
+            patch("pyado.oop.boards.work_item.raw.restore_work_item"),
             patch.object(wi, "refresh") as mock_refresh,
         ):
             wi.restore()

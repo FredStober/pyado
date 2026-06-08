@@ -12,9 +12,10 @@ import pytest
 import requests
 
 from pyado.oop import AddFile, DeleteFile, EditFile, RenameFile
-from pyado.oop._git import (
+from pyado.oop.repos._git import (
     add_file,
     create_ref_update,
+    create_ref_update_from_sha,
     delete_file,
     edit_file,
     make_commit,
@@ -24,6 +25,7 @@ from pyado.oop._git import (
 from pyado.raw import (
     ZERO_SHA,
     ApiCall,
+    GitPushRefUpdate,
     GitPushResult,
     get_repository_api_call,
     make_ref_update,
@@ -152,6 +154,20 @@ class TestCreateRefUpdate:
         ) as mock_req:
             create_ref_update(repo_api_call, "main")
         assert "heads/main" in mock_req.call_args.kwargs["params"]["filter"]
+
+
+class TestCreateRefUpdateFromSha:
+    """Tests for create_ref_update_from_sha."""
+
+    def test_returns_ref_update_with_given_sha(self, repo_api_call: ApiCall) -> None:
+        result = create_ref_update_from_sha(repo_api_call, "main", "abc123sha")
+        assert isinstance(result, GitPushRefUpdate)
+        assert result.old_object_id == "abc123sha"
+
+    def test_normalises_short_branch_name(self, repo_api_call: ApiCall) -> None:
+        result = create_ref_update_from_sha(repo_api_call, "feature/x", "sha456")
+        assert isinstance(result, GitPushRefUpdate)
+        assert result.name == "refs/heads/feature/x"
 
 
 class TestHighLevelHelpers:

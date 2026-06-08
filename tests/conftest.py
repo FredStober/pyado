@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: MIT
 
 import json
-from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock
 from uuid import uuid4
@@ -12,23 +11,10 @@ import pytest
 import requests
 
 from pyado.raw import ApiCall
-from pyado.raw._core import _get_session
 
 BASE_URL = "https://dev.azure.com/org/"
 ACCESS_TOKEN = "test_token"
 NOW_ISO = "2024-01-15T12:00:00+00:00"
-
-
-@pytest.fixture(autouse=True)
-def clear_session_cache() -> Generator[None, None, None]:
-    """Clear lru_cache on _get_session before and after each test.
-
-    Yields:
-        None.
-    """
-    _get_session.cache_clear()
-    yield
-    _get_session.cache_clear()
 
 
 @pytest.fixture
@@ -38,7 +24,7 @@ def api_call() -> ApiCall:
     Returns:
         A minimal ApiCall instance for testing.
     """
-    return ApiCall(access_token=ACCESS_TOKEN, url=BASE_URL)
+    return ApiCall(url=BASE_URL)
 
 
 def _make_mock_response(json_data: Any = None) -> MagicMock:

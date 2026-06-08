@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 import requests
 
-from pyado.oop._work_item import iter_work_item_details
+from pyado.oop.boards._work_item import iter_work_item_details
 from pyado.raw import (
     ApiCall,
     ClassificationNode,
@@ -149,6 +149,18 @@ class TestIterSprintIterations:
         assert len(result) == 1
         assert isinstance(result[0], SprintIterationInfo)
         assert result[0].name == "Sprint 1"
+        assert result[0].url is None
+
+    @staticmethod
+    def test_parses_url_when_present(api_call: ApiCall) -> None:
+        """Parses the url field when included in the response."""
+        sprint = make_sprint_dict(
+            url="https://dev.azure.com/org/proj/_apis/work/teamsettings/iterations/abc"
+        )
+        mock_response = _make_mock_response({"count": 1, "value": [sprint]})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = list(iter_sprint_iterations(api_call))
+        assert result[0].url is not None
 
     @staticmethod
     def test_with_timeframe_filter_adds_parameter(api_call: ApiCall) -> None:
@@ -1443,7 +1455,7 @@ class TestListSprintIterations:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         with patch(
-            "pyado.raw.work_item.iter_sprint_iterations", return_value=iter([])
+            "pyado.raw.boards.work_item.iter_sprint_iterations", return_value=iter([])
         ) as m:
             result = list_sprint_iterations(api_call)
         assert result == []
@@ -1454,7 +1466,7 @@ class TestListWorkItemComments:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         with patch(
-            "pyado.raw.work_item.iter_work_item_comments", return_value=iter([])
+            "pyado.raw.boards.work_item.iter_work_item_comments", return_value=iter([])
         ) as m:
             result = list_work_item_comments(api_call)
         assert result == []
@@ -1465,7 +1477,7 @@ class TestListWorkItemRevisions:
     @staticmethod
     def test_returns_list(api_call: ApiCall) -> None:
         with patch(
-            "pyado.raw.work_item.iter_work_item_revisions", return_value=iter([])
+            "pyado.raw.boards.work_item.iter_work_item_revisions", return_value=iter([])
         ) as m:
             result = list_work_item_revisions(api_call)
         assert result == []

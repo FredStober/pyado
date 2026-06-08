@@ -14,11 +14,11 @@ from pyado.raw import (
     get_connection_data,
     get_my_profile,
     get_profile_api_call,
+    get_session,
 )
 from tests.conftest import _make_mock_response
 
 BASE_URL = "https://app.vssps.visualstudio.com/_apis/"
-ACCESS_TOKEN = "test_token"
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def api_call() -> ApiCall:
     Returns:
         A minimal ApiCall instance for testing.
     """
-    return ApiCall(access_token=ACCESS_TOKEN, url=BASE_URL)
+    return ApiCall(url=BASE_URL)
 
 
 class TestGetProfileApiCall:
@@ -37,10 +37,11 @@ class TestGetProfileApiCall:
     @staticmethod
     def test_returns_api_call_with_vssps_url() -> None:
         """Returns an ApiCall targeting the VSSPS profile endpoint."""
-        api_call = get_profile_api_call("mytoken")
+        session = get_session(pat="mytoken")
+        api_call = get_profile_api_call(session)
         assert isinstance(api_call, ApiCall)
         assert "app.vssps.visualstudio.com" in api_call.url.unicode_string()
-        assert api_call.access_token == "mytoken"
+        assert api_call.session is session
 
 
 class TestGetMyProfile:

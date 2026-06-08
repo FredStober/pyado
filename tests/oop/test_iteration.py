@@ -5,6 +5,7 @@
 from datetime import date
 from typing import Any
 from unittest.mock import patch
+from uuid import UUID
 
 import pytest
 
@@ -88,7 +89,9 @@ class TestIteration:
         )
         it = Iteration(_make_project(), node)
         updated = _iteration_node()
-        with patch("pyado.oop.iteration.raw.patch_classification_node") as mock_patch:
+        with patch(
+            "pyado.oop.boards.iteration.raw.patch_classification_node"
+        ) as mock_patch:
             mock_patch.return_value = updated
             it.update(start_date=date(2024, 1, 1))
         call = mock_patch.call_args
@@ -132,7 +135,9 @@ class TestIteration:
     def test_update_delegates_with_relative_path(self) -> None:
         it = _make_iteration(path="\\TestProject\\Sprint 1")
         updated = _iteration_node()
-        with patch("pyado.oop.iteration.raw.patch_classification_node") as mock_patch:
+        with patch(
+            "pyado.oop.boards.iteration.raw.patch_classification_node"
+        ) as mock_patch:
             mock_patch.return_value = updated
             it.update(start_date=date(2024, 2, 1), finish_date=date(2024, 2, 14))
         call = mock_patch.call_args
@@ -142,7 +147,9 @@ class TestIteration:
         # ADO includes an "Iteration" segment for root-level nodes.
         it = _make_iteration(path="\\TestProject\\Iteration\\Sprint 1")
         updated = _iteration_node()
-        with patch("pyado.oop.iteration.raw.patch_classification_node") as mock_patch:
+        with patch(
+            "pyado.oop.boards.iteration.raw.patch_classification_node"
+        ) as mock_patch:
             mock_patch.return_value = updated
             it.update(start_date=date(2024, 2, 1))
         assert mock_patch.call_args.args[1] == "Sprint 1"
@@ -150,7 +157,9 @@ class TestIteration:
     def test_update_updates_info(self) -> None:
         it = _make_iteration()
         updated = _iteration_node(name="Updated")
-        with patch("pyado.oop.iteration.raw.patch_classification_node") as mock_patch:
+        with patch(
+            "pyado.oop.boards.iteration.raw.patch_classification_node"
+        ) as mock_patch:
             mock_patch.return_value = updated
             it.update(start_date=date(2024, 2, 1))
         assert it._info is updated
@@ -159,7 +168,9 @@ class TestIteration:
         root = _iteration_node(path="\\TestProject")
         it = Iteration(_make_project(), root)
         updated = _iteration_node()
-        with patch("pyado.oop.iteration.raw.patch_classification_node") as mock_patch:
+        with patch(
+            "pyado.oop.boards.iteration.raw.patch_classification_node"
+        ) as mock_patch:
             mock_patch.return_value = updated
             it.update(start_date=date(2024, 1, 1))
         call = mock_patch.call_args
@@ -168,7 +179,9 @@ class TestIteration:
     def test_update_without_dates_passes_none_attributes(self) -> None:
         it = _make_iteration()
         updated = _iteration_node()
-        with patch("pyado.oop.iteration.raw.patch_classification_node") as mock_patch:
+        with patch(
+            "pyado.oop.boards.iteration.raw.patch_classification_node"
+        ) as mock_patch:
             mock_patch.return_value = updated
             it.update()
         assert mock_patch.call_args.args[2].attributes is None
@@ -176,7 +189,9 @@ class TestIteration:
     def test_update_name_sends_rename(self) -> None:
         it = _make_iteration(path="\\TestProject\\Sprint 1")
         updated = _iteration_node(name="Sprint 1 Renamed")
-        with patch("pyado.oop.iteration.raw.patch_classification_node") as mock_patch:
+        with patch(
+            "pyado.oop.boards.iteration.raw.patch_classification_node"
+        ) as mock_patch:
             mock_patch.return_value = updated
             it.update(name="Sprint 1 Renamed")
         request = mock_patch.call_args.args[2]
@@ -185,7 +200,9 @@ class TestIteration:
     def test_update_name_none_omits_name(self) -> None:
         it = _make_iteration()
         updated = _iteration_node()
-        with patch("pyado.oop.iteration.raw.patch_classification_node") as mock_patch:
+        with patch(
+            "pyado.oop.boards.iteration.raw.patch_classification_node"
+        ) as mock_patch:
             mock_patch.return_value = updated
             it.update()
         request = mock_patch.call_args.args[2]
@@ -194,7 +211,9 @@ class TestIteration:
     def test_refresh_re_fetches_info(self) -> None:
         it = _make_iteration(path="\\TestProject\\Sprint 1")
         refreshed = _iteration_node(name="Sprint 1 Updated")
-        with patch("pyado.oop.iteration.raw.get_classification_node") as mock_get:
+        with patch(
+            "pyado.oop.boards.iteration.raw.get_classification_node"
+        ) as mock_get:
             mock_get.return_value = refreshed
             it.refresh()
             # refresh() lazily invalidates; the actual fetch happens on next info access
@@ -205,7 +224,9 @@ class TestIteration:
     def test_refresh_uses_none_path_for_root(self) -> None:
         it = _make_iteration(path=None)
         refreshed = _iteration_node()
-        with patch("pyado.oop.iteration.raw.get_classification_node") as mock_get:
+        with patch(
+            "pyado.oop.boards.iteration.raw.get_classification_node"
+        ) as mock_get:
             mock_get.return_value = refreshed
             it.refresh()
             # refresh() lazily invalidates; trigger the fetch inside the mock context
@@ -261,7 +282,7 @@ class TestArea:
     def test_refresh_re_fetches_info(self) -> None:
         area = _make_area(path="\\TestProject\\Team A")
         refreshed = _area_node(name="Team A Updated")
-        with patch("pyado.oop.area.raw.get_classification_node") as mock_get:
+        with patch("pyado.oop.boards.area.raw.get_classification_node") as mock_get:
             mock_get.return_value = refreshed
             area.refresh()
             # refresh() lazily invalidates; trigger the fetch inside the mock context
@@ -272,7 +293,7 @@ class TestArea:
     def test_refresh_uses_none_path_for_root(self) -> None:
         area = Area(_make_project(), _area_node(path=None))
         refreshed = _area_node()
-        with patch("pyado.oop.area.raw.get_classification_node") as mock_get:
+        with patch("pyado.oop.boards.area.raw.get_classification_node") as mock_get:
             mock_get.return_value = refreshed
             area.refresh()
             # refresh() lazily invalidates; trigger the fetch inside the mock context
@@ -284,7 +305,9 @@ class TestAreaCreateChild:
     def test_create_child_delegates_to_raw(self) -> None:
         area = _make_area(path="\\TestProject\\Team A")
         node = ClassificationNode.model_validate({"id": 1, "name": "Sub-team"})
-        with patch("pyado.oop.area.raw.create_classification_node") as mock_create:
+        with patch(
+            "pyado.oop.boards.area.raw.create_classification_node"
+        ) as mock_create:
             mock_create.return_value = node
             result = area.create_child("Sub-team")
         assert isinstance(result, Area)
@@ -295,7 +318,9 @@ class TestAreaCreateChild:
     def test_create_child_passes_relative_path(self) -> None:
         area = _make_area(path="\\TestProject\\Team A")
         node = ClassificationNode.model_validate({"id": 1, "name": "Child"})
-        with patch("pyado.oop.area.raw.create_classification_node") as mock_create:
+        with patch(
+            "pyado.oop.boards.area.raw.create_classification_node"
+        ) as mock_create:
             mock_create.return_value = node
             area.create_child("Child")
         assert mock_create.call_args.args[2] == "Team A"
@@ -303,7 +328,9 @@ class TestAreaCreateChild:
     def test_create_child_with_root_path(self) -> None:
         area = _make_area(path="\\TestProject")
         node = ClassificationNode.model_validate({"id": 1, "name": "NewArea"})
-        with patch("pyado.oop.area.raw.create_classification_node") as mock_create:
+        with patch(
+            "pyado.oop.boards.area.raw.create_classification_node"
+        ) as mock_create:
             mock_create.return_value = node
             area.create_child("NewArea")
         # root node has no relative path — parent_path is None (create under root)
@@ -314,7 +341,7 @@ class TestAreaUpdate:
     def test_update_renames_node_with_relative_path(self) -> None:
         area = _make_area(path="\\TestProject\\Team A")
         new_node = _area_node(name="Renamed")
-        with patch("pyado.oop.area.raw.patch_classification_node") as mock_patch:
+        with patch("pyado.oop.boards.area.raw.patch_classification_node") as mock_patch:
             mock_patch.return_value = new_node
             area.update("Renamed")
         mock_patch.assert_called_once()
@@ -325,7 +352,7 @@ class TestAreaUpdate:
         # ADO includes an "Area" segment for root-level nodes.
         area = _make_area(path="\\TestProject\\Area\\Team A")
         new_node = _area_node(name="Renamed")
-        with patch("pyado.oop.area.raw.patch_classification_node") as mock_patch:
+        with patch("pyado.oop.boards.area.raw.patch_classification_node") as mock_patch:
             mock_patch.return_value = new_node
             area.update("Renamed")
         assert mock_patch.call_args.args[1] == "Team A"
@@ -333,7 +360,7 @@ class TestAreaUpdate:
     def test_update_with_none_path_passes_none(self) -> None:
         area = Area(_make_project(), _area_node(path=None))
         new_node = _area_node(name="Root")
-        with patch("pyado.oop.area.raw.patch_classification_node") as mock_patch:
+        with patch("pyado.oop.boards.area.raw.patch_classification_node") as mock_patch:
             mock_patch.return_value = new_node
             area.update("Root")
         assert mock_patch.call_args.args[1] is None
@@ -343,7 +370,9 @@ class TestIterationCreateChild:
     def test_create_child_delegates_to_raw(self) -> None:
         it = _make_iteration(path="\\TestProject\\Sprint 1")
         node = ClassificationNode.model_validate({"id": 2, "name": "Sub-sprint"})
-        with patch("pyado.oop.iteration.raw.create_classification_node") as mock_create:
+        with patch(
+            "pyado.oop.boards.iteration.raw.create_classification_node"
+        ) as mock_create:
             mock_create.return_value = node
             result = it.create_child("Sub-sprint")
         assert isinstance(result, Iteration)
@@ -354,7 +383,9 @@ class TestIterationCreateChild:
     def test_create_child_passes_relative_path(self) -> None:
         it = _make_iteration(path="\\TestProject\\Sprint 1")
         node = ClassificationNode.model_validate({"id": 2, "name": "Week 1"})
-        with patch("pyado.oop.iteration.raw.create_classification_node") as mock_create:
+        with patch(
+            "pyado.oop.boards.iteration.raw.create_classification_node"
+        ) as mock_create:
             mock_create.return_value = node
             it.create_child("Week 1")
         assert mock_create.call_args.args[2] == "Sprint 1"
@@ -362,7 +393,9 @@ class TestIterationCreateChild:
     def test_create_child_with_root_path(self) -> None:
         it = Iteration(_make_project(), _iteration_node(path="\\TestProject"))
         node = ClassificationNode.model_validate({"id": 2, "name": "Sprint 1"})
-        with patch("pyado.oop.iteration.raw.create_classification_node") as mock_create:
+        with patch(
+            "pyado.oop.boards.iteration.raw.create_classification_node"
+        ) as mock_create:
             mock_create.return_value = node
             it.create_child("Sprint 1")
         assert mock_create.call_args.args[2] is None
@@ -371,19 +404,25 @@ class TestIterationCreateChild:
 class TestIterationDelete:
     def test_delete_calls_raw(self) -> None:
         it = _make_iteration(path="\\TestProject\\Sprint 1")
-        with patch("pyado.oop.iteration.raw.delete_classification_node") as mock_del:
+        with patch(
+            "pyado.oop.boards.iteration.raw.delete_classification_node"
+        ) as mock_del:
             it.delete()
         mock_del.assert_called_once()
 
     def test_delete_passes_relative_path(self) -> None:
         it = _make_iteration(path="\\TestProject\\Sprint 1")
-        with patch("pyado.oop.iteration.raw.delete_classification_node") as mock_del:
+        with patch(
+            "pyado.oop.boards.iteration.raw.delete_classification_node"
+        ) as mock_del:
             it.delete()
         assert mock_del.call_args.args[1] == "Sprint 1"
 
     def test_delete_passes_iterations_node_type(self) -> None:
         it = _make_iteration(path="\\TestProject\\Sprint 1")
-        with patch("pyado.oop.iteration.raw.delete_classification_node") as mock_del:
+        with patch(
+            "pyado.oop.boards.iteration.raw.delete_classification_node"
+        ) as mock_del:
             it.delete()
         assert (
             mock_del.call_args.kwargs["node_type"]
@@ -394,19 +433,19 @@ class TestIterationDelete:
 class TestAreaDelete:
     def test_delete_calls_raw(self) -> None:
         area = _make_area(path="\\TestProject\\Team A")
-        with patch("pyado.oop.area.raw.delete_classification_node") as mock_del:
+        with patch("pyado.oop.boards.area.raw.delete_classification_node") as mock_del:
             area.delete()
         mock_del.assert_called_once()
 
     def test_delete_passes_relative_path(self) -> None:
         area = _make_area(path="\\TestProject\\Team A")
-        with patch("pyado.oop.area.raw.delete_classification_node") as mock_del:
+        with patch("pyado.oop.boards.area.raw.delete_classification_node") as mock_del:
             area.delete()
         assert mock_del.call_args.args[1] == "Team A"
 
     def test_delete_passes_areas_node_type(self) -> None:
         area = _make_area(path="\\TestProject\\Team A")
-        with patch("pyado.oop.area.raw.delete_classification_node") as mock_del:
+        with patch("pyado.oop.boards.area.raw.delete_classification_node") as mock_del:
             area.delete()
         assert mock_del.call_args.kwargs["node_type"] == ClassificationNodeUrlType.AREAS
 
@@ -428,11 +467,11 @@ class TestIterationAddToTeam:
     def test_add_to_team_delegates(self) -> None:
         it = self._make_iteration_with_id()
         team = Team(_make_project(), _team_info(), _make_service())
-        with patch("pyado.oop.team.raw.add_team_iteration") as mock_add:
+        with patch("pyado.oop.boards.iteration.raw.add_team_iteration") as mock_add:
             it.add_to_team(team)
-        mock_add.assert_called_once()
-        passed_id = mock_add.call_args.args[1]
-        assert str(passed_id) == "aaaaaaaa-0000-0000-0000-000000000001"
+        mock_add.assert_called_once_with(
+            team.api_call, UUID("aaaaaaaa-0000-0000-0000-000000000001")
+        )
 
     def test_add_to_team_raises_when_no_identifier(self) -> None:
         it = self._make_iteration_with_id(identifier=None)
