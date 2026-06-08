@@ -478,6 +478,24 @@ class PullRequest:
         """
         _pull_request.update_pull_request_work_item_refs(self._api_call, work_item_ids)
 
+    def add_work_item_ref(self, wi_id: WorkItemId) -> None:
+        """Add a single work item to the pull request's work item refs.
+
+        Reads the current work item refs, adds *wi_id* if not already present,
+        and writes the updated list back.  The operation is idempotent — if
+        *wi_id* is already linked, no PATCH is made.
+
+        This wraps :meth:`iter_work_item_ids` and :meth:`set_work_item_refs`:
+        two API calls (one GET, one PATCH) when the item is not yet linked;
+        one API call (GET only) when it is already present.
+
+        Args:
+            wi_id: Numeric ID of the work item to add.
+        """
+        current = list(self.iter_work_item_ids())
+        if wi_id not in current:
+            self.set_work_item_refs([*current, wi_id])
+
     def set_status(
         self,
         state: PullRequestStatusState,

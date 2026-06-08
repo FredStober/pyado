@@ -1187,6 +1187,44 @@ class TestWorkItemGetChildIds:
 
 
 # ---------------------------------------------------------------------------
+# OOP WorkItemGetParentId tests
+# ---------------------------------------------------------------------------
+
+
+class TestWorkItemGetParentId:
+    def test_returns_parent_id_when_parent_exists(self) -> None:
+        wi = _make_wi()
+        assert wi._info is not None
+
+        wi._info.relations = [
+            WorkItemRelation(
+                rel=WorkItemRelationType.PARENT,
+                url="https://dev.azure.com/org/proj/_apis/wit/workItems/5",
+            ),
+        ]
+        assert wi.get_parent_id() == 5
+
+    def test_returns_none_when_no_parent(self) -> None:
+        wi = _make_wi()
+        assert wi._info is not None
+
+        wi._info.relations = []
+        assert wi.get_parent_id() is None
+
+    def test_ignores_non_parent_relations(self) -> None:
+        wi = _make_wi()
+        assert wi._info is not None
+
+        wi._info.relations = [
+            WorkItemRelation(
+                rel=WorkItemRelationType.CHILD,
+                url="https://dev.azure.com/org/proj/_apis/wit/workItems/20",
+            ),
+        ]
+        assert wi.get_parent_id() is None
+
+
+# ---------------------------------------------------------------------------
 # OOP WorkItemRemoveLink tests
 # ---------------------------------------------------------------------------
 

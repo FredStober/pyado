@@ -575,6 +575,23 @@ class WorkItem:
             if r.rel == WorkItemRelationType.CHILD
         ]
 
+    def get_parent_id(self) -> WorkItemId | None:
+        """Return the ID of the parent work item without making API calls.
+
+        Parses the relation URLs from the already-fetched work item data.
+        Requires the info to have been fetched with
+        ``expand=WorkItemExpand.RELATIONS`` (the default for
+        :meth:`ProjectBoards.get_work_item`).
+
+        Returns:
+            Numeric parent work item ID, or ``None`` if this work item has
+            no parent relation.
+        """
+        for relation in self.info.relations:
+            if relation.rel == WorkItemRelationType.PARENT:
+                return _wi_id_from_url(relation.url)
+        return None
+
     def remove_link(self, relation: WorkItemRelation) -> None:
         """Remove a specific relation from this work item.
 

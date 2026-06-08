@@ -967,6 +967,34 @@ class TestPullRequestLifecycle:
             pr.set_work_item_refs([10, 20])
         mock_update.assert_called_once_with(pr.api_call, [10, 20])
 
+    def test_add_work_item_ref_appends_when_not_present(self) -> None:
+        pr = _make_pr()
+        with (
+            patch(
+                "pyado.oop.repos.pull_request._pull_request.iter_pull_request_work_item_ids"
+            ) as mock_iter,
+            patch(
+                "pyado.oop.repos.pull_request._pull_request.update_pull_request_work_item_refs"
+            ) as mock_update,
+        ):
+            mock_iter.return_value = iter([10])
+            pr.add_work_item_ref(20)
+        mock_update.assert_called_once_with(pr.api_call, [10, 20])
+
+    def test_add_work_item_ref_noop_when_already_present(self) -> None:
+        pr = _make_pr()
+        with (
+            patch(
+                "pyado.oop.repos.pull_request._pull_request.iter_pull_request_work_item_ids"
+            ) as mock_iter,
+            patch(
+                "pyado.oop.repos.pull_request._pull_request.update_pull_request_work_item_refs"
+            ) as mock_update,
+        ):
+            mock_iter.return_value = iter([10, 20])
+            pr.add_work_item_ref(20)
+        mock_update.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # OOP PullRequestRefreshWithExpand tests
