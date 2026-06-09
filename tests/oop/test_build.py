@@ -48,6 +48,7 @@ from pyado.raw import (
 from tests.conftest import NOW_ISO, _make_mock_response
 from tests.oop.conftest import (
     ACTIVE_JOB_ID,
+    BEARER_TOKEN,
     HUB_NAME,
     JOB_ID,
     ORG_URL,
@@ -891,28 +892,22 @@ class TestBuildTimeline:
 
 class TestDistributedTaskSession:
     # ------------------------------------------------------------------
-    # Navigation
-
-    def test_build_property(self) -> None:
-        build = _make_build()
-        task = _make_active_task(build)
-        assert task.build is build
-
-    def test_project_property(self) -> None:
-        build = _make_build()
-        task = _make_active_task(build)
-        assert task.project is build.project
-
-    def test_org_property(self) -> None:
-        build = _make_build()
-        task = _make_active_task(build)
-        assert task.org is build.org
-
-    # ------------------------------------------------------------------
     # Build factory
     # ------------------------------------------------------------------
 
     def test_factory_on_build_returns_distributed_task_session(self) -> None:
+        build = _make_build()
+        task = build.get_distributed_task_session(
+            bearer_token=BEARER_TOKEN,
+            hub_name=HUB_NAME,
+            plan_id=PLAN_ID,
+            timeline_id=TIMELINE_ID,
+            job_id=ACTIVE_JOB_ID,
+            task_instance_id=TASK_INSTANCE_ID,
+        )
+        assert isinstance(task, DistributedTaskSession)
+
+    def test_factory_default_bearer_token_is_empty_string(self) -> None:
         build = _make_build()
         task = build.get_distributed_task_session(
             hub_name=HUB_NAME,
@@ -922,22 +917,65 @@ class TestDistributedTaskSession:
             task_instance_id=TASK_INSTANCE_ID,
         )
         assert isinstance(task, DistributedTaskSession)
+
+    # ------------------------------------------------------------------
+    # OOP back-references
+    # ------------------------------------------------------------------
+
+    def test_build_back_reference_returns_owning_build(self) -> None:
+        build = _make_build()
+        task = build.get_distributed_task_session(
+            bearer_token=BEARER_TOKEN,
+            hub_name=HUB_NAME,
+            plan_id=PLAN_ID,
+            timeline_id=TIMELINE_ID,
+            job_id=ACTIVE_JOB_ID,
+            task_instance_id=TASK_INSTANCE_ID,
+        )
         assert task.build is build
 
-    # ------------------------------------------------------------------
-    # Inherited read properties (lazy via _resolve)
-    # ------------------------------------------------------------------
+    def test_project_back_reference_returns_owning_project(self) -> None:
+        build = _make_build()
+        task = build.get_distributed_task_session(
+            bearer_token=BEARER_TOKEN,
+            hub_name=HUB_NAME,
+            plan_id=PLAN_ID,
+            timeline_id=TIMELINE_ID,
+            job_id=ACTIVE_JOB_ID,
+            task_instance_id=TASK_INSTANCE_ID,
+        )
+        assert task.project is build.project
 
-    def test_inherits_task_read_properties(self) -> None:
-        record = _task_record()
-        with patch(
-            "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
-        ) as mock_iter:
-            mock_iter.return_value = iter([record])
-            task = _make_active_task()
-            assert task.name == "My Task"
-            assert task.id == TASK_INSTANCE_ID
-            assert task.error_count == 0
+    def test_org_back_reference_returns_owning_org(self) -> None:
+        build = _make_build()
+        task = build.get_distributed_task_session(
+            bearer_token=BEARER_TOKEN,
+            hub_name=HUB_NAME,
+            plan_id=PLAN_ID,
+            timeline_id=TIMELINE_ID,
+            job_id=ACTIVE_JOB_ID,
+            task_instance_id=TASK_INSTANCE_ID,
+        )
+        assert task.org is build.org
+
+    def test_build_raises_when_no_oop_build_set(self) -> None:
+        task = _make_active_task()
+        with pytest.raises(RuntimeError):
+            _ = task.build
+
+    def test_project_raises_when_no_oop_build_set(self) -> None:
+        task = _make_active_task()
+        with pytest.raises(RuntimeError):
+            _ = task.project
+
+    def test_org_raises_when_no_oop_build_set(self) -> None:
+        task = _make_active_task()
+        with pytest.raises(RuntimeError):
+            _ = task.org
+
+    # ------------------------------------------------------------------
+    # _resolve caching
+    # ------------------------------------------------------------------
 
     def test_resolve_caches_record(self) -> None:
         record = _task_record()
@@ -946,8 +984,8 @@ class TestDistributedTaskSession:
             "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
         ) as mock_iter:
             mock_iter.return_value = iter([record])
-            _ = task.name
-            _ = task.state  # second access — must not re-fetch
+            task._resolve()
+            task._resolve()  # second call must use cached record
         assert mock_iter.call_count == 1
 
     # ------------------------------------------------------------------
@@ -961,9 +999,25 @@ class TestDistributedTaskSession:
             "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
         ) as mock_iter:
             mock_iter.side_effect = [iter([record]), iter([record])]
-            _ = task.name
+            task._resolve()
             task.refresh()
-            _ = task.name
+            task._resolve()  # must re-fetch after refresh
+        assert mock_iter.call_count == 2
+
+    def test_refresh_clears_log_id_cache(self) -> None:
+        record = _task_record(log_id=5)
+        task = _make_active_task()
+        with (
+            patch(
+                "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
+            ) as mock_iter,
+            patch("pyado.oop.pipelines.distributed_task_session.raw.get_log_api_call"),
+            patch("pyado.oop.pipelines.distributed_task_session.raw.post_job_logs"),
+        ):
+            mock_iter.side_effect = [iter([record]), iter([record])]
+            task.send_log("first")
+            task.refresh()
+            task.send_log("second")  # must re-resolve log ID
         assert mock_iter.call_count == 2
 
     # ------------------------------------------------------------------
@@ -980,7 +1034,6 @@ class TestDistributedTaskSession:
         assert result.id == TASK_INSTANCE_ID
 
     def test_get_record_raises_when_not_found(self) -> None:
-
         other_id = uuid4()
         other_record = _record(other_id, "Task", "Other Task", parent_id=JOB_ID)
         with patch(
@@ -991,53 +1044,25 @@ class TestDistributedTaskSession:
                 _make_active_task().get_record()
 
     # ------------------------------------------------------------------
-    # get_job
-    # ------------------------------------------------------------------
-
-    def test_get_job_returns_build_job(self) -> None:
-        job_record = _record(ACTIVE_JOB_ID, "Job", "My Job", parent_id=STAGE_ID)
-        all_records = [
-            _record(STAGE_ID, "Stage", "Stage A"),
-            job_record,
-        ]
-        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
-            mock_iter.return_value = iter(all_records)
-            job = _make_active_task().get_job()
-        assert isinstance(job, BuildJob)
-        assert job.id == ACTIVE_JOB_ID
-
-    def test_get_job_skips_non_matching_jobs(self) -> None:
-
-        other_job_id = uuid4()
-        all_records = [
-            _record(STAGE_ID, "Stage", "Stage A"),
-            _record(other_job_id, "Job", "Other Job", parent_id=STAGE_ID),
-            _record(ACTIVE_JOB_ID, "Job", "My Job", parent_id=STAGE_ID),
-        ]
-        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
-            mock_iter.return_value = iter(all_records)
-            job = _make_active_task().get_job()
-        assert job.id == ACTIVE_JOB_ID
-
-    def test_get_job_raises_when_not_found(self) -> None:
-        all_records = [_record(STAGE_ID, "Stage", "Stage A")]
-        with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
-            mock_iter.return_value = iter(all_records)
-            with pytest.raises(ValueError, match=str(ACTIVE_JOB_ID)):
-                _make_active_task().get_job()
-
-    # ------------------------------------------------------------------
     # send_feed
     # ------------------------------------------------------------------
 
-    def test_send_feed_calls_high_send_job_feed(self) -> None:
+    def test_send_feed_posts_messages(self) -> None:
         with patch(
-            "pyado.oop.pipelines.distributed_task_session._build.send_job_feed"
+            "pyado.oop.pipelines.distributed_task_session.raw.post_job_feed"
         ) as mock_feed:
             _make_active_task().send_feed(["line 1", "line 2"])
         assert mock_feed.call_count == 1
-        _, messages = mock_feed.call_args.args
-        assert messages == ["line 1", "line 2"]
+        _, payload = mock_feed.call_args.args
+        assert payload.value == ["line 1", "line 2"]
+
+    def test_send_feed_url_excludes_project_name(self) -> None:
+        with patch(
+            "pyado.oop.pipelines.distributed_task_session.raw.post_job_feed"
+        ) as mock_feed:
+            _make_active_task().send_feed(["line 1"])
+        api_call, _ = mock_feed.call_args.args
+        assert "TestProject" not in str(api_call.url)
 
     # ------------------------------------------------------------------
     # send_log
@@ -1085,6 +1110,23 @@ class TestDistributedTaskSession:
             with pytest.raises(RuntimeError, match="no log"):
                 _make_active_task().send_log("hello")
 
+    def test_send_log_url_excludes_project_name(self) -> None:
+        record = _task_record(log_id=5)
+        with (
+            patch(
+                "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
+            ) as mock_iter,
+            patch(
+                "pyado.oop.pipelines.distributed_task_session.raw.get_log_api_call"
+            ) as mock_log_api,
+            patch("pyado.oop.pipelines.distributed_task_session.raw.post_job_logs"),
+        ):
+            mock_iter.return_value = iter([record])
+            mock_log_api.return_value = mock_log_api.return_value
+            _make_active_task().send_log("hello")
+        org_api_call, *_ = mock_log_api.call_args.args
+        assert "TestProject" not in str(org_api_call.url)
+
     # ------------------------------------------------------------------
     # send_message
     # ------------------------------------------------------------------
@@ -1093,7 +1135,7 @@ class TestDistributedTaskSession:
         record = _task_record(log_id=3)
         with (
             patch(
-                "pyado.oop.pipelines.distributed_task_session._build.send_job_feed"
+                "pyado.oop.pipelines.distributed_task_session.raw.post_job_feed"
             ) as mock_feed,
             patch(
                 "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
@@ -1122,15 +1164,31 @@ class TestDistributedTaskSession:
                 "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
             ) as mock_iter,
             patch(
-                "pyado.oop.pipelines.distributed_task_session._build.update_timeline_records"
+                "pyado.oop.pipelines.distributed_task_session.raw.patch_timeline_records"
             ) as mock_update,
         ):
             mock_iter.return_value = iter([record])
             _make_active_task().add_issues([issue])
         assert mock_update.call_count == 1
-        _, records = mock_update.call_args.args
-        assert len(records) == 1
-        assert records[0].issues == [issue]
+        _, payload = mock_update.call_args.args
+        assert len(payload.value) == 1
+        assert payload.value[0].issues == [issue]
+
+    def test_add_issues_url_excludes_project_name(self) -> None:
+        record = _task_record()
+        issue = BuildIssue(message="boom", type=BuildIssueType.ERROR)
+        with (
+            patch(
+                "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
+            ) as mock_iter,
+            patch(
+                "pyado.oop.pipelines.distributed_task_session.raw.patch_timeline_records"
+            ) as mock_update,
+        ):
+            mock_iter.return_value = iter([record])
+            _make_active_task().add_issues([issue])
+        api_call, _ = mock_update.call_args.args
+        assert "TestProject" not in str(api_call.url)
 
     # ------------------------------------------------------------------
     # complete
@@ -1138,22 +1196,30 @@ class TestDistributedTaskSession:
 
     def test_complete_succeeded_sends_event(self) -> None:
         with patch(
-            "pyado.oop.pipelines.distributed_task_session._build.send_job_event"
+            "pyado.oop.pipelines.distributed_task_session.raw.post_job_event"
         ) as mock_event:
             _make_active_task().complete(succeeded=True)
         assert mock_event.call_count == 1
-        _, task_id, job_id, _event_name, event_result = mock_event.call_args.args
-        assert task_id == TASK_INSTANCE_ID
-        assert job_id == ACTIVE_JOB_ID
-        assert event_result == "succeeded"
+        _, payload = mock_event.call_args.args
+        assert payload.task_id == TASK_INSTANCE_ID
+        assert payload.job_id == ACTIVE_JOB_ID
+        assert payload.result == "succeeded"
 
     def test_complete_failed_sends_event(self) -> None:
         with patch(
-            "pyado.oop.pipelines.distributed_task_session._build.send_job_event"
+            "pyado.oop.pipelines.distributed_task_session.raw.post_job_event"
         ) as mock_event:
             _make_active_task().complete(succeeded=False)
-        _, _task_id, _job_id, _event_name, event_result = mock_event.call_args.args
-        assert event_result == "failed"
+        _, payload = mock_event.call_args.args
+        assert payload.result == "failed"
+
+    def test_complete_url_excludes_project_name(self) -> None:
+        with patch(
+            "pyado.oop.pipelines.distributed_task_session.raw.post_job_event"
+        ) as mock_event:
+            _make_active_task().complete(succeeded=True)
+        api_call, _ = mock_event.call_args.args
+        assert "TestProject" not in str(api_call.url)
 
 
 # ---------------------------------------------------------------------------

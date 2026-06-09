@@ -14,7 +14,6 @@ from pyado.raw._core import AdoBaseModel, ApiCall, _IdentityRef
 from pyado.raw.boards.work_item import WorkItemRef, _WorkItemRefResults
 from pyado.raw.repos.git import (
     CommitId,
-    GitChangeType,
     GitCommitRef,
     PullRequestStatusContext,
     RepositoryId,
@@ -567,7 +566,9 @@ class PullRequestIterationChangeItem(AdoBaseModel):
 class PullRequestIterationChange(AdoBaseModel):
     """A single file change entry from a PR iteration changes response."""
 
-    change_type: GitChangeType
+    # str rather than GitChangeType: ADO returns composite flag values such as
+    # "edit, rename" when a file is both modified and moved in the same iteration.
+    change_type: str
     item: PullRequestIterationChangeItem
 
 

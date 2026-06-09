@@ -577,6 +577,7 @@ class Build:
     def get_distributed_task_session(
         self,
         *,
+        bearer_token: str = "",
         hub_name: str,
         plan_id: PlanId,
         timeline_id: TimelineId,
@@ -588,10 +589,14 @@ class Build:
         This factory is intended for external systems acting as a serverless
         ADO task (e.g. an AWS Lambda polling ADO for work).  Pass the
         distributed-task runtime variables that ADO injects as pipeline
-        environment variables.
+        environment variables, plus the pipeline's own bearer token.
 
         Args:
-            hub_name: Distributed-task hub name (e.g. ``"build"``).
+            bearer_token: Pipeline bearer token (``System.AccessToken``).
+                Required for write operations because the distributed-task
+                endpoints only accept the pipeline's own bearer token, not a
+                PAT.  Defaults to ``""`` for read-only or navigation use.
+            hub_name: Distributed-task hub name (e.g. ``"Build"``).
             plan_id: Value of ``$(system.planId)`` / ``SYSTEM_PLANID``.
             timeline_id: Value of ``$(system.timelineId)`` /
                 ``SYSTEM_TIMELINEID``.
@@ -602,13 +607,18 @@ class Build:
         Returns:
             DistributedTaskSession bound to this build and the given task.
         """
+        collection_uri = str(self._service.oop_api.org_base_api_call.url)
         return DistributedTaskSession(
-            self,
+            bearer_token,
+            collection_uri=collection_uri,
+            team_project_id=str(self._project.id),
+            build_id=self.id,
             hub_name=hub_name,
             plan_id=plan_id,
             timeline_id=timeline_id,
             job_id=job_id,
             task_instance_id=task_instance_id,
+            oop_build=self,
         )
 
     def retry(self) -> "Build":

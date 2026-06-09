@@ -70,6 +70,7 @@ TASK_ID: UUID = uuid4()
 # DistributedTaskSession constants
 # ---------------------------------------------------------------------------
 
+BEARER_TOKEN = "test-bearer-token"
 HUB_NAME = "build"
 PLAN_ID: PlanId = uuid4()
 TIMELINE_ID: TimelineId = uuid4()
@@ -336,9 +337,12 @@ def _make_tl_job(
 # ---------------------------------------------------------------------------
 
 
-def _make_active_task(build: Build | None = None) -> DistributedTaskSession:
+def _make_active_task() -> DistributedTaskSession:
     return DistributedTaskSession(
-        build or _make_build(),
+        BEARER_TOKEN,
+        collection_uri=ORG_URL,
+        team_project_id=str(PROJECT_ID),
+        build_id=ACTIVE_BUILD_ID,
         hub_name=HUB_NAME,
         plan_id=PLAN_ID,
         timeline_id=TIMELINE_ID,

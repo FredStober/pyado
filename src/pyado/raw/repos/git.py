@@ -166,6 +166,8 @@ class GitCommitChangeItem(AdoBaseModel):
 class GitCommitChange(AdoBaseModel):
     """A single change entry in a commit diff."""
 
+    # str rather than GitChangeType: ADO returns composite flag values such as
+    # "delete, sourceRename" when a file is both removed and renamed in the same diff.
     change_type: str
     item: GitCommitChangeItem
 

@@ -505,6 +505,16 @@ class TestGetPullRequestIterationChanges:
         assert result[0].item.path == "/src/foo.py"
 
     @staticmethod
+    def test_accepts_composite_change_type(api_call: ApiCall) -> None:
+        """Composite change types like 'edit, rename' are accepted as strings."""
+        entries = [{"changeType": "edit, rename", "item": {"path": "/src/bar.py"}}]
+        mock_response = _make_mock_response({"changeEntries": entries})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_pull_request_iteration_changes(api_call, 2)
+        assert len(result) == 1
+        assert result[0].change_type == "edit, rename"
+
+    @staticmethod
     def test_returns_empty_list_when_no_change_entries(api_call: ApiCall) -> None:
         """Returns an empty list when the response has no changeEntries key."""
         mock_response = _make_mock_response({})
