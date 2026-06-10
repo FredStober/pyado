@@ -94,6 +94,10 @@ class TestAzureDevOpsService:
         svc = _make_service()
         assert svc.org is svc.org
 
+    def test_oop_api_is_identity_stable(self) -> None:
+        svc = _make_service()
+        assert svc.oop_api is svc.oop_api
+
     def test_org_type(self) -> None:
         svc = _make_service()
         assert isinstance(svc.org, Organization)

@@ -62,7 +62,6 @@ __all__ = [
     "WorkItemTypeInfo",
     "WorkItemTypeName",
     "add_team_iteration",
-    "create_classification_node",
     "delete_classification_node",
     "delete_team_iteration",
     "delete_work_item",
@@ -91,6 +90,7 @@ __all__ = [
     "patch_classification_node",
     "patch_work_item",
     "patch_work_item_comment",
+    "post_classification_node",
     "post_wiql",
     "post_work_item",
     "post_work_item_attachment_upload",
@@ -915,7 +915,7 @@ def get_classification_node(
     return ClassificationNode.model_validate(response)
 
 
-def create_classification_node(
+def post_classification_node(
     project_api_call: ApiCall,
     request: ClassificationNodeRequest,
     parent_path: str | None = None,

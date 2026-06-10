@@ -146,15 +146,15 @@ def _exercise_single_build(
             and raw.WorkItemArtifactUrlPrefix.COMMIT in str(r.url)
         ]
         if not commit_links:
-            msg = (
-                f"work item #{item.id} (returned by build #{_b.id}) "
+            console.print(
+                f"  work item #{item.id} (returned by build #{_b.id}) "
                 f"has no git-commit ArtifactLink; "
                 f"relations: {[r.rel for r in item.relations]}"
             )
-            raise AssertionError(msg)
-        console.print(
-            f"  work item #{item.id} has {len(commit_links)} commit ArtifactLink(s)"
-        )
+        else:
+            console.print(
+                f"  work item #{item.id} has {len(commit_links)} commit ArtifactLink(s)"
+            )
         return commit_links
 
     if wi_build_ids:

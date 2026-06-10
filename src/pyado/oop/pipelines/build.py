@@ -269,14 +269,19 @@ class Build:
         """
         self._info = raw.patch_build(self._api_call, status)
 
-    def cancel(self) -> None:
+    def cancel(self) -> "Build":
         """Request cancellation of this running build.
 
         Updates the wrapper's cached info to reflect the cancelling state.
         Read :attr:`info` after the call to inspect the cancelling state
         without a separate :meth:`refresh` call.
+
+        Returns:
+            ``self`` with status ``"cancelling"``; transitions to
+            ``"completed"`` once the agent acknowledges.
         """
         self._info = _build.cancel_build(self._api_call)
+        return self
 
     def cancel_run(self) -> PipelineRunInfo:
         """Cancel this build via the Pipelines v2 API.
@@ -364,31 +369,21 @@ class Build:
         """
         yield from raw.iter_build_tags(self._api_call)
 
-    def add_tag(self, tag: str) -> list[str]:
+    def add_tag(self, tag: str) -> None:
         """Add a tag to the build.
 
         Args:
             tag: Tag name to add.
-
-        Returns:
-            Updated list of all tag name strings on the build after the
-            operation.  ADO returns the full tag list; this is a direct
-            pass-through.
         """
-        return raw.post_build_tag(self._api_call, tag)
+        raw.post_build_tag(self._api_call, tag)
 
-    def remove_tag(self, tag: str) -> list[str]:
+    def remove_tag(self, tag: str) -> None:
         """Remove a tag from the build.
 
         Args:
             tag: Tag name to remove.
-
-        Returns:
-            Updated list of all tag name strings on the build after the
-            operation.  ADO returns the full tag list; this is a direct
-            pass-through.
         """
-        return raw.delete_build_tag(self._api_call, tag)
+        raw.delete_build_tag(self._api_call, tag)
 
     # ------------------------------------------------------------------
     # Timeline
@@ -508,7 +503,7 @@ class Build:
         """
         ids = list(self.iter_work_item_ids())
         if ids:
-            yield from self._project.boards.get_work_items(ids)
+            yield from self._project.boards.list_work_items_by_ids(ids)
 
     def iter_work_items_between(
         self,
@@ -540,7 +535,7 @@ class Build:
             )
         ]
         if ids:
-            yield from self._project.boards.get_work_items(ids)
+            yield from self._project.boards.list_work_items_by_ids(ids)
 
     def iter_work_item_ids_between(
         self,
@@ -611,7 +606,7 @@ class Build:
         return DistributedTaskSession(
             bearer_token,
             collection_uri=collection_uri,
-            team_project_id=str(self._project.id),
+            team_project_id=self._project.id,
             build_id=self.id,
             hub_name=hub_name,
             plan_id=plan_id,

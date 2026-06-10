@@ -209,21 +209,21 @@ class TestVariableGroup:
         new_vars: dict[str, VariableInfo] = call.args[2]
         assert new_vars["SECRET"].is_secret is True
 
-    def test_delete_variable_removes_key(self) -> None:
+    def test_unset_variable_removes_key(self) -> None:
         vg = _make_variable_group()
         with patch(
             "pyado.oop.pipelines.variable_group._variable_group.update_variable_group"
         ) as mock_upd:
             mock_upd.return_value = _variable_group_info()
-            vg.delete_variable("FOO")
+            vg.unset_variable("FOO")
         call = mock_upd.call_args
         new_vars: dict[str, VariableInfo] = call.args[2]
         assert "FOO" not in new_vars
 
-    def test_delete_variable_missing_raises(self) -> None:
+    def test_unset_variable_missing_raises(self) -> None:
         vg = _make_variable_group()
         with pytest.raises(KeyError):
-            vg.delete_variable("NONEXISTENT")
+            vg.unset_variable("NONEXISTENT")
 
     def test_update_uses_existing_project_refs_when_present(self) -> None:
         """_project_refs() returns existing refs when the list is non-empty."""

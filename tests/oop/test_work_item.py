@@ -796,9 +796,8 @@ class TestWorkItem:
         with patch(
             "pyado.oop.boards.work_item._work_item.add_work_item_tag"
         ) as mock_tag:
-            mock_tag.return_value = ["tag-a"]
-            result = _make_wi().add_tag("tag-a")
-        assert result == ["tag-a"]
+            _make_wi().add_tag("tag-a")
+        mock_tag.assert_called_once()
 
     def test_add_comment_delegates(self) -> None:
         with patch(
@@ -820,9 +819,8 @@ class TestWorkItem:
         with patch(
             "pyado.oop.boards.work_item._work_item.remove_work_item_tag"
         ) as mock_remove:
-            mock_remove.return_value = ["tag-b"]
-            result = _make_wi().remove_tag("tag-a")
-        assert result == ["tag-b"]
+            _make_wi().remove_tag("tag-a")
+        mock_remove.assert_called_once()
 
     def test_sync_tags_delegates(self) -> None:
         with patch(
@@ -1039,12 +1037,12 @@ class TestWorkItem:
         mock_patch.assert_called_once_with(wi._api_call, 3, "Updated")
         assert result is comment
 
-    def test_delete_comment_delegates_to_raw(self) -> None:
+    def test_remove_comment_delegates_to_raw(self) -> None:
         wi = _make_wi(10)
         with patch(
             "pyado.oop.boards.work_item.raw.delete_work_item_comment"
         ) as mock_del:
-            wi.delete_comment(5)
+            wi.remove_comment(5)
         mock_del.assert_called_once_with(wi._api_call, 5)
 
     def test_state_returns_field_value(self) -> None:
@@ -1173,7 +1171,7 @@ class TestWorkItemGetChildIds:
                 url="https://dev.azure.com/org/proj/_apis/wit/workItems/42",
             ),
         ]
-        result = wi.get_child_ids()
+        result = wi.list_child_ids()
         assert result == [42]
 
     def test_returns_empty_list_when_no_children(self) -> None:
@@ -1183,7 +1181,7 @@ class TestWorkItemGetChildIds:
         assert wi._info is not None
 
         wi._info.relations = []
-        assert wi.get_child_ids() == []
+        assert wi.list_child_ids() == []
 
 
 # ---------------------------------------------------------------------------

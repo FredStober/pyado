@@ -2,6 +2,7 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
+from pyado.oop.core.process import Process
 from pyado.oop.core.search import OrganizationSearch, ProjectSearch
 
-__all__ = ["OrganizationSearch", "ProjectSearch"]
+__all__ = ["OrganizationSearch", "Process", "ProjectSearch"]

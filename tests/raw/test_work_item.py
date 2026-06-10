@@ -29,7 +29,6 @@ from pyado.raw import (
     WorkItemRef,
     WorkItemRelation,
     add_team_iteration,
-    create_classification_node,
     delete_classification_node,
     delete_team_iteration,
     delete_work_item,
@@ -49,6 +48,7 @@ from pyado.raw import (
     list_work_item_revisions,
     patch_classification_node,
     patch_work_item_comment,
+    post_classification_node,
     post_wiql,
     post_work_item_comment,
     restore_work_item,
@@ -518,7 +518,7 @@ class TestGetClassificationNode:
 
 
 class TestCreateClassificationNode:
-    """Tests for create_classification_node."""
+    """Tests for post_classification_node."""
 
     @staticmethod
     def test_returns_classification_node(api_call: ApiCall) -> None:
@@ -528,7 +528,7 @@ class TestCreateClassificationNode:
             {"id": 1, "identifier": guid, "name": "Sprint 1"}
         )
         with patch.object(requests.Session, "request", return_value=mock_response):
-            result = create_classification_node(
+            result = post_classification_node(
                 api_call,
                 ClassificationNodeRequest(name="Sprint 1"),
                 node_type=ClassificationNodeUrlType.ITERATIONS,
@@ -545,7 +545,7 @@ class TestCreateClassificationNode:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            create_classification_node(
+            post_classification_node(
                 api_call,
                 ClassificationNodeRequest(name="Sprint 2"),
                 node_type=ClassificationNodeUrlType.ITERATIONS,
@@ -566,7 +566,7 @@ class TestCreateClassificationNode:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            create_classification_node(
+            post_classification_node(
                 api_call,
                 ClassificationNodeRequest(name="Sprint 3", attributes=attrs),
                 node_type=ClassificationNodeUrlType.ITERATIONS,
@@ -585,7 +585,7 @@ class TestCreateClassificationNode:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            create_classification_node(
+            post_classification_node(
                 api_call,
                 ClassificationNodeRequest(name="Sprint 4"),
                 node_type=ClassificationNodeUrlType.ITERATIONS,
@@ -602,7 +602,7 @@ class TestCreateClassificationNode:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            create_classification_node(
+            post_classification_node(
                 api_call,
                 ClassificationNodeRequest(name="Child"),
                 "Release 1",
@@ -620,7 +620,7 @@ class TestCreateClassificationNode:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            create_classification_node(
+            post_classification_node(
                 api_call,
                 ClassificationNodeRequest(name="Team A"),
                 node_type=ClassificationNodeUrlType.AREAS,

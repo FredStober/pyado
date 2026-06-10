@@ -21,6 +21,7 @@ from pyado.raw import (
     SprintIterationInfo,
     SprintIterationTimeframe,
     TeamFieldValue,
+    TeamId,
     TextFormat,
     WorkItemBatchRequest,
     WorkItemExpand,
@@ -135,13 +136,13 @@ class ProjectBoards:
         info = raw.get_work_item(wi_api_call, expand=expand)
         return WorkItem(self._project, wi_api_call, info, expand)
 
-    def get_work_items(
+    def list_work_items_by_ids(
         self,
         ids: list[WorkItemId],
         *,
         expand: WorkItemExpand | None = WorkItemExpand.RELATIONS,
     ) -> list[WorkItem]:
-        """Fetch multiple work items in a single API call.
+        """Fetch multiple work items by ID in a single API call.
 
         Prefer this over repeated :meth:`get_work_item` calls when you
         already have a list of IDs (e.g. from
@@ -277,7 +278,7 @@ class ProjectBoards:
                     else None,
                 }
             )
-        node = raw.create_classification_node(
+        node = raw.post_classification_node(
             self._project.api_call,
             ClassificationNodeRequest(name=name, attributes=attrs),
             parent_path,
@@ -384,7 +385,7 @@ class ProjectBoards:
         Returns:
             Area wrapping the newly created area node.
         """
-        node = raw.create_classification_node(
+        node = raw.post_classification_node(
             self._project.api_call,
             ClassificationNodeRequest(name=name),
             parent_path,
@@ -392,7 +393,7 @@ class ProjectBoards:
         )
         return Area(self._project, node)
 
-    def get_team_field_values(self, team_name: str) -> list[TeamFieldValue]:
+    def list_team_field_values(self, team_name: str) -> list[TeamFieldValue]:
         """Return the area-path field configuration for a team.
 
         Args:
@@ -437,11 +438,11 @@ class ProjectBoards:
         info = raw.get_team(self._project.org.api_call, self._project.name, name)
         return Team(self._project, info, self._project._service)  # noqa: SLF001
 
-    def get_team_by_id(self, team_id: str) -> Team:
-        """Return a specific team by UUID string.
+    def get_team_by_id(self, team_id: TeamId) -> Team:
+        """Return a specific team by ID.
 
         Args:
-            team_id: Team UUID string.
+            team_id: Team ID.
 
         Returns:
             Team wrapping the requested team.

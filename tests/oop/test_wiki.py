@@ -6,7 +6,13 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from pyado.oop import Wiki
-from pyado.raw import WikiInfo, WikiPage, WikiType
+from pyado.raw import (
+    WikiInfo,
+    WikiPage,
+    WikiPageAttachment,
+    WikiPageDetail,
+    WikiType,
+)
 from tests.oop.conftest import (
     _make_project,
 )
@@ -73,25 +79,149 @@ class TestWikiProperties:
         assert wiki.org is proj.org
 
 
-class TestWikiGetPages:
-    def test_get_pages_delegates_to_raw(self) -> None:
+class TestWikiIterPages:
+    def test_iter_pages_yields_wiki_pages(self) -> None:
         proj = _make_project()
         wiki = Wiki(proj, _wiki_info())
         page = _wiki_page()
         with patch("pyado.oop.overview.wiki.raw.get_wiki_pages") as mock_get:
             mock_get.return_value = [page]
-            result = wiki.get_pages()
+            result = list(wiki.iter_pages())
         assert len(result) == 1
         assert isinstance(result[0], WikiPage)
 
-    def test_get_pages_passes_recursion_level(self) -> None:
+    def test_iter_pages_passes_recursion_level(self) -> None:
         proj = _make_project()
         wiki = Wiki(proj, _wiki_info())
         with patch("pyado.oop.overview.wiki.raw.get_wiki_pages") as mock_get:
             mock_get.return_value = []
-            wiki.get_pages(recursion_level=5)
+            list(wiki.iter_pages(recursion_level=5))
         _, kwargs = mock_get.call_args
         assert kwargs["recursion_level"] == 5
+
+
+class TestWikiListPages:
+    def test_list_pages_delegates_to_iter_pages(self) -> None:
+        proj = _make_project()
+        wiki = Wiki(proj, _wiki_info())
+        page = _wiki_page()
+        with patch.object(wiki, "iter_pages", return_value=iter([page])) as mock_iter:
+            result = wiki.list_pages()
+        mock_iter.assert_called_once_with(recursion_level=2)
+        assert len(result) == 1
+        assert isinstance(result[0], WikiPage)
+
+    def test_list_pages_passes_recursion_level(self) -> None:
+        proj = _make_project()
+        wiki = Wiki(proj, _wiki_info())
+        with patch.object(wiki, "iter_pages", return_value=iter([])) as mock_iter:
+            wiki.list_pages(recursion_level=5)
+        mock_iter.assert_called_once_with(recursion_level=5)
+
+
+class TestWikiGetPage:
+    def _make_detail(self, path: str = "/README") -> WikiPageDetail:
+        return WikiPageDetail.model_validate({"id": 1, "path": path, "content": "# Hi"})
+
+    def test_get_page_delegates_to_raw(self) -> None:
+        proj = _make_project()
+        wiki = Wiki(proj, _wiki_info())
+        detail = self._make_detail()
+        with patch("pyado.oop.overview.wiki.raw.get_wiki_page") as mock_get:
+            mock_get.return_value = detail
+            result = wiki.get_page("/README")
+        assert result is detail
+        assert isinstance(result, WikiPageDetail)
+
+    def test_get_page_forwards_include_content(self) -> None:
+        proj = _make_project()
+        wiki = Wiki(proj, _wiki_info())
+        with patch("pyado.oop.overview.wiki.raw.get_wiki_page") as mock_get:
+            mock_get.return_value = self._make_detail()
+            wiki.get_page("/README", include_content=False)
+        _, kwargs = mock_get.call_args
+        assert kwargs["include_content"] is False
+
+
+class TestWikiPutPage:
+    def _make_detail(self) -> WikiPageDetail:
+        return WikiPageDetail.model_validate(
+            {"id": 2, "path": "/NewPage", "content": "hello"}
+        )
+
+    def test_put_page_delegates_to_raw(self) -> None:
+        proj = _make_project()
+        wiki = Wiki(proj, _wiki_info())
+        detail = self._make_detail()
+        with patch("pyado.oop.overview.wiki.raw.put_wiki_page") as mock_put:
+            mock_put.return_value = detail
+            result = wiki.put_page("/NewPage", "hello")
+        assert result is detail
+        assert isinstance(result, WikiPageDetail)
+
+    def test_put_page_forwards_version(self) -> None:
+        proj = _make_project()
+        wiki = Wiki(proj, _wiki_info())
+        with patch("pyado.oop.overview.wiki.raw.put_wiki_page") as mock_put:
+            mock_put.return_value = self._make_detail()
+            wiki.put_page("/NewPage", "hello", version=42)
+        _, kwargs = mock_put.call_args
+        assert kwargs["version"] == 42
+
+    def test_put_page_omits_version_by_default(self) -> None:
+        proj = _make_project()
+        wiki = Wiki(proj, _wiki_info())
+        with patch("pyado.oop.overview.wiki.raw.put_wiki_page") as mock_put:
+            mock_put.return_value = self._make_detail()
+            wiki.put_page("/NewPage", "hello")
+        _, kwargs = mock_put.call_args
+        assert kwargs["version"] is None
+
+
+class TestWikiDeletePage:
+    def _make_detail(self) -> WikiPageDetail:
+        return WikiPageDetail.model_validate({"id": 3, "path": "/Old"})
+
+    def test_delete_page_delegates_to_raw(self) -> None:
+        proj = _make_project()
+        wiki = Wiki(proj, _wiki_info())
+        detail = self._make_detail()
+        with patch("pyado.oop.overview.wiki.raw.delete_wiki_page") as mock_del:
+            mock_del.return_value = detail
+            result = wiki.delete_page("/Old", version=7)
+        assert result is detail
+        assert isinstance(result, WikiPageDetail)
+
+    def test_delete_page_forwards_version(self) -> None:
+        proj = _make_project()
+        wiki = Wiki(proj, _wiki_info())
+        with patch("pyado.oop.overview.wiki.raw.delete_wiki_page") as mock_del:
+            mock_del.return_value = self._make_detail()
+            wiki.delete_page("/Old", version=7)
+        _, kwargs = mock_del.call_args
+        assert kwargs["version"] == 7
+
+
+class TestWikiListPageAttachments:
+    def test_list_page_attachments_delegates_to_raw(self) -> None:
+        proj = _make_project()
+        wiki = Wiki(proj, _wiki_info())
+        attachment = WikiPageAttachment.model_validate({"name": "image.png"})
+        with patch("pyado.oop.overview.wiki.raw.get_wiki_page_attachments") as mock_att:
+            mock_att.return_value = [attachment]
+            result = wiki.list_page_attachments(1)
+        assert len(result) == 1
+        assert isinstance(result[0], WikiPageAttachment)
+        assert result[0].name == "image.png"
+
+    def test_list_page_attachments_passes_page_id(self) -> None:
+        proj = _make_project()
+        wiki = Wiki(proj, _wiki_info())
+        with patch("pyado.oop.overview.wiki.raw.get_wiki_page_attachments") as mock_att:
+            mock_att.return_value = []
+            wiki.list_page_attachments(99)
+        args, _ = mock_att.call_args
+        assert args[2] == 99
 
 
 # ---------------------------------------------------------------------------

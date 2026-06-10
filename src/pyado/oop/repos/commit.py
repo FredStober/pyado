@@ -184,7 +184,7 @@ class Commit:
         """
         return self._repo.get_pr_for_commit(self.sha)
 
-    def get_statuses(self) -> list[GitStatus]:
+    def list_statuses(self) -> list[GitStatus]:
         """Return the CI statuses attached to this commit.
 
         Statuses are populated when the commit was fetched via an endpoint

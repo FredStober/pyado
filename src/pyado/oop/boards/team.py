@@ -133,7 +133,7 @@ class Team:
             self.api_call, timeframe_filter=timeframe_filter
         )
 
-    def get_field_values(self) -> list[TeamFieldValue]:
+    def list_field_values(self) -> list[TeamFieldValue]:
         """Return the area-path field configuration for this team.
 
         Returns:

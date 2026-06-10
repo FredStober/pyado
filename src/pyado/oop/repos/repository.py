@@ -12,6 +12,7 @@ from pyado.oop.repos._git import _full_ref as _make_full_ref
 from pyado.oop.repos.commit import Commit
 from pyado.oop.repos.file_change import AddFile, DeleteFile, EditFile, RenameFile
 from pyado.oop.repos.pull_request import PullRequest
+from pyado.oop.repos.tag import Tag
 from pyado.raw import (
     AccessControlList,
     AdoUrl,
@@ -425,13 +426,14 @@ class Repository:
         )
         _git.delete_branch(self._api_call, name, sha)
 
-    def iter_tags(self) -> Iterator[GitRef]:
+    def iter_git_tags(self) -> Iterator[Tag]:
         """Iterate over all git tags in the repository.
 
         Yields:
-            :class:`~pyado.raw.GitRef` for each tag.
+            :class:`~pyado.oop.repos.tag.Tag` for each tag.
         """
-        yield from raw.iter_tags(self._api_call)
+        for ref in raw.iter_tags(self._api_call):
+            yield Tag(self, ref)
 
     def create_tag(self, name: str, commit_id: CommitId) -> None:
         """Create a lightweight tag pointing at an existing commit.
@@ -441,10 +443,10 @@ class Repository:
                 is added automatically if absent.
             commit_id: Commit SHA the tag should point at.
         """
-        raw.create_tag(self._api_call, name, commit_id)
+        raw.post_tag(self._api_call, name, commit_id)
 
-    def delete_tag(self, name: str, commit_id: CommitId) -> None:
-        """Delete a tag from the repository.
+    def delete_git_tag(self, name: str, commit_id: CommitId) -> None:
+        """Delete a git tag from the repository.
 
         Args:
             name: Short tag name (e.g. ``"v1.0"``).  A ``refs/tags/`` prefix
@@ -452,7 +454,7 @@ class Repository:
             commit_id: Current object ID of the tag (optimistic-concurrency
                 check).
         """
-        raw.delete_tag(self._api_call, name, commit_id)
+        raw.delete_git_tag(self._api_call, name, commit_id)
 
     def create_annotated_tag(
         self,
@@ -574,26 +576,26 @@ class Repository:
             :class:`Commit` at the tip of the default branch.
 
         Raises:
-            ValueError: If the repository has no default branch configured.
-            KeyError: If the default branch ref is not found in the
-                repository (e.g. empty repository).
+            AzureDevOpsNotFoundError: If the repository has no default branch
+                configured, or if the default branch ref is not found (e.g.
+                empty repository).
         """
         branch = self.info.default_branch
         if branch is None:
             err_msg = f"Repository {self.info.name!r} has no default branch."
-            raise ValueError(err_msg)
+            raise AzureDevOpsNotFoundError(404, err_msg)
         short = branch.removeprefix("refs/")
         ref = next(raw.iter_refs(self._api_call, GitRefFilter(name_filter=short)), None)
         if ref is None:
             err_msg = f"Default branch ref {branch!r} not found."
-            raise KeyError(err_msg)
+            raise AzureDevOpsNotFoundError(404, err_msg)
         return self.get_commit(ref.object_id)
 
     # ------------------------------------------------------------------
     # Access control
     # ------------------------------------------------------------------
 
-    def get_acl(self) -> list[AccessControlList]:
+    def list_acl(self) -> list[AccessControlList]:
         """Return the access control lists for this repository.
 
         The ACL endpoint is organisation-scoped; this method handles the
@@ -674,7 +676,9 @@ class Repository:
         push_commit = _git.make_commit(message, [c.to_git_change() for c in changes])
         return _git.push_commits(self._api_call, [ref_update], [push_commit])
 
-    def delete_file(self, branch: BranchName, path: str, message: str) -> GitPushResult:
+    def commit_file_delete(
+        self, branch: BranchName, path: str, message: str
+    ) -> GitPushResult:
         """Delete a file from a branch in a single commit.
 
         Args:
@@ -688,7 +692,7 @@ class Repository:
         """
         return self.commit(branch, message, [DeleteFile(path)])
 
-    def rename_file(
+    def commit_file_rename(
         self,
         branch: BranchName,
         old_path: str,
@@ -1077,7 +1081,7 @@ class Repository:
     # Smart file commit (A7)
     # ------------------------------------------------------------------
 
-    def commit_file(
+    def commit_file_upsert(
         self,
         path: str,
         content: str,
@@ -1212,9 +1216,9 @@ class Repository:
         """Return all branches in this repository as a list."""
         return list(self.iter_branches())
 
-    def list_tags(self) -> list[GitRef]:
-        """Return all tags in this repository as a list."""
-        return list(self.iter_tags())
+    def list_git_tags(self) -> list[Tag]:
+        """Return all git tags in this repository as a list."""
+        return list(self.iter_git_tags())
 
     def list_commit_diff(
         self,

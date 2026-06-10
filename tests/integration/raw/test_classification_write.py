@@ -32,8 +32,8 @@ def test_classification_write(
         with contextlib.suppress(Exception):
             raw.delete_classification_node(project_api_call, cn_name, node_type=cn_type)
 
-    # create_classification_node — iteration
-    created_iter = raw.create_classification_node(
+    # post_classification_node — iteration
+    created_iter = raw.post_classification_node(
         project_api_call,
         ClassificationNodeRequest(name=iter_name),
         node_type=raw.ClassificationNodeUrlType.ITERATIONS,
@@ -51,8 +51,8 @@ def test_classification_write(
             node_type=raw.ClassificationNodeUrlType.ITERATIONS,
         )
 
-    # create_classification_node — area
-    created_area = raw.create_classification_node(
+    # post_classification_node — area
+    created_area = raw.post_classification_node(
         project_api_call,
         ClassificationNodeRequest(name=area_name),
         node_type=raw.ClassificationNodeUrlType.AREAS,

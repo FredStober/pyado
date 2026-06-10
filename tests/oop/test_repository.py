@@ -17,6 +17,7 @@ from pyado.oop import (
     PullRequest,
     RenameFile,
     Repository,
+    Tag,
 )
 from pyado.raw import (
     AccessControlList,
@@ -394,29 +395,29 @@ class TestRepository:
         assert result is None
 
 
-class TestRepositoryAcl:
-    def test_get_acl_delegates(self) -> None:
+class TestRepositoryListAcl:
+    def test_list_acl_delegates(self) -> None:
         repo = _make_repo()
         with patch("pyado.oop.repos.repository.raw.get_git_acl") as mock_acl:
             mock_acl.return_value = [_make_acl()]
-            result = repo.get_acl()
+            result = repo.list_acl()
         assert len(result) == 1
         assert isinstance(result[0], AccessControlList)
 
-    def test_get_acl_passes_project_and_repo_ids(self) -> None:
+    def test_list_acl_passes_project_and_repo_ids(self) -> None:
         repo = _make_repo()
         with patch("pyado.oop.repos.repository.raw.get_git_acl") as mock_acl:
             mock_acl.return_value = []
-            repo.get_acl()
+            repo.list_acl()
         call = mock_acl.call_args
         assert call.args[1] == PROJECT_ID
         assert call.args[2] == REPO_ID
 
-    def test_get_acl_uses_org_base_url(self) -> None:
+    def test_list_acl_uses_org_base_url(self) -> None:
         repo = _make_repo()
         with patch("pyado.oop.repos.repository.raw.get_git_acl") as mock_acl:
             mock_acl.return_value = []
-            repo.get_acl()
+            repo.list_acl()
         org_call = mock_acl.call_args.args[0]
         assert "_apis" not in str(org_call.url)
         assert "testorg" in str(org_call.url)
@@ -456,29 +457,29 @@ class TestRepositoryGetDefaultBranchCommit:
         assert isinstance(result, Commit)
         assert result.sha == "deadbeef"
 
-    def test_raises_value_error_when_no_default_branch(self) -> None:
+    def test_raises_not_found_when_no_default_branch(self) -> None:
         repo_info = _repo_info()
         repo_info.default_branch = None
         proj = _make_project()
         api_call = _api_call(f"{ORG_URL}/TestProject/_apis/git/repositories/{REPO_ID}")
         repo = Repository(proj, api_call, repo_info, proj._service)
-        with pytest.raises(ValueError, match="no default branch"):
+        with pytest.raises(AzureDevOpsNotFoundError, match="no default branch"):
             repo.get_default_branch_commit()
 
-    def test_raises_key_error_when_ref_not_found(self) -> None:
+    def test_raises_not_found_when_ref_not_found(self) -> None:
         with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_iter:
             mock_iter.return_value = iter([])
-            with pytest.raises(KeyError):
+            with pytest.raises(AzureDevOpsNotFoundError):
                 _make_repo().get_default_branch_commit()
 
 
-class TestRepositoryDeleteFile:
+class TestRepositoryCommitFileDelete:
     def test_delegates_to_commit_with_delete_change(self) -> None:
         repo = _make_repo()
         push_result = MagicMock()
         with patch("pyado.oop.repos.repository.Repository.commit") as mock_commit:
             mock_commit.return_value = push_result
-            result = repo.delete_file("main", "/old.txt", "Remove old file")
+            result = repo.commit_file_delete("main", "/old.txt", "Remove old file")
         assert result is push_result
         mock_commit.assert_called_once()
         _branch, _msg, changes = mock_commit.call_args.args
@@ -489,19 +490,19 @@ class TestRepositoryDeleteFile:
         repo = _make_repo()
         with patch("pyado.oop.repos.repository.Repository.commit") as mock_commit:
             mock_commit.return_value = MagicMock()
-            repo.delete_file("feature/x", "/f.txt", "Delete it")
+            repo.commit_file_delete("feature/x", "/f.txt", "Delete it")
         branch, msg, _ = mock_commit.call_args.args
         assert branch == "feature/x"
         assert msg == "Delete it"
 
 
-class TestRepositoryRenameFile:
+class TestRepositoryCommitFileRename:
     def test_delegates_to_commit_with_rename_change(self) -> None:
         repo = _make_repo()
         push_result = MagicMock()
         with patch("pyado.oop.repos.repository.Repository.commit") as mock_commit:
             mock_commit.return_value = push_result
-            result = repo.rename_file("main", "/a.txt", "/b.txt", "Rename file")
+            result = repo.commit_file_rename("main", "/a.txt", "/b.txt", "Rename file")
         assert result is push_result
         mock_commit.assert_called_once()
         _branch, _msg, changes = mock_commit.call_args.args
@@ -512,7 +513,7 @@ class TestRepositoryRenameFile:
         repo = _make_repo()
         with patch("pyado.oop.repos.repository.Repository.commit") as mock_commit:
             mock_commit.return_value = MagicMock()
-            repo.rename_file("main", "/a.txt", "/b.txt", "Move file")
+            repo.commit_file_rename("main", "/a.txt", "/b.txt", "Move file")
         branch, msg, _ = mock_commit.call_args.args
         assert branch == "main"
         assert msg == "Move file"
@@ -558,26 +559,27 @@ class TestRepositoryGetPrForCommit:
 
 
 class TestRepositoryTags:
-    def test_iter_tags_delegates_to_raw(self) -> None:
-        tag = GitRef.model_validate({"name": "refs/tags/v1.0", "objectId": "abc123"})
+    def test_iter_git_tags_yields_tag_wrappers(self) -> None:
+        ref = GitRef.model_validate({"name": "refs/tags/v1.0", "objectId": "abc123"})
         repo = _make_repo()
         with patch("pyado.oop.repos.repository.raw.iter_tags") as mock_iter:
-            mock_iter.return_value = iter([tag])
-            result = list(repo.iter_tags())
+            mock_iter.return_value = iter([ref])
+            result = list(repo.iter_git_tags())
         assert len(result) == 1
-        assert result[0] is tag
+        assert isinstance(result[0], Tag)
+        assert result[0].name == "v1.0"
         mock_iter.assert_called_once_with(repo._api_call)
 
     def test_create_tag_delegates_to_raw(self) -> None:
-        with patch("pyado.oop.repos.repository.raw.create_tag") as mock_create:
+        with patch("pyado.oop.repos.repository.raw.post_tag") as mock_create:
             _make_repo().create_tag("v1.0", "abc123")
         mock_create.assert_called_once()
         assert mock_create.call_args.args[1] == "v1.0"
         assert mock_create.call_args.args[2] == "abc123"
 
-    def test_delete_tag_delegates_to_raw(self) -> None:
-        with patch("pyado.oop.repos.repository.raw.delete_tag") as mock_delete:
-            _make_repo().delete_tag("v1.0", "abc123")
+    def test_delete_git_tag_delegates_to_raw(self) -> None:
+        with patch("pyado.oop.repos.repository.raw.delete_git_tag") as mock_delete:
+            _make_repo().delete_git_tag("v1.0", "abc123")
         mock_delete.assert_called_once()
         assert mock_delete.call_args.args[1] == "v1.0"
         assert mock_delete.call_args.args[2] == "abc123"
@@ -599,10 +601,10 @@ class TestRepositoryListMethods:
         with patch.object(repo, "iter_branches", return_value=iter([])):
             assert repo.list_branches() == []
 
-    def test_list_tags_delegates(self) -> None:
+    def test_list_git_tags_delegates(self) -> None:
         repo = _make_repo()
-        with patch.object(repo, "iter_tags", return_value=iter([])):
-            assert repo.list_tags() == []
+        with patch.object(repo, "iter_git_tags", return_value=iter([])):
+            assert repo.list_git_tags() == []
 
     def test_list_commit_diff_delegates(self) -> None:
         repo = _make_repo()
@@ -981,57 +983,61 @@ class TestRepositoryCheckFileExists:
 
 
 # ---------------------------------------------------------------------------
-# A7 — commit_file
+# A7 — commit_file_upsert
 # ---------------------------------------------------------------------------
 
 
-class TestRepositoryCommitFile:
-    def test_commit_file_uses_edit_when_file_exists(self) -> None:
+class TestRepositoryCommitFileUpsert:
+    def test_commit_file_upsert_uses_edit_when_file_exists(self) -> None:
         repo = _make_repo()
         push_result = MagicMock()
         with (
             patch.object(repo, "check_file_exists_by_branch", return_value=True),
             patch.object(repo, "commit", return_value=push_result) as mock_commit,
         ):
-            result = repo.commit_file("/f.py", "new content", "Update file", "main")
+            result = repo.commit_file_upsert(
+                "/f.py", "new content", "Update file", "main"
+            )
         assert result is push_result
         _branch, _msg, changes = mock_commit.call_args.args
         assert len(changes) == 1
         assert isinstance(changes[0], EditFile)
 
-    def test_commit_file_uses_add_when_file_absent(self) -> None:
+    def test_commit_file_upsert_uses_add_when_file_absent(self) -> None:
         repo = _make_repo()
         push_result = MagicMock()
         with (
             patch.object(repo, "check_file_exists_by_branch", return_value=False),
             patch.object(repo, "commit", return_value=push_result) as mock_commit,
         ):
-            result = repo.commit_file("/new.py", "content", "Add file", "main")
+            result = repo.commit_file_upsert("/new.py", "content", "Add file", "main")
         assert result is push_result
         _branch, _msg, changes = mock_commit.call_args.args
         assert isinstance(changes[0], AddFile)
 
-    def test_commit_file_passes_branch_and_message(self) -> None:
+    def test_commit_file_upsert_passes_branch_and_message(self) -> None:
         repo = _make_repo()
         with (
             patch.object(repo, "check_file_exists_by_branch", return_value=True),
             patch.object(repo, "commit", return_value=MagicMock()) as mock_commit,
         ):
-            repo.commit_file("/f.py", "content", "My msg", "feature/x")
+            repo.commit_file_upsert("/f.py", "content", "My msg", "feature/x")
         branch, msg, _ = mock_commit.call_args.args
         assert branch == "feature/x"
         assert msg == "My msg"
 
-    def test_commit_file_passes_current_commit(self) -> None:
+    def test_commit_file_upsert_passes_current_commit(self) -> None:
         repo = _make_repo()
         with (
             patch.object(repo, "check_file_exists_by_branch", return_value=True),
             patch.object(repo, "commit", return_value=MagicMock()) as mock_commit,
         ):
-            repo.commit_file("/f.py", "content", "msg", "main", current_commit="sha123")
+            repo.commit_file_upsert(
+                "/f.py", "content", "msg", "main", current_commit="sha123"
+            )
         assert mock_commit.call_args.kwargs.get("current_commit") == "sha123"
 
-    def test_commit_file_with_none_branch_checks_default_branch(self) -> None:
+    def test_commit_file_upsert_with_none_branch_checks_default_branch(self) -> None:
         repo = _make_repo()
         with (
             patch.object(
@@ -1039,7 +1045,7 @@ class TestRepositoryCommitFile:
             ) as mock_check,
             patch.object(repo, "commit", return_value=MagicMock()),
         ):
-            repo.commit_file("/new.py", "content", "Add")
+            repo.commit_file_upsert("/new.py", "content", "Add")
         # branch=None is passed through to check_file_exists_by_branch
         mock_check.assert_called_once_with("/new.py", None)
 

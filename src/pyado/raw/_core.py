@@ -309,6 +309,7 @@ class ApiCall(BaseModel):
         data: Any = None,
         *,
         raw: bool = False,
+        extra_headers: dict[str, str] | None = None,
     ) -> Any:
         """Helper function to interact with the Azure DevOps API.
 
@@ -318,11 +319,13 @@ class ApiCall(BaseModel):
         Raises:
             ConnectionResetError: If all retry attempts fail due to a reset.
         """
-        headers = {
+        headers: dict[str, str] = {
             "Content-Type": _get_content_type(
                 has_data=data is not None, json_value=json
             ),
         }
+        if extra_headers is not None:
+            headers.update(extra_headers)
         kwargs = {}
         if json is not None:
             kwargs = {"json": json}
@@ -381,6 +384,7 @@ class ApiCall(BaseModel):
         version: str | None = None,
         json: Any = None,
         data: Any = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> Any:
         """Helper function to interact with the Azure DevOps API via PUT.
 
@@ -388,7 +392,9 @@ class ApiCall(BaseModel):
             The parsed API response.
         """
         api_call = self.build_call(*args, parameters=parameters, version=version)
-        return ApiCall._request("PUT", api_call, json=json, data=data)
+        return ApiCall._request(
+            "PUT", api_call, json=json, data=data, extra_headers=extra_headers
+        )
 
     def post(
         self,
@@ -426,6 +432,7 @@ class ApiCall(BaseModel):
         *args: str | int | UUID,
         parameters: dict[str, int | str | bool] | None = None,
         version: str | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> Any:
         """Helper function to interact with the Azure DevOps API via DELETE.
 
@@ -433,7 +440,7 @@ class ApiCall(BaseModel):
             The parsed API response.
         """
         api_call = self.build_call(*args, parameters=parameters, version=version)
-        return ApiCall._request("DELETE", api_call)
+        return ApiCall._request("DELETE", api_call, extra_headers=extra_headers)
 
 
 def get_session(

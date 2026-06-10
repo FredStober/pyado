@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pyado import raw
-from pyado.raw import ServiceEndpointInfo
+from pyado.raw import (
+    ServiceEndpointInfo,
+    ServiceEndpointProjectReference,
+    ServiceEndpointUpdateRequest,
+)
 
 if TYPE_CHECKING:
     from pyado.oop.organization import Organization
@@ -111,3 +115,41 @@ class ServiceEndpoint:
         The next access to :attr:`info` re-fetches from the endpoint list.
         """
         self._info = None
+
+    def update(self, request: ServiceEndpointUpdateRequest) -> None:
+        """Update this service endpoint.
+
+        Sends a PUT to the organisation-scoped endpoint and refreshes the
+        cached info with the API response.
+
+        Args:
+            request: Update request.  The ``id`` field must match this
+                endpoint's :attr:`id`.
+        """
+        self._info = raw.put_service_endpoint(
+            self._project.org.api_call, self._id, request
+        )
+
+    def delete(self) -> None:
+        """Delete this service endpoint from the current project.
+
+        Removes the endpoint from :attr:`project`.  The deletion is
+        permanent and cannot be undone via the API.
+        """
+        raw.delete_service_endpoint(
+            self._project.api_call,
+            self._id,
+            [str(self._project.id)],
+        )
+
+    def share(self, project_references: list[ServiceEndpointProjectReference]) -> None:
+        """Share this service endpoint with additional projects.
+
+        Args:
+            project_references: Project references describing each project
+                to share the endpoint with and the name to use in each
+                project.
+        """
+        raw.patch_service_endpoint_share(
+            self._project.org.api_call, self._id, project_references
+        )

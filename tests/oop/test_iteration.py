@@ -305,9 +305,7 @@ class TestAreaCreateChild:
     def test_create_child_delegates_to_raw(self) -> None:
         area = _make_area(path="\\TestProject\\Team A")
         node = ClassificationNode.model_validate({"id": 1, "name": "Sub-team"})
-        with patch(
-            "pyado.oop.boards.area.raw.create_classification_node"
-        ) as mock_create:
+        with patch("pyado.oop.boards.area.raw.post_classification_node") as mock_create:
             mock_create.return_value = node
             result = area.create_child("Sub-team")
         assert isinstance(result, Area)
@@ -318,9 +316,7 @@ class TestAreaCreateChild:
     def test_create_child_passes_relative_path(self) -> None:
         area = _make_area(path="\\TestProject\\Team A")
         node = ClassificationNode.model_validate({"id": 1, "name": "Child"})
-        with patch(
-            "pyado.oop.boards.area.raw.create_classification_node"
-        ) as mock_create:
+        with patch("pyado.oop.boards.area.raw.post_classification_node") as mock_create:
             mock_create.return_value = node
             area.create_child("Child")
         assert mock_create.call_args.args[2] == "Team A"
@@ -328,9 +324,7 @@ class TestAreaCreateChild:
     def test_create_child_with_root_path(self) -> None:
         area = _make_area(path="\\TestProject")
         node = ClassificationNode.model_validate({"id": 1, "name": "NewArea"})
-        with patch(
-            "pyado.oop.boards.area.raw.create_classification_node"
-        ) as mock_create:
+        with patch("pyado.oop.boards.area.raw.post_classification_node") as mock_create:
             mock_create.return_value = node
             area.create_child("NewArea")
         # root node has no relative path — parent_path is None (create under root)
@@ -371,7 +365,7 @@ class TestIterationCreateChild:
         it = _make_iteration(path="\\TestProject\\Sprint 1")
         node = ClassificationNode.model_validate({"id": 2, "name": "Sub-sprint"})
         with patch(
-            "pyado.oop.boards.iteration.raw.create_classification_node"
+            "pyado.oop.boards.iteration.raw.post_classification_node"
         ) as mock_create:
             mock_create.return_value = node
             result = it.create_child("Sub-sprint")
@@ -384,7 +378,7 @@ class TestIterationCreateChild:
         it = _make_iteration(path="\\TestProject\\Sprint 1")
         node = ClassificationNode.model_validate({"id": 2, "name": "Week 1"})
         with patch(
-            "pyado.oop.boards.iteration.raw.create_classification_node"
+            "pyado.oop.boards.iteration.raw.post_classification_node"
         ) as mock_create:
             mock_create.return_value = node
             it.create_child("Week 1")
@@ -394,7 +388,7 @@ class TestIterationCreateChild:
         it = Iteration(_make_project(), _iteration_node(path="\\TestProject"))
         node = ClassificationNode.model_validate({"id": 2, "name": "Sprint 1"})
         with patch(
-            "pyado.oop.boards.iteration.raw.create_classification_node"
+            "pyado.oop.boards.iteration.raw.post_classification_node"
         ) as mock_create:
             mock_create.return_value = node
             it.create_child("Sprint 1")

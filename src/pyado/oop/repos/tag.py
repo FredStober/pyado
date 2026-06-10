@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from pyado import raw
 from pyado.exceptions import AzureDevOpsNotFoundError
-from pyado.raw import CommitId, GitRef
+from pyado.raw import AnnotatedTagInfo, CommitId, GitRef
 
 if TYPE_CHECKING:
     from pyado.oop.repos.commit import Commit
@@ -20,7 +20,8 @@ class Tag:
 
     Wraps a :class:`~pyado.raw.GitRef` for a ``refs/tags/…`` ref and
     exposes tag-specific convenience methods.  Instances are obtained
-    from :meth:`ProjectRepos.iter_tags` or :meth:`Repository.iter_tags`.
+    from :meth:`Repository.iter_git_tags` or
+    :meth:`ProjectRepos.iter_git_tags`.
 
     Attributes:
         _repo: The Repository this tag belongs to.
@@ -92,9 +93,26 @@ class Tag:
                 raise
             return self._repo.get_commit(tag_info.tagged_object.object_id)
 
+    def get_annotated_info(self) -> AnnotatedTagInfo | None:
+        """Return the annotated tag metadata, or ``None`` for lightweight tags.
+
+        Fetches the tag object from ADO to retrieve the tagger identity,
+        timestamp, and annotation message.  Lightweight tags point directly
+        to a commit rather than to a tag object; ADO returns 404 for them,
+        so this method returns ``None`` in that case.
+
+        Returns:
+            AnnotatedTagInfo with tagger, message, and tagged-object details,
+            or ``None`` if this is a lightweight tag.
+        """
+        try:
+            return raw.get_annotated_tag(self._repo.api_call, self.commit_id)
+        except AzureDevOpsNotFoundError:
+            return None
+
     def delete(self) -> None:
         """Delete this tag from the repository.
 
         Uses the stored commit SHA as the optimistic-concurrency guard.
         """
-        self._repo.delete_tag(self.name, self.commit_id)
+        self._repo.delete_git_tag(self.name, self.commit_id)

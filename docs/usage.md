@@ -38,10 +38,13 @@ showing the code.
 [Agents and queues](#agents-and-queues) ·
 [Secure files](#secure-files) ·
 [Service endpoints](#service-endpoints) ·
+[Task groups](#task-groups) ·
+[Service hooks](#service-hooks) ·
 [Wikis](#wikis) ·
 [Dashboards](#dashboards) ·
 [Notifications](#notification-subscriptions) ·
-[Process info](#process-info)
+[Process info](#process-info) ·
+[Process templates](#process-templates)
 
 ---
 
@@ -104,11 +107,15 @@ objects yourself, you navigate a hierarchy:
 ```text
 AzureDevOpsService
 └── Organization
+    ├── agent pools, graph groups/users, user entitlements
+    ├── hook subscriptions + publishers
+    ├── work process templates  → Process  (WITs, states, fields, rules, behaviors)
     └── Project
         ├── .repos       → ProjectRepos   (repositories, pull requests, branches, tags)
         ├── .boards      → ProjectBoards  (work items, iterations, areas, teams)
         ├── .pipelines   → ProjectPipelines (builds, runs, approvals, environments,
-        │                                    agent queues, service endpoints)
+        │                                    agent queues, service endpoints,
+        │                                    task groups)
         │   └── .library → PipelineLibrary (variable groups, secure files)
         ├── .search      → ProjectSearch  (code, work item, wiki, package search)
         └── .settings    → ProjectSettings (policies, process info)
@@ -205,6 +212,18 @@ for result in org.search.search_work_items(SearchRequest(search_text="memory lea
 # Notification subscriptions
 for sub in org.iter_notification_subscriptions():
     print(sub.id, sub.description)
+
+# Service hooks
+for sub in org.iter_hook_subscriptions():
+    print(sub.id, sub.publisher_id, sub.event_type)
+
+for publisher in org.iter_hook_publishers():
+    print(publisher.id, publisher.name)
+
+# Work process templates
+for process in org.iter_processes():
+    print(process.id, process.name)
+process = org.get_process(process_uuid)
 ```
 
 ### Project
@@ -288,6 +307,31 @@ for change in repo.iter_commit_diff("abc123", "def456"):
 
 # ACL
 acl = repo.get_acl()
+```
+
+### Tag
+
+```python
+# List tags in a repository
+for ref in repo.iter_git_tags():    # yields GitRef
+    print(ref.name, ref.object_id)
+
+# List tags as Tag objects (project-level convenience)
+for tag in proj.repos.iter_git_tags("myrepo"):
+    print(tag.name, tag.full_name, tag.commit_id)
+tags = proj.repos.list_git_tags("myrepo")   # list variant
+
+# Create a lightweight tag
+repo.create_tag("v1.2.3", "abc123")
+
+# Delete a tag
+repo.remove_git_tag("v1.2.3", "abc123")   # requires current commit SHA
+
+# Work with Tag objects
+tag = next(proj.repos.iter_git_tags("myrepo"))
+commit = tag.get_commit()            # resolves annotated tags automatically
+info   = tag.get_annotated_info()   # None for lightweight tags
+tag.delete()                         # removes the tag from the repo
 ```
 
 ### Committing files
@@ -598,6 +642,12 @@ for approval in proj.pipelines.iter_approvals():
     print(approval.id, approval.status)
 proj.pipelines.approve(approval.id, comment="LGTM")
 proj.pipelines.reject(approval.id, comment="Not ready")
+
+# Task groups
+for tg in proj.pipelines.iter_task_groups():
+    print(tg.id, tg.name)
+tg = proj.pipelines.get_task_group("my-deploy-steps")
+tg = proj.pipelines.get_task_group_by_id(task_group_uuid)
 ```
 
 ### VariableGroup
@@ -812,6 +862,38 @@ sf.delete()
 # Service connections in the project
 for endpoint in proj.pipelines.iter_service_endpoints():
     print(endpoint.id, endpoint.name, endpoint.type)
+
+# Properties (no API call after construction)
+print(endpoint.id, endpoint.name, endpoint.type)
+print(endpoint.url, endpoint.is_ready, endpoint.is_shared)
+print(endpoint.authorization_scheme)
+
+# Re-fetch
+endpoint.refresh()
+
+# Update a service endpoint
+from pyado.raw import ServiceEndpointUpdateRequest, ServiceEndpointProjectReference
+
+endpoint.update(
+    ServiceEndpointUpdateRequest(
+        id=endpoint.id,
+        name=endpoint.name,
+        type=endpoint.type,
+        url=endpoint.url,
+        # ... other fields
+    )
+)
+
+# Share with additional projects
+endpoint.share([
+    ServiceEndpointProjectReference(
+        project_reference={"id": "<project-id>", "name": "OtherProject"},
+        name=endpoint.name,
+    )
+])
+
+# Delete from the current project
+endpoint.delete()
 ```
 
 ### Agent queues (project-scoped)
@@ -2273,6 +2355,144 @@ for endpoint in iter_service_endpoints(api):
 
 ---
 
+## Task groups
+
+Task groups are reusable sequences of build/release tasks stored in the
+pipeline library. They appear as a single task in classic pipeline definitions.
+
+```python
+# List task groups
+for tg in proj.pipelines.iter_task_groups():
+    print(tg.id, tg.name, tg.description, tg.category)
+tgs = proj.pipelines.list_task_groups()   # list variant
+
+# Fetch by name or UUID
+tg = proj.pipelines.get_task_group("my-deploy-steps")
+tg = proj.pipelines.get_task_group_by_id(task_group_uuid)
+
+# Create a task group
+from pyado.raw import TaskGroupCreateRequest
+
+new_tg = proj.pipelines.create_task_group(
+    TaskGroupCreateRequest(
+        name="my-deploy-steps",
+        tasks=[
+            {"task": {"id": "<task-uuid>", "versionSpec": "1.*"}, "inputs": {}},
+        ],
+        description="Standard deploy sequence",
+    )
+)
+print(new_tg.id, new_tg.name)
+
+# Update a task group
+from pyado.raw import TaskGroupUpdateRequest
+
+tg.update(TaskGroupUpdateRequest(id=tg.id, name=tg.name, tasks=tg.info.tasks))
+
+# Delete a task group
+tg.delete()
+```
+
+### Raw API
+
+```python
+from pyado.raw import (
+    iter_task_groups,
+    list_task_groups,
+    get_task_group,
+    post_task_group,
+    put_task_group,
+    delete_task_group,
+    TaskGroupCreateRequest,
+    TaskGroupUpdateRequest,
+)
+
+for tg in iter_task_groups(api):
+    print(tg.id, tg.name)
+
+new_tg = post_task_group(api, TaskGroupCreateRequest(name="...", tasks=[...]))
+put_task_group(api, new_tg.id, TaskGroupUpdateRequest(id=new_tg.id, name="...", tasks=[...]))
+delete_task_group(api, new_tg.id)
+```
+
+---
+
+## Service hooks
+
+Service hooks let ADO notify external systems (web hooks, Azure Service Bus,
+Slack, …) when events occur in the organisation.
+
+```python
+# List all subscriptions
+for sub in org.iter_hook_subscriptions():
+    print(sub.id, sub.publisher_id, sub.event_type, sub.consumer_id)
+subs = org.list_hook_subscriptions()   # list variant
+
+# Fetch a single subscription
+sub = org.get_hook_subscription(subscription_uuid)
+
+# Create a web-hook subscription
+from pyado.raw import HookSubscriptionCreateRequest
+
+new_sub = org.create_hook_subscription(
+    HookSubscriptionCreateRequest(
+        publisher_id="tfs",
+        event_type="build.complete",
+        resource_version="1.0",
+        consumer_id="webHooks",
+        consumer_action_id="httpRequest",
+        publisher_inputs={"projectId": "<project-id>"},
+        consumer_inputs={"url": "https://hooks.example.com/ado"},
+    )
+)
+print(new_sub.id)
+
+# Update a subscription
+from pyado.raw import HookSubscriptionUpdateRequest
+
+org.update_hook_subscription(
+    new_sub.id,
+    HookSubscriptionUpdateRequest(
+        id=new_sub.id,
+        publisher_id=new_sub.publisher_id,
+        event_type=new_sub.event_type,
+        resource_version="1.0",
+        consumer_id=new_sub.consumer_id,
+        consumer_action_id=new_sub.consumer_action_id,
+        consumer_inputs={"url": "https://hooks.example.com/ado-v2"},
+    ),
+)
+
+# Delete a subscription
+org.delete_hook_subscription(new_sub.id)
+
+# List available publishers
+for publisher in org.iter_hook_publishers():
+    print(publisher.id, publisher.name)
+```
+
+### Raw API
+
+```python
+from pyado.raw import (
+    iter_hook_subscriptions,
+    list_hook_subscriptions,
+    get_hook_subscription,
+    post_hook_subscription,
+    put_hook_subscription,
+    delete_hook_subscription,
+    iter_hook_publishers,
+    list_hook_publishers,
+    HookSubscriptionCreateRequest,
+    HookSubscriptionUpdateRequest,
+)
+
+for sub in iter_hook_subscriptions(org_api):
+    print(sub.id, sub.event_type)
+```
+
+---
+
 ## Wikis
 
 ```python
@@ -2374,6 +2594,111 @@ for field in process.project_fields:
 
 > **OOP shortcut:** `proj.settings.get_process_info()` fetches the template
 > type ID from the project info automatically.
+
+---
+
+## Process templates
+
+ADO work process templates define the work item types, states, fields, rules,
+and behaviors available in a project. The OOP `Process` object exposes full
+CRUD for all of these at org scope.
+
+### Listing and fetching processes
+
+```python
+# Enumerate all process templates in the organisation
+for process in org.iter_processes():
+    print(process.id, process.name, process.description)
+processes = org.list_processes()   # list variant
+
+# Fetch by UUID
+process = org.get_process(process_uuid)
+print(process.name)
+
+# Re-fetch after external changes
+process.refresh()
+```
+
+### Creating and deleting a process
+
+```python
+from pyado.raw import ProcessCreateRequest
+
+new_process = org.create_process(
+    ProcessCreateRequest(
+        name="MyInheritedAgile",
+        parent_process_type_id=agile_process_uuid,
+        description="Agile + custom fields",
+    )
+)
+
+new_process.delete()
+```
+
+### Work item type mutations
+
+```python
+from pyado.raw import ProcessWorkItemTypeCreateRequest, ProcessWorkItemTypeUpdateRequest
+
+# Create a custom work item type
+wit = process.create_work_item_type(
+    ProcessWorkItemTypeCreateRequest(name="Defect", description="A software defect")
+)
+print(wit.reference_name)
+
+# Update
+process.update_work_item_type(
+    wit.reference_name, ProcessWorkItemTypeUpdateRequest(description="Updated description")
+)
+
+# Delete
+process.delete_work_item_type(wit.reference_name)
+```
+
+### State, field, and rule mutations
+
+```python
+from pyado.raw import (
+    ProcessWorkItemTypeStateCreateRequest,
+    ProcessWorkItemTypeFieldAddRequest,
+    ProcessWorkItemTypeRuleCreateRequest,
+)
+
+# Add a state
+state = process.create_work_item_type_state(
+    "Custom.Defect",
+    ProcessWorkItemTypeStateCreateRequest(name="Triaged", state_category="Proposed"),
+)
+
+# Add a field
+field = process.add_work_item_type_field(
+    "Custom.Defect",
+    ProcessWorkItemTypeFieldAddRequest(reference_name="Microsoft.VSTS.Common.Priority"),
+)
+
+# Create a rule
+rule = process.create_work_item_type_rule(
+    "Custom.Defect",
+    ProcessWorkItemTypeRuleCreateRequest(name="...", conditions=[...], actions=[...]),
+)
+```
+
+### Behavior mutations
+
+```python
+from pyado.raw import ProcessBehaviorCreateRequest, ProcessBehaviorUpdateRequest
+
+behavior = process.create_behavior(
+    ProcessBehaviorCreateRequest(name="MyBacklog", color="0000FF")
+)
+
+process.update_behavior(
+    behavior.reference_name,
+    ProcessBehaviorUpdateRequest(name="MyBacklog", color="FF0000"),
+)
+
+process.delete_behavior(behavior.reference_name)
+```
 
 ---
 

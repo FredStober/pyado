@@ -25,6 +25,7 @@ from pyado.raw import (
     AnnotatedTagRequest,
     ApiCall,
     BranchStatistics,
+    GitChangeFlag,
     GitCommitChange,
     GitCommitRef,
     GitCommitSearchCriteria,
@@ -34,8 +35,7 @@ from pyado.raw import (
     RecursionLevel,
     RepositoryInfo,
     VersionDescriptorType,
-    create_tag,
-    delete_tag,
+    delete_git_tag,
     get_annotated_tag,
     get_commit_by_id,
     get_git_acl,
@@ -54,6 +54,7 @@ from pyado.raw import (
     list_tags,
     make_git_acl_token,
     post_annotated_tag,
+    post_tag,
 )
 from tests.conftest import _make_mock_response
 
@@ -283,8 +284,16 @@ class TestIterCommitDiff:
         assert result == []
 
     @staticmethod
+    def test_change_type_passthrough_for_list_input() -> None:
+        """A pre-split list of change types is passed through as-is."""
+        change = GitCommitChange.model_validate(
+            {"changeType": ["delete", "sourceRename"], "item": {"path": "/f.py"}}
+        )
+        assert change.change_type == [GitChangeFlag.DELETE, GitChangeFlag.SOURCE_RENAME]
+
+    @staticmethod
     def test_accepts_composite_change_type(repo_api_call: ApiCall) -> None:
-        """Composite change types like 'delete, sourceRename' are accepted."""
+        """Composite change types like 'delete, sourceRename' are split into a list."""
         response_data = {
             "changes": [
                 {"changeType": "delete, sourceRename", "item": {"path": "/src/old.py"}}
@@ -295,7 +304,10 @@ class TestIterCommitDiff:
         with patch.object(requests.Session, "request", return_value=mock_response):
             result = list(iter_commit_diff(repo_api_call, "base123", "target456"))
         assert len(result) == 1
-        assert result[0].change_type == "delete, sourceRename"
+        assert result[0].change_type == [
+            GitChangeFlag.DELETE,
+            GitChangeFlag.SOURCE_RENAME,
+        ]
 
 
 class TestGetLastCommitTouchingFile:
@@ -723,7 +735,7 @@ class TestIterTags:
 
 
 class TestCreateTag:
-    """Tests for create_tag."""
+    """Tests for post_tag."""
 
     @staticmethod
     def test_posts_to_refs_endpoint(api_call: ApiCall) -> None:
@@ -732,7 +744,7 @@ class TestCreateTag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            create_tag(api_call, "v1.0", "abc123")
+            post_tag(api_call, "v1.0", "abc123")
         assert mock_req.call_args.args[0] == "POST"
         url = mock_req.call_args.kwargs.get("url", "")
         assert "refs" in url
@@ -744,7 +756,7 @@ class TestCreateTag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            create_tag(api_call, "v1.0", "abc123")
+            post_tag(api_call, "v1.0", "abc123")
         body = mock_req.call_args.kwargs.get("json") or []
         assert body[0]["name"] == "refs/tags/v1.0"
 
@@ -755,7 +767,7 @@ class TestCreateTag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            create_tag(api_call, "refs/tags/v2.0", "deadbeef")
+            post_tag(api_call, "refs/tags/v2.0", "deadbeef")
         body = mock_req.call_args.kwargs.get("json") or []
         assert body[0]["name"] == "refs/tags/v2.0"
 
@@ -766,13 +778,13 @@ class TestCreateTag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            create_tag(api_call, "v1.0", "abc123")
+            post_tag(api_call, "v1.0", "abc123")
         body = mock_req.call_args.kwargs.get("json") or []
         assert body[0]["oldObjectId"] == ZERO_SHA
 
 
-class TestDeleteTag:
-    """Tests for delete_tag."""
+class TestDeleteGitTag:
+    """Tests for delete_git_tag."""
 
     @staticmethod
     def test_posts_to_refs_endpoint(api_call: ApiCall) -> None:
@@ -781,7 +793,7 @@ class TestDeleteTag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            delete_tag(api_call, "v1.0", "abc123")
+            delete_git_tag(api_call, "v1.0", "abc123")
         assert mock_req.call_args.args[0] == "POST"
         url = mock_req.call_args.kwargs.get("url", "")
         assert "refs" in url
@@ -793,7 +805,7 @@ class TestDeleteTag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            delete_tag(api_call, "v1.0", "abc123")
+            delete_git_tag(api_call, "v1.0", "abc123")
         body = mock_req.call_args.kwargs.get("json") or []
         assert body[0]["newObjectId"] == ZERO_SHA
 
@@ -804,7 +816,7 @@ class TestDeleteTag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            delete_tag(api_call, "v1.0", "abc123")
+            delete_git_tag(api_call, "v1.0", "abc123")
         body = mock_req.call_args.kwargs.get("json") or []
         assert body[0]["oldObjectId"] == "abc123"
 
@@ -815,7 +827,7 @@ class TestDeleteTag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            delete_tag(api_call, "v1.0", "abc123")
+            delete_git_tag(api_call, "v1.0", "abc123")
         body = mock_req.call_args.kwargs.get("json") or []
         assert body[0]["name"] == "refs/tags/v1.0"
 

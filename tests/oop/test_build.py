@@ -5,7 +5,7 @@
 import json
 from typing import Any
 from unittest.mock import MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import requests
@@ -356,9 +356,8 @@ class TestBuild:
 
     def test_add_tag_delegates(self) -> None:
         with patch("pyado.oop.pipelines.build.raw.post_build_tag") as mock_tag:
-            mock_tag.return_value = ["tag-a"]
-            result = _make_build().add_tag("tag-a")
-        assert result == ["tag-a"]
+            _make_build().add_tag("tag-a")
+        mock_tag.assert_called_once()
 
     def test_iter_tags_delegates(self) -> None:
         with patch("pyado.oop.pipelines.build.raw.iter_build_tags") as mock_iter:
@@ -368,9 +367,8 @@ class TestBuild:
 
     def test_remove_tag_delegates(self) -> None:
         with patch("pyado.oop.pipelines.build.raw.delete_build_tag") as mock_del:
-            mock_del.return_value = ["remaining"]
-            result = _make_build().remove_tag("old-tag")
-        assert result == ["remaining"]
+            _make_build().remove_tag("old-tag")
+        mock_del.assert_called_once()
 
     def test_iter_timeline_records_delegates(self) -> None:
         with patch("pyado.oop.pipelines.build.raw.iter_timeline_records") as mock_iter:
@@ -485,7 +483,7 @@ class TestBuildTimeline:
         assert stage.finish_time is not None
         assert stage.error_count == 0
         assert stage.warning_count == 0
-        assert stage.issues == []
+        assert stage.issues == ()
         assert stage.log is None
 
     def test_iter_stages_info_is_raw_record(self) -> None:
@@ -565,7 +563,7 @@ class TestBuildTimeline:
         assert job.worker_name == "Hosted Agent"
         assert job.error_count == 0
         assert job.warning_count == 0
-        assert job.issues == []
+        assert job.issues == ()
         assert job.log is None
 
     def test_job_info_is_raw_record(self) -> None:
@@ -634,7 +632,7 @@ class TestBuildTimeline:
         assert task.result is not None
         assert task.error_count == 0
         assert task.warning_count == 0
-        assert task.issues == []
+        assert task.issues == ()
         assert task.log is None
 
     def test_task_resolve_raises_without_record(self) -> None:
@@ -714,7 +712,7 @@ class TestBuildTimeline:
         assert phase.finish_time is not None
         assert phase.error_count == 0
         assert phase.warning_count == 0
-        assert phase.issues == []
+        assert phase.issues == ()
         assert phase.log is None
 
     def test_phase_info_is_raw_record(self) -> None:
@@ -883,6 +881,112 @@ class TestBuildTimeline:
             text = task.get_log_text()
         assert text == "task log text"
         assert mock_log.call_args.args[1] == 7
+
+
+# ---------------------------------------------------------------------------
+# OOP BuildTask / BuildJob / BuildPhase mutation tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildTaskMutations:
+    def test_percent_complete_none_when_unset(self) -> None:
+        task = BuildTask(_record(TASK_ID, "Task", "t", parent_id=JOB_ID))
+        assert task.percent_complete is None
+
+    def test_percent_complete_setter_updates_record(self) -> None:
+        task = BuildTask(_record(TASK_ID, "Task", "t", parent_id=JOB_ID))
+        task.percent_complete = 55
+        assert task.info.percent_complete == 55
+        assert task.percent_complete == 55
+
+    def test_issues_setter_replaces_list(self) -> None:
+        issue_a = BuildIssue(message="a", type=BuildIssueType.ERROR)
+        issue_b = BuildIssue(message="b", type=BuildIssueType.WARNING)
+        task = BuildTask(_record(TASK_ID, "Task", "t", parent_id=JOB_ID))
+        task.issues = [issue_a]
+        task.issues = [*task.issues, issue_b]
+        assert task.issues == (issue_a, issue_b)
+
+    def test_push_changes_patches_timeline(self) -> None:
+        task = BuildTask(_record(TASK_ID, "Task", "t", parent_id=JOB_ID))
+        task.percent_complete = 75
+        with patch(
+            "pyado.oop.pipelines.build_timeline.raw.patch_timeline_records"
+        ) as mock_patch:
+            task.push_changes(_make_active_task())
+        _, payload = mock_patch.call_args.args
+        assert payload.value[0].percent_complete == 75
+
+    def test_push_changes_url_excludes_project_name(self) -> None:
+        task = BuildTask(_record(TASK_ID, "Task", "t", parent_id=JOB_ID))
+        with patch(
+            "pyado.oop.pipelines.build_timeline.raw.patch_timeline_records"
+        ) as mock_patch:
+            task.push_changes(_make_active_task())
+        api_call, _ = mock_patch.call_args.args
+        assert "TestProject" not in str(api_call.url)
+
+
+class TestBuildJobMutations:
+    def test_issues_setter_replaces_list(self) -> None:
+        all_records = _make_all_records()
+        job = _make_tl_job(all_records)
+        issue = BuildIssue(message="boom", type=BuildIssueType.ERROR)
+        job.issues = [issue]
+        assert job.issues == (issue,)
+
+    def test_push_changes_patches_timeline(self) -> None:
+        all_records = _make_all_records()
+        job = _make_tl_job(all_records)
+        issue = BuildIssue(message="x", type=BuildIssueType.ERROR)
+        job.issues = [issue]
+        with patch(
+            "pyado.oop.pipelines.build_timeline.raw.patch_timeline_records"
+        ) as mock_patch:
+            job.push_changes(_make_active_task())
+        _, payload = mock_patch.call_args.args
+        assert payload.value[0].issues == [issue]
+
+    def test_push_changes_url_excludes_project_name(self) -> None:
+        all_records = _make_all_records()
+        job = _make_tl_job(all_records)
+        with patch(
+            "pyado.oop.pipelines.build_timeline.raw.patch_timeline_records"
+        ) as mock_patch:
+            job.push_changes(_make_active_task())
+        api_call, _ = mock_patch.call_args.args
+        assert "TestProject" not in str(api_call.url)
+
+
+class TestBuildPhaseMutations:
+    def test_issues_setter_replaces_list(self) -> None:
+        all_records = _make_all_records(use_phase=True)
+        phase = _make_tl_phase(all_records)
+        issue = BuildIssue(message="boom", type=BuildIssueType.ERROR)
+        phase.issues = [issue]
+        assert phase.issues == (issue,)
+
+    def test_push_changes_patches_timeline(self) -> None:
+        all_records = _make_all_records(use_phase=True)
+        phase = _make_tl_phase(all_records)
+        issue = BuildIssue(message="x", type=BuildIssueType.ERROR)
+        phase.issues = [issue]
+        with patch(
+            "pyado.oop.pipelines.build_timeline.raw.patch_timeline_records"
+        ) as mock_patch:
+            phase.push_changes(_make_active_task())
+        _, payload = mock_patch.call_args.args
+        assert payload.value[0].issues == [issue]
+
+    def test_push_changes_url_excludes_project_name(self) -> None:
+        all_records = _make_all_records(use_phase=True)
+        phase = _make_tl_phase(all_records)
+        with patch(
+            "pyado.oop.pipelines.build_timeline.raw.patch_timeline_records"
+        ) as mock_patch:
+            phase.push_changes(_make_active_task())
+        api_call, _ = mock_patch.call_args.args
+        assert "TestProject" not in str(api_call.url)
 
 
 # ---------------------------------------------------------------------------
@@ -1153,42 +1257,18 @@ class TestDistributedTaskSession:
         assert mock_logs.call_args[0][1] == "a\nb"
 
     # ------------------------------------------------------------------
-    # add_issues
+    # get_task
     # ------------------------------------------------------------------
 
-    def test_add_issues_patches_timeline(self) -> None:
+    def test_get_task_returns_build_task(self) -> None:
         record = _task_record()
-        issue = BuildIssue(message="boom", type=BuildIssueType.ERROR)
-        with (
-            patch(
-                "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
-            ) as mock_iter,
-            patch(
-                "pyado.oop.pipelines.distributed_task_session.raw.patch_timeline_records"
-            ) as mock_update,
-        ):
+        with patch(
+            "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
+        ) as mock_iter:
             mock_iter.return_value = iter([record])
-            _make_active_task().add_issues([issue])
-        assert mock_update.call_count == 1
-        _, payload = mock_update.call_args.args
-        assert len(payload.value) == 1
-        assert payload.value[0].issues == [issue]
-
-    def test_add_issues_url_excludes_project_name(self) -> None:
-        record = _task_record()
-        issue = BuildIssue(message="boom", type=BuildIssueType.ERROR)
-        with (
-            patch(
-                "pyado.oop.pipelines.distributed_task_session.raw.iter_timeline_records"
-            ) as mock_iter,
-            patch(
-                "pyado.oop.pipelines.distributed_task_session.raw.patch_timeline_records"
-            ) as mock_update,
-        ):
-            mock_iter.return_value = iter([record])
-            _make_active_task().add_issues([issue])
-        api_call, _ = mock_update.call_args.args
-        assert "TestProject" not in str(api_call.url)
+            result = _make_active_task().get_task()
+        assert isinstance(result, BuildTask)
+        assert result.id == TASK_INSTANCE_ID
 
     # ------------------------------------------------------------------
     # complete
@@ -1223,6 +1303,46 @@ class TestDistributedTaskSession:
 
 
 # ---------------------------------------------------------------------------
+# OOP DistributedTaskSession add_task tests
+# ---------------------------------------------------------------------------
+
+
+class TestDistributedTaskSessionAddTask:
+    def test_add_task_returns_uuid(self) -> None:
+        all_records = _make_all_records()
+        job = _make_tl_job(all_records)
+        with patch(
+            "pyado.oop.pipelines.distributed_task_session.raw.patch_timeline_records"
+        ):
+            result = _make_active_task().add_task(job, "New Step")
+        assert isinstance(result, UUID)
+
+    def test_add_task_creates_record_under_job(self) -> None:
+        all_records = _make_all_records()
+        job = _make_tl_job(all_records)
+        with patch(
+            "pyado.oop.pipelines.distributed_task_session.raw.patch_timeline_records"
+        ) as mock_patch:
+            _make_active_task().add_task(job, "New Step")
+        _, payload = mock_patch.call_args.args
+        new_record = payload.value[0]
+        assert new_record.name == "New Step"
+        assert new_record.parent_id == job.id
+        assert new_record.type_name == BuildRecordType.TASK
+        assert new_record.state == BuildRecordState.PENDING
+
+    def test_add_task_url_excludes_project_name(self) -> None:
+        all_records = _make_all_records()
+        job = _make_tl_job(all_records)
+        with patch(
+            "pyado.oop.pipelines.distributed_task_session.raw.patch_timeline_records"
+        ) as mock_patch:
+            _make_active_task().add_task(job, "New Step")
+        api_call, _ = mock_patch.call_args.args
+        assert "TestProject" not in str(api_call.url)
+
+
+# ---------------------------------------------------------------------------
 # OOP Build cancel tests
 # ---------------------------------------------------------------------------
 
@@ -1233,9 +1353,10 @@ class TestBuildCancel:
         cancelled = _build_details()
         with patch("pyado.oop.pipelines.build._build.cancel_build") as mock_cancel:
             mock_cancel.return_value = cancelled
-            build.cancel()
+            result = build.cancel()
         mock_cancel.assert_called_once_with(build.api_call)
         assert build._info is cancelled
+        assert result is build
 
     def test_cancel_run_delegates(self) -> None:
         build = _make_build(build_id=100, pipeline_id=5)

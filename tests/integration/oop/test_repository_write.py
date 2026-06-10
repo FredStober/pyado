@@ -38,7 +38,7 @@ def _exercise_pr_write(
     del repo
     pr.update(description="Updated by OOP smoke test.")
     pr.add_tag("oop-smoke")
-    pr.get_tags()
+    pr.list_tags()
     pr.remove_tag("oop-smoke")
 
     if thread:
@@ -261,7 +261,7 @@ def test_write_branch_and_pr(
 def test_write_repo_extras(repo: Repository | None) -> None:
     """Exercise repository write extras.
 
-    Covers push_commits, commit_file, rename_file, delete_file, and
+    Covers push_commits, commit_file_upsert, commit_file_rename, commit_file_delete, and
     create/delete tag.
     """
     if repo is None:
@@ -302,15 +302,18 @@ def test_write_repo_extras(repo: Repository | None) -> None:
         else head_sha
     )
 
-    # A7 — commit_file (add then edit)
+    # A7 — commit_file_upsert (add then edit)
     commit_file_path = f"/oop_smoke_cf_{uuid.uuid4().hex[:10]}.txt"
-    repo.commit_file(
-        commit_file_path, "smoke test\n", "oop-smoke: commit_file add", branch_name
+    repo.commit_file_upsert(
+        commit_file_path,
+        "smoke test\n",
+        "oop-smoke: commit_file_upsert add",
+        branch_name,
     )
-    repo.commit_file(
+    repo.commit_file_upsert(
         commit_file_path,
         "smoke test edited\n",
-        "oop-smoke: commit_file edit",
+        "oop-smoke: commit_file_upsert edit",
         branch_name,
     )
     # update current_sha to include the commit_file commits
@@ -320,14 +323,14 @@ def test_write_repo_extras(repo: Repository | None) -> None:
 
     # Rename the file
     renamed_path = file_path.replace(".txt", "_renamed.txt")
-    rename_result = repo.rename_file(
+    rename_result = repo.commit_file_rename(
         branch_name, file_path, renamed_path, "oop-smoke: rename file"
     )
     if rename_result and rename_result.commits:
         current_sha = rename_result.commits[0].commit_id
 
     # Delete the renamed file
-    delete_result = repo.delete_file(
+    delete_result = repo.commit_file_delete(
         branch_name, renamed_path, "oop-smoke: delete file"
     )
     if delete_result and delete_result.commits:
@@ -336,7 +339,7 @@ def test_write_repo_extras(repo: Repository | None) -> None:
     # Tags
     tag_name = f"oop-smoke-tag-{uuid.uuid4().hex[:8]}"
     repo.create_tag(tag_name, current_sha)
-    repo.delete_tag(tag_name, current_sha)
+    repo.delete_git_tag(tag_name, current_sha)
     annotated_tag_name = f"oop-smoke-atag-{uuid.uuid4().hex[:8]}"
     repo.create_annotated_tag(
         annotated_tag_name, "oop smoke test annotated tag", current_sha

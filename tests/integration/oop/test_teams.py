@@ -24,9 +24,9 @@ def test_teams_read(proj: Project) -> None:
     _ = team.org
     _take(team.iter_sprint_iterations(), 5)
     team.list_sprint_iterations()
-    team.get_field_values()
+    team.list_field_values()
     _take(team.iter_members(), 5)
     team.list_members()
     _take(proj.boards.iter_team_sprint_iterations(team.name), 5)
     proj.boards.list_team_sprint_iterations(team.name)
-    proj.boards.get_team_field_values(team.name)
+    proj.boards.list_team_field_values(team.name)

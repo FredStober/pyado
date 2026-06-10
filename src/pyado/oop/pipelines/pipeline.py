@@ -155,13 +155,6 @@ class PipelineRun:
 
         Updates the wrapper's cached info to reflect the cancelling state.
 
-        Returns ``self`` (rather than a raw info object) so that callers can
-        chain further method calls on the same wrapper.  This differs from
-        :meth:`Build.cancel() <pyado.oop.pipelines.build.Build.cancel>`,
-        which returns ``BuildDetails`` for the classic Build API — the two
-        methods target different ADO endpoints and the return-type difference
-        is intentional.
-
         Returns:
             ``self`` with state ``"canceling"``; transitions to
             ``"completed"`` with result ``"canceled"`` once the agent

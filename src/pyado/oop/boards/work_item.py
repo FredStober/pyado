@@ -221,31 +221,25 @@ class WorkItem:
         """
         yield from _work_item.get_work_item_tags(self._api_call)
 
-    def add_tag(self, tag: str) -> list[str]:
+    def add_tag(self, tag: str) -> None:
         """Add a tag to the work item.
 
         If the tag is already present the work item is not modified.
 
         Args:
             tag: Tag name to add.
-
-        Returns:
-            Updated list of tag name strings.
         """
-        return _work_item.add_work_item_tag(self._api_call, tag)
+        _work_item.add_work_item_tag(self._api_call, tag)
 
-    def remove_tag(self, tag: str) -> list[str]:
+    def remove_tag(self, tag: str) -> None:
         """Remove a tag from the work item.
 
         If the tag is not present the work item is not modified.
 
         Args:
             tag: Tag name to remove.
-
-        Returns:
-            Updated list of tag name strings.
         """
-        return _work_item.remove_work_item_tag(self._api_call, tag)
+        _work_item.remove_work_item_tag(self._api_call, tag)
 
     def sync_tags(self, desired: set[str]) -> None:
         """Synchronise work item tags to match *desired* exactly.
@@ -558,7 +552,7 @@ class WorkItem:
         """
         yield from self.iter_linked_work_items(WorkItemRelationType.CHILD)
 
-    def get_child_ids(self) -> "list[WorkItemId]":
+    def list_child_ids(self) -> "list[WorkItemId]":
         """Return the IDs of direct child work items without making API calls.
 
         Parses the relation URLs from the already-fetched work item data.
@@ -685,7 +679,7 @@ class WorkItem:
         """
         return raw.patch_work_item_comment(self._api_call, comment_id, text)
 
-    def delete_comment(self, comment_id: int) -> None:
+    def remove_comment(self, comment_id: int) -> None:
         """Delete a comment from this work item.
 
         Args:

@@ -210,24 +210,28 @@ class PullRequest:
     # Tags
     # ------------------------------------------------------------------
 
-    def get_tags(self) -> list[str]:
-        """Return the names of all tags set on the pull request.
+    def iter_tags(self) -> Iterator[str]:
+        """Iterate over the tag names set on the pull request.
 
-        Returns:
-            List of tag name strings; empty when no tags are set.
+        Yields:
+            Tag name strings; nothing when no tags are set.
         """
-        return _pull_request.get_pull_request_tags(self._api_call)
+        yield from _pull_request.get_pull_request_tags(self._api_call)
 
-    def get_tag_details(self) -> list[PullRequestLabel]:
-        """Return full tag objects for all tags set on the pull request.
+    def iter_tag_details(self) -> Iterator[PullRequestLabel]:
+        """Iterate over full tag objects for all tags set on the pull request.
 
-        Use this instead of :meth:`get_tags` when you need the tag ID,
+        Use this instead of :meth:`iter_tags` when you need the tag ID,
         URL, or active status, not just the name string.
 
-        Returns:
-            List of PullRequestLabel objects; empty when no tags are set.
+        Yields:
+            PullRequestLabel for each tag set on the pull request.
         """
-        return raw.get_pull_request_labels_details(self._api_call)
+        yield from raw.get_pull_request_labels_details(self._api_call)
+
+    def list_tag_details(self) -> list[PullRequestLabel]:
+        """Return full tag objects for all tags set on the pull request."""
+        return list(self.iter_tag_details())
 
     def add_tag(self, name: str) -> None:
         """Add a tag to the pull request.
@@ -270,7 +274,7 @@ class PullRequest:
         if self._expand and "labels" in self._expand.split(","):
             current = {label.name for label in self.info.labels}
         else:
-            current = set(self.get_tags())
+            current = set(self.iter_tags())
         to_add = desired - current
         to_remove = current - desired
         if not to_add and not to_remove:
@@ -350,7 +354,7 @@ class PullRequest:
     # Reviewers
     # ------------------------------------------------------------------
 
-    def get_reviewers(self) -> list[PullRequestReviewer]:
+    def list_reviewers(self) -> list[PullRequestReviewer]:
         """Return all reviewers on the pull request.
 
         Returns:
@@ -564,7 +568,7 @@ class PullRequest:
         """
         ids = list(self.iter_work_item_ids())
         if ids:
-            yield from self._repo.project.boards.get_work_items(ids)
+            yield from self._repo.project.boards.list_work_items_by_ids(ids)
 
     def iter_iterations(self) -> Iterator[PullRequestIterationRecord]:
         """Iterate over the push iterations of this pull request.
@@ -696,6 +700,10 @@ class PullRequest:
             PullRequestStatusInfo for each status item, in API-returned order.
         """
         yield from raw.iter_pull_request_statuses(self._api_call)
+
+    def list_tags(self) -> list[str]:
+        """Return all tag names set on this pull request as a list."""
+        return list(self.iter_tags())
 
     def list_threads(self) -> list[PullRequestThreadResponse]:
         """Return all review threads on this pull request as a list."""

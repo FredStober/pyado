@@ -55,7 +55,7 @@ def test_project_read(proj: Project) -> None:
         proj.repos.get_repository_by_id(repos[0].id)
     teams = proj.boards.list_teams()
     if teams:
-        proj.boards.get_team_by_id(str(teams[0].id))
+        proj.boards.get_team_by_id(teams[0].id)
         _take(proj.boards.iter_team_sprint_iterations(teams[0].name), 5)
         proj.boards.list_team_sprint_iterations(teams[0].name)
     approvals = proj.pipelines.list_approvals(PipelineApprovalStatus.PENDING)
@@ -108,7 +108,7 @@ def test_wikis_and_dashboards(proj: Project) -> None:
     proj.list_wikis()
     if wikis:
         wiki: Wiki = wikis[0]
-        wiki.get_pages()
+        wiki.list_pages()
 
     dashboards = proj.list_dashboards()
     _take(proj.iter_dashboards(), 5)

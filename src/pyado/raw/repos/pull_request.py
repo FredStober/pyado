@@ -13,6 +13,7 @@ from pydantic.networks import AnyUrl
 from pyado.raw._core import AdoBaseModel, ApiCall, _IdentityRef
 from pyado.raw.boards.work_item import WorkItemRef, _WorkItemRefResults
 from pyado.raw.repos.git import (
+    ChangeTypeList,
     CommitId,
     GitCommitRef,
     PullRequestStatusContext,
@@ -164,13 +165,13 @@ class PullRequestMergeStrategy(StrEnum):
     REBASE_MERGE = "rebaseMerge"
 
 
-class PullRequestThreadCommentType(IntEnum):
-    """ADO comment type values used when creating thread comments."""
+class PullRequestThreadCommentType(StrEnum):
+    """ADO comment type values for PR thread comments."""
 
-    UNKNOWN = 0
-    TEXT = 1
-    CODE_CHANGE = 2
-    SYSTEM = 3
+    UNKNOWN = "unknown"
+    TEXT = "text"
+    CODE_CHANGE = "codeChange"
+    SYSTEM = "system"
 
 
 class PullRequestVote(IntEnum):
@@ -375,7 +376,7 @@ class PullRequestThreadCommentResponse(AdoBaseModel):
 
     id: CommentId | None = None
     content: str | None = None
-    comment_type: str | None = None
+    comment_type: PullRequestThreadCommentType | None = None
     parent_comment_id: int
     author: _IdentityRef | None = None
     published_date: datetime | None = None
@@ -566,9 +567,7 @@ class PullRequestIterationChangeItem(AdoBaseModel):
 class PullRequestIterationChange(AdoBaseModel):
     """A single file change entry from a PR iteration changes response."""
 
-    # str rather than GitChangeType: ADO returns composite flag values such as
-    # "edit, rename" when a file is both modified and moved in the same iteration.
-    change_type: str
+    change_type: ChangeTypeList
     item: PullRequestIterationChangeItem
 
 

@@ -336,6 +336,7 @@ class AzureDevOpsService:
         )
         self._cache: dict[str, Any] = {}
         self._org_view: Organization | None = None
+        self._oop_api = _OopApi(self._org_name, self._cache, self._session)
 
     # ------------------------------------------------------------------
     # Properties
@@ -361,11 +362,7 @@ class AzureDevOpsService:
             _OopApi proxy that exposes service internals to the OOP layer
             without polluting the public API with implementation details.
         """
-        return _OopApi(
-            self._org_name,
-            self._cache,
-            self._session,
-        )
+        return self._oop_api
 
     # ------------------------------------------------------------------
     # Public methods

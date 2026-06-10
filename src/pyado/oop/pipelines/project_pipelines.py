@@ -12,8 +12,9 @@ from pyado.oop.pipelines.build import Build
 from pyado.oop.pipelines.environment import Environment
 from pyado.oop.pipelines.pipeline import Pipeline, PipelineRun
 from pyado.oop.pipelines.pipeline_library import PipelineLibrary
-from pyado.oop.pipelines.service_endpoint import ServiceEndpoint
+from pyado.oop.pipelines.task_group import TaskGroup
 from pyado.oop.pipelines.variable_group import VariableGroup
+from pyado.oop.settings.service_endpoint import ServiceEndpoint
 from pyado.raw import (
     AgentQueueId,
     BuildDetails,
@@ -21,11 +22,16 @@ from pyado.raw import (
     BuildId,
     BuildSearchCriteria,
     BuildStatus,
+    EnvironmentId,
     PipelineApproval,
     PipelineApprovalStatus,
     PipelineDefinitionInfo,
     PipelineId,
     PipelineRunId,
+    ServiceEndpointCreateRequest,
+    ServiceEndpointId,
+    TaskGroupCreateRequest,
+    TaskGroupId,
     VariableInfo,
 )
 
@@ -313,6 +319,23 @@ class ProjectPipelines:
         ):
             yield PipelineRun(self.get_pipeline_by_id(pipeline_id), info)
 
+    def list_runs(
+        self,
+        pipeline_id: PipelineId,
+        *,
+        top: int | None = None,
+    ) -> list[PipelineRun]:
+        """Return all runs of a specific pipeline as a list.
+
+        Args:
+            pipeline_id: The ID of the pipeline to list runs for.
+            top: Maximum number of runs to return.
+
+        Returns:
+            List of PipelineRun, in API-returned order (newest first).
+        """
+        return list(self.iter_runs(pipeline_id, top=top))
+
     def get_run(self, pipeline_id: PipelineId, run_id: PipelineRunId) -> PipelineRun:
         """Return a specific pipeline run by ID.
 
@@ -398,6 +421,21 @@ class ProjectPipelines:
             env_api_call = raw.get_environment_api_call(self._project.api_call, info.id)
             yield Environment(self._project, env_api_call, info)
 
+    def get_environment_by_id(self, environment_id: EnvironmentId) -> Environment:
+        """Return a pipeline environment by numeric ID.
+
+        Args:
+            environment_id: Numeric environment ID.
+
+        Returns:
+            Environment wrapping the requested environment.
+        """
+        env_api_call = raw.get_environment_api_call(
+            self._project.api_call, environment_id
+        )
+        info = raw.get_environment(self._project.api_call, environment_id)
+        return Environment(self._project, env_api_call, info)
+
     def get_environment(self, name: str) -> Environment:
         """Return a pipeline environment by name.
 
@@ -478,9 +516,113 @@ class ProjectPipelines:
         for info in raw.iter_service_endpoints(self._project.api_call):
             yield ServiceEndpoint(self._project, info)
 
+    def get_service_endpoint(self, name: str) -> ServiceEndpoint:
+        """Return a service connection by name.
+
+        Args:
+            name: Service connection name (case-sensitive).
+
+        Returns:
+            ServiceEndpoint wrapping the requested connection.
+
+        Raises:
+            KeyError: If no service connection with the given name exists.
+        """
+        for endpoint in self.iter_service_endpoints():
+            if endpoint.name == name:
+                return endpoint
+        raise KeyError(name)
+
+    def get_service_endpoint_by_id(
+        self, endpoint_id: ServiceEndpointId
+    ) -> ServiceEndpoint:
+        """Return a service connection by UUID.
+
+        Args:
+            endpoint_id: UUID of the service connection.
+
+        Returns:
+            ServiceEndpoint wrapping the requested connection.
+        """
+        info = raw.get_service_endpoint(self._project.api_call, endpoint_id)
+        return ServiceEndpoint(self._project, info)
+
+    def create_service_endpoint(
+        self, request: ServiceEndpointCreateRequest
+    ) -> ServiceEndpoint:
+        """Create a new service connection in the project.
+
+        Args:
+            request: Create request specifying the name, type, URL,
+                authorization, and project references.
+
+        Returns:
+            ServiceEndpoint wrapping the newly created connection.
+        """
+        info = raw.post_service_endpoint(self._project.org.api_call, request)
+        return ServiceEndpoint(self._project, info)
+
     def list_service_endpoints(self) -> list[ServiceEndpoint]:
         """Return all service connections in the project as a list."""
         return list(self.iter_service_endpoints())
+
+    # ------------------------------------------------------------------
+    # Task groups
+    # ------------------------------------------------------------------
+
+    def iter_task_groups(self) -> "Iterator[TaskGroup]":
+        """Iterate over all task groups in the project.
+
+        Yields:
+            TaskGroup for each task group in the project.
+        """
+        for info in raw.iter_task_groups(self._project.api_call):
+            yield TaskGroup(self._project, info)
+
+    def get_task_group(self, name: str) -> TaskGroup:
+        """Return a task group by name.
+
+        Args:
+            name: Task group name (case-sensitive).
+
+        Returns:
+            TaskGroup wrapping the requested task group.
+
+        Raises:
+            KeyError: If no task group with the given name exists.
+        """
+        for task_group in self.iter_task_groups():
+            if task_group.name == name:
+                return task_group
+        raise KeyError(name)
+
+    def get_task_group_by_id(self, task_group_id: TaskGroupId) -> TaskGroup:
+        """Return a task group by UUID.
+
+        Args:
+            task_group_id: UUID of the task group.
+
+        Returns:
+            TaskGroup wrapping the requested task group.
+        """
+        info = raw.get_task_group(self._project.api_call, task_group_id)
+        return TaskGroup(self._project, info)
+
+    def create_task_group(self, request: TaskGroupCreateRequest) -> TaskGroup:
+        """Create a new task group in the project.
+
+        Args:
+            request: Create request specifying the name and tasks.
+
+        Returns:
+            TaskGroup wrapping the newly created task group.
+        """
+        info = raw.post_task_group(self._project.api_call, request)
+        return TaskGroup(self._project, info)
+
+    def list_task_groups(self) -> "list[TaskGroup]":
+        """Return all task groups in the project as a list."""
+        return list(self.iter_task_groups())
 
     # ------------------------------------------------------------------
     # Build details (convenience aliases used by Build.retry, etc.)

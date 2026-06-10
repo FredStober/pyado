@@ -147,7 +147,7 @@ class Area:
         Returns:
             Area wrapping the newly created child area node.
         """
-        node = raw.create_classification_node(
+        node = raw.post_classification_node(
             self._project.api_call,
             ClassificationNodeRequest(name=name),
             self._relative_path,

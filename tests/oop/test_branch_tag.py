@@ -153,6 +153,6 @@ class TestTag:
     def test_delete_delegates_to_repo(self) -> None:
         repo = _make_repo()
         tag = Tag(repo, _make_git_ref("refs/tags/v1.0"))
-        with patch.object(repo, "delete_tag") as mock_del:
+        with patch.object(repo, "delete_git_tag") as mock_del:
             tag.delete()
         mock_del.assert_called_once_with("v1.0", str(_COMMIT_ID))

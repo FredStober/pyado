@@ -8,7 +8,7 @@ from pyado.oop import VariableGroup
 
 
 def test_write_variable_group(vg: VariableGroup | None) -> None:
-    """Exercise VariableGroup.set_variable() and delete_variable()."""
+    """Exercise VariableGroup.set_variable() and unset_variable()."""
     if vg is None:
         return
     smoke_var = f"oop_smoke_{uuid.uuid4().hex[:6]}"
@@ -19,5 +19,5 @@ def test_write_variable_group(vg: VariableGroup | None) -> None:
         set_failed = True
     _ = vg.variables
     if not set_failed:
-        vg.delete_variable(smoke_var)
+        vg.unset_variable(smoke_var)
     vg.refresh()

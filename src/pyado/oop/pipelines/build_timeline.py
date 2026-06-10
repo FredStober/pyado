@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from pyado import raw
 from pyado.raw import (
     BuildIssue,
     BuildLogInfo,
@@ -18,6 +19,7 @@ from pyado.raw import (
 
 if TYPE_CHECKING:
     from pyado.oop.pipelines.build import Build
+    from pyado.oop.pipelines.distributed_task_session import DistributedTaskSession
 
 __all__ = ["BuildJob", "BuildPhase", "BuildStage", "BuildTask"]
 
@@ -36,9 +38,6 @@ class BuildTask:
     (``task``, ``log``, ``issues``, ``error_count``) and a convenience
     :meth:`get_log_text` that resolves the log ID through the parent job/
     build chain without the caller needing to manage ``BuildLogId`` values.
-    Also serves as the base class for
-    :class:`~pyado.oop.pipelines.distributed_task_session.DistributedTaskSession`,
-    which adds write operations for external (serverless) tasks.
 
     Wraps one ``Task``-type timeline record.  Instances are obtained from
     :meth:`BuildJob.iter_tasks`.
@@ -126,9 +125,36 @@ class BuildTask:
         return self._resolve().warning_count or 0
 
     @property
-    def issues(self) -> list[BuildIssue]:
-        """List of issues (errors/warnings) reported by this task."""
-        return self._resolve().issues or []
+    def percent_complete(self) -> int | None:
+        """Progress percentage (0-100), or ``None`` if not set."""
+        return self._resolve().percent_complete
+
+    @percent_complete.setter
+    def percent_complete(self, percent: int) -> None:
+        """Set the progress percentage locally.
+
+        Call :meth:`push_changes` to persist the change to ADO.
+
+        Args:
+            percent: Progress percentage (0-100).
+        """
+        self._record = self._resolve().model_copy(update={"percent_complete": percent})
+
+    @property
+    def issues(self) -> tuple[BuildIssue, ...]:
+        """Issues (errors/warnings) reported by this task."""
+        return tuple(self._resolve().issues or [])
+
+    @issues.setter
+    def issues(self, value: list[BuildIssue]) -> None:
+        """Replace the issues list locally.
+
+        Call :meth:`push_changes` to persist the change to ADO.
+
+        Args:
+            value: New issues list.
+        """
+        self._record = self._resolve().model_copy(update={"issues": value})
 
     @property
     def log(self) -> BuildLogInfo | None:
@@ -167,6 +193,18 @@ class BuildTask:
         if self._job is None:
             return None
         return self._job.stage.build.get_log_text(log_info.id)
+
+    def push_changes(self, session: "DistributedTaskSession") -> None:
+        """Patch this task's timeline record in ADO with the current local state.
+
+        Args:
+            session: The active DistributedTaskSession providing the timeline
+                API call.
+        """
+        raw.patch_timeline_records(
+            session.make_timeline_api_call(),
+            raw.TimelineRecordsUpdatePayload(value=[self._resolve()], count=1),
+        )
 
 
 class BuildPhase:
@@ -258,9 +296,20 @@ class BuildPhase:
         return self._record.warning_count or 0
 
     @property
-    def issues(self) -> list[BuildIssue]:
-        """List of issues (errors/warnings) reported by this phase."""
-        return self._record.issues or []
+    def issues(self) -> tuple[BuildIssue, ...]:
+        """Issues (errors/warnings) reported by this phase."""
+        return tuple(self._record.issues or [])
+
+    @issues.setter
+    def issues(self, value: list[BuildIssue]) -> None:
+        """Replace the issues list locally.
+
+        Call :meth:`push_changes` to persist the change to ADO.
+
+        Args:
+            value: New issues list.
+        """
+        self._record = self._record.model_copy(update={"issues": value})
 
     @property
     def log(self) -> BuildLogInfo | None:
@@ -293,6 +342,18 @@ class BuildPhase:
     def list_jobs(self) -> "list[BuildJob]":
         """Return all jobs within this phase as a list."""
         return list(self.iter_jobs())
+
+    def push_changes(self, session: "DistributedTaskSession") -> None:
+        """Patch this phase's timeline record in ADO with the current local state.
+
+        Args:
+            session: The active DistributedTaskSession providing the timeline
+                API call.
+        """
+        raw.patch_timeline_records(
+            session.make_timeline_api_call(),
+            raw.TimelineRecordsUpdatePayload(value=[self._record], count=1),
+        )
 
 
 class BuildJob:
@@ -392,9 +453,20 @@ class BuildJob:
         return self._record.warning_count or 0
 
     @property
-    def issues(self) -> list[BuildIssue]:
-        """List of issues (errors/warnings) reported by this job."""
-        return self._record.issues or []
+    def issues(self) -> tuple[BuildIssue, ...]:
+        """Issues (errors/warnings) reported by this job."""
+        return tuple(self._record.issues or [])
+
+    @issues.setter
+    def issues(self, value: list[BuildIssue]) -> None:
+        """Replace the issues list locally.
+
+        Call :meth:`push_changes` to persist the change to ADO.
+
+        Args:
+            value: New issues list.
+        """
+        self._record = self._record.model_copy(update={"issues": value})
 
     @property
     def log(self) -> BuildLogInfo | None:
@@ -450,6 +522,18 @@ class BuildJob:
         if log_info is None:
             return None
         return self._stage.build.get_log_text(log_info.id)
+
+    def push_changes(self, session: "DistributedTaskSession") -> None:
+        """Patch this job's timeline record in ADO with the current local state.
+
+        Args:
+            session: The active DistributedTaskSession providing the timeline
+                API call.
+        """
+        raw.patch_timeline_records(
+            session.make_timeline_api_call(),
+            raw.TimelineRecordsUpdatePayload(value=[self._record], count=1),
+        )
 
 
 class BuildStage:
@@ -540,9 +624,9 @@ class BuildStage:
         return self._record.warning_count or 0
 
     @property
-    def issues(self) -> list[BuildIssue]:
-        """List of issues (errors/warnings) reported by this stage."""
-        return self._record.issues or []
+    def issues(self) -> tuple[BuildIssue, ...]:
+        """Issues (errors/warnings) reported by this stage."""
+        return tuple(self._record.issues or [])
 
     @property
     def log(self) -> BuildLogInfo | None:

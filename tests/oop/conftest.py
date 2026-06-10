@@ -341,7 +341,7 @@ def _make_active_task() -> DistributedTaskSession:
     return DistributedTaskSession(
         BEARER_TOKEN,
         collection_uri=ORG_URL,
-        team_project_id=str(PROJECT_ID),
+        team_project_id=PROJECT_ID,
         build_id=ACTIVE_BUILD_ID,
         hub_name=HUB_NAME,
         plan_id=PLAN_ID,

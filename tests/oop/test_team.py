@@ -71,13 +71,13 @@ class TestTeam:
         assert len(result) == 1
         assert result[0].name == "Sprint 1"
 
-    def test_get_field_values_delegates(self) -> None:
+    def test_list_field_values_delegates(self) -> None:
         fv = TeamFieldValue.model_validate(
             {"value": "proj\\Area1", "includeChildren": False}
         )
         with patch("pyado.oop.boards.team.raw.get_team_field_values") as mock_get:
             mock_get.return_value = [fv]
-            result = self._make_team().get_field_values()
+            result = self._make_team().list_field_values()
         assert len(result) == 1
         assert result[0].value == "proj\\Area1"
 

@@ -66,7 +66,7 @@ def _read_files(repo: Repository, commits: list[Commit], branch: str | None) -> 
         repo.check_file_exists_by_branch("/README.md", branch)
         repo.check_file_exists_by_commit("/README.md", commits[0].sha)
     # iter_items_by_tag, get_item_by_tag (coverage-only; may return empty)
-    tags = list(repo.iter_tags())
+    tags = list(repo.iter_git_tags())
     if tags:
         tag_ref = tags[0].name.removeprefix("refs/tags/")
         list(repo.iter_items_by_tag(tag=tag_ref))
@@ -94,11 +94,11 @@ def _read_files(repo: Repository, commits: list[Commit], branch: str | None) -> 
 
 
 def _read_commit_extras(repo: Repository, commits: list[Commit]) -> None:
-    """Exercise commit.get_statuses, iter_changes and get_pr_for_commit."""
+    """Exercise commit.list_statuses, iter_changes and get_pr_for_commit."""
     repo.get_pr_for_commit(commits[0].sha)
     commit_obj = repo.get_commit(commits[0].sha)
     if commit_obj:
-        commit_obj.get_statuses()
+        commit_obj.list_statuses()
         changes = list(_take(commit_obj.iter_changes(), 5))
         _take(commit_obj.iter_changes(), 5)
         commit_obj.list_changes()
@@ -163,12 +163,12 @@ def test_repository_read(proj: Project, rng: random.Random) -> None:
         _read_files(repo, commits or [], branch)
 
     # ACL
-    repo.get_acl()
+    repo.list_acl()
 
     # Additional read methods
     _take(repo.iter_branches(), 5)
     repo.list_branches()
-    repo.list_tags()
+    repo.list_git_tags()
     repo.get_default_branch_commit()
     _take(repo.iter_items(), 5)
     repo.list_items()
@@ -195,7 +195,7 @@ def test_branch_and_tag(proj: Project, repo: Repository | None) -> None:
         _ = branch.repo
         branch.get_commit()
 
-    tags = _take(proj.repos.iter_tags(repo.name), 3)
+    tags = _take(proj.repos.iter_git_tags(repo.name), 3)
     if tags:
         tag: Tag = tags[0]
         _ = tag.name

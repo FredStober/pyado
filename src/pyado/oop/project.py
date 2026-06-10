@@ -4,6 +4,7 @@
 
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from pyado import raw
 from pyado.oop.boards import ProjectBoards
@@ -14,7 +15,7 @@ from pyado.oop.overview.wiki import Wiki
 from pyado.oop.pipelines import ProjectPipelines
 from pyado.oop.repos import ProjectRepos
 from pyado.oop.settings import ProjectSettings
-from pyado.raw import ApiCall, DashboardId, ProjectId, ProjectInfo
+from pyado.raw import ApiCall, DashboardId, ProcessDetail, ProjectId, ProjectInfo
 
 if TYPE_CHECKING:
     from pyado.oop.organization import Organization
@@ -72,6 +73,11 @@ class Project:
         self._name = name
         self._api_call = service.oop_api.make_project_api_call(name)
         self._info = info
+        self._repos: ProjectRepos | None = None
+        self._boards: ProjectBoards | None = None
+        self._pipelines: ProjectPipelines | None = None
+        self._search: ProjectSearch | None = None
+        self._settings: ProjectSettings | None = None
 
     # ------------------------------------------------------------------
     # Properties
@@ -126,27 +132,37 @@ class Project:
     @property
     def repos(self) -> ProjectRepos:
         """The Repos section — repositories, pull requests, branches, tags."""
-        return ProjectRepos(self)
+        if self._repos is None:
+            self._repos = ProjectRepos(self)
+        return self._repos
 
     @property
     def boards(self) -> ProjectBoards:
         """The Boards section — work items, iterations, areas, teams."""
-        return ProjectBoards(self)
+        if self._boards is None:
+            self._boards = ProjectBoards(self)
+        return self._boards
 
     @property
     def pipelines(self) -> ProjectPipelines:
         """The Pipelines section — builds, runs, approvals, environments, agents."""
-        return ProjectPipelines(self)
+        if self._pipelines is None:
+            self._pipelines = ProjectPipelines(self)
+        return self._pipelines
 
     @property
     def search(self) -> ProjectSearch:
         """Project-scoped search (code, work items, wiki, packages)."""
-        return ProjectSearch(self)
+        if self._search is None:
+            self._search = ProjectSearch(self)
+        return self._search
 
     @property
     def settings(self) -> ProjectSettings:
         """The Settings section — project-level configuration."""
-        return ProjectSettings(self)
+        if self._settings is None:
+            self._settings = ProjectSettings(self)
+        return self._settings
 
     # ------------------------------------------------------------------
     # Teams
@@ -248,3 +264,32 @@ class Project:
         api = raw.get_dashboard_api_call(team.api_call, dashboard_id)
         info = raw.get_dashboard(api)
         return Dashboard(team, info)
+
+    # ------------------------------------------------------------------
+    # Process info
+    # ------------------------------------------------------------------
+
+    def get_process_info(self) -> ProcessDetail:
+        """Return process detail for this project's work process template.
+
+        Fetches the project capabilities to resolve the template type ID,
+        then queries all process sub-resources (work item types, states,
+        rules, fields, behaviors, and project fields).
+
+        Returns:
+            ProcessDetail with all sub-resources populated.
+
+        Raises:
+            ValueError: If the project capabilities are not available.
+        """
+        project_with_caps = raw.get_project(
+            self._service.api_call, self._name, include_capabilities=True
+        )
+        caps = project_with_caps.capabilities
+        if caps is None:
+            err_msg = f"No capabilities returned for project {self._name!r}."
+            raise ValueError(err_msg)
+        template_type_id = UUID(caps.process_template.template_type_id)
+        return raw.get_process_info(
+            self._service.api_call, self._api_call, template_type_id
+        )

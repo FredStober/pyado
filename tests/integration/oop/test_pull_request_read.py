@@ -34,10 +34,11 @@ def test_pr_read(proj: Project, repo: Repository | None) -> None:
     _ = pr.project
     _ = pr.org
     pr.refresh()
-    pr.get_tags()
+    _take(pr.iter_tags(), 5)
+    pr.list_tags()
     _take(pr.iter_threads(), 5)
     pr.list_threads()
-    pr.get_reviewers()
+    pr.list_reviewers()
     _take(pr.iter_commits(), 5)
     pr.list_commits()
     _take(pr.iter_work_item_ids(), 5)
@@ -50,7 +51,7 @@ def test_pr_read(proj: Project, repo: Repository | None) -> None:
         pr.get_iteration_changes(iterations[0].id)
     _take(pr.iter_statuses(), 5)
     pr.list_statuses()
-    pr.get_tag_details()
+    pr.list_tag_details()
     _take(pr.iter_files_changed(), 5)
     pr.list_files_changed()
     threads = list(pr.iter_threads())

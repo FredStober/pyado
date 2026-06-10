@@ -4,17 +4,32 @@
 
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, cast
+from uuid import UUID
 
 from pyado import raw
+from pyado.oop.core.process import Process
 from pyado.oop.core.search import OrganizationSearch
 from pyado.oop.pipelines.agent import AgentPool
 from pyado.oop.project import Project
 from pyado.raw import (
+    AccessLevel,
     ApiCall,
     ConnectionData,
     GraphGroup,
+    GraphMembership,
+    GraphUser,
+    HookPublisherInfo,
+    HookSubscriptionCreateRequest,
+    HookSubscriptionId,
+    HookSubscriptionInfo,
+    HookSubscriptionUpdateRequest,
     IdentityInfo,
     NotificationSubscription,
+    ProcessCreateRequest,
+    ProcessDetail,
+    ProcessId,
+    UserEntitlement,
+    UserEntitlementCreateRequest,
     UserProfile,
 )
 
@@ -55,6 +70,7 @@ class Organization:
             service: The AzureDevOpsService that owns this Organisation.
         """
         self._service = service
+        self._search: OrganizationSearch | None = None
 
     # ------------------------------------------------------------------
     # Properties
@@ -173,7 +189,9 @@ class Organization:
     @property
     def search(self) -> OrganizationSearch:
         """Org-wide search (code, work items, wiki, packages)."""
-        return OrganizationSearch(self._service)
+        if self._search is None:
+            self._search = OrganizationSearch(self._service)
+        return self._search
 
     # ------------------------------------------------------------------
     # Agent pools
@@ -227,3 +245,235 @@ class Organization:
     def list_notification_subscriptions(self) -> list[NotificationSubscription]:
         """Return all notification subscriptions as a list."""
         return list(self.iter_notification_subscriptions())
+
+    # ------------------------------------------------------------------
+    # Hook subscriptions
+    # ------------------------------------------------------------------
+
+    def iter_hook_subscriptions(self) -> Iterator[HookSubscriptionInfo]:
+        """Iterate over all service-hooks subscriptions in this organisation.
+
+        Yields:
+            HookSubscriptionInfo for each subscription.
+        """
+        yield from raw.iter_hook_subscriptions(self.api_call)
+
+    def list_hook_subscriptions(self) -> list[HookSubscriptionInfo]:
+        """Return all service-hooks subscriptions as a list."""
+        return list(self.iter_hook_subscriptions())
+
+    def get_hook_subscription(
+        self, subscription_id: HookSubscriptionId
+    ) -> HookSubscriptionInfo:
+        """Fetch a single service-hooks subscription by ID.
+
+        Args:
+            subscription_id: UUID of the subscription.
+
+        Returns:
+            HookSubscriptionInfo for the requested subscription.
+        """
+        return raw.get_hook_subscription(self.api_call, subscription_id)
+
+    def create_hook_subscription(
+        self, request: HookSubscriptionCreateRequest
+    ) -> HookSubscriptionInfo:
+        """Create a new service-hooks subscription.
+
+        Args:
+            request: Create request specifying the publisher, event type,
+                consumer, and consumer action.
+
+        Returns:
+            HookSubscriptionInfo for the newly created subscription.
+        """
+        return raw.post_hook_subscription(self.api_call, request)
+
+    def update_hook_subscription(
+        self,
+        subscription_id: HookSubscriptionId,
+        request: HookSubscriptionUpdateRequest,
+    ) -> HookSubscriptionInfo:
+        """Update an existing service-hooks subscription.
+
+        Args:
+            subscription_id: UUID of the subscription to update.
+            request: Update request.
+
+        Returns:
+            Updated HookSubscriptionInfo.
+        """
+        return raw.put_hook_subscription(self.api_call, subscription_id, request)
+
+    def delete_hook_subscription(self, subscription_id: HookSubscriptionId) -> None:
+        """Delete a service-hooks subscription.
+
+        Args:
+            subscription_id: UUID of the subscription to delete.
+        """
+        raw.delete_hook_subscription(self.api_call, subscription_id)
+
+    def iter_hook_publishers(self) -> Iterator[HookPublisherInfo]:
+        """Iterate over all service-hooks publishers in this organisation.
+
+        Yields:
+            HookPublisherInfo for each publisher.
+        """
+        yield from raw.iter_hook_publishers(self.api_call)
+
+    def list_hook_publishers(self) -> list[HookPublisherInfo]:
+        """Return all service-hooks publishers as a list."""
+        return list(self.iter_hook_publishers())
+
+    # ------------------------------------------------------------------
+    # Graph users
+    # ------------------------------------------------------------------
+
+    def iter_graph_users(self) -> Iterator[GraphUser]:
+        """Iterate over all graph users in this organisation.
+
+        Yields:
+            GraphUser for each user in the organisation.
+        """
+        yield from raw.iter_graph_users(self._service.oop_api.vssps_api_call)
+
+    def list_graph_users(self) -> list[GraphUser]:
+        """Return all graph users in this organisation as a list."""
+        return list(self.iter_graph_users())
+
+    def get_graph_user(self, descriptor: str) -> GraphUser:
+        """Return a single graph user by subject descriptor.
+
+        Args:
+            descriptor: Subject descriptor of the user to retrieve.
+
+        Returns:
+            GraphUser for the requested descriptor.
+        """
+        return raw.get_graph_user(self._service.oop_api.vssps_api_call, descriptor)
+
+    # ------------------------------------------------------------------
+    # User entitlements
+    # ------------------------------------------------------------------
+
+    def iter_user_entitlements(self) -> Iterator[UserEntitlement]:
+        """Iterate over all user entitlements in this organisation.
+
+        Yields:
+            UserEntitlement for each user in the organisation.
+        """
+        yield from raw.iter_user_entitlements(self._service.oop_api.vssps_api_call)
+
+    def list_user_entitlements(self) -> list[UserEntitlement]:
+        """Return all user entitlements as a list."""
+        return list(self.iter_user_entitlements())
+
+    def add_user_entitlement(
+        self, request: UserEntitlementCreateRequest
+    ) -> UserEntitlement:
+        """Add a user to the organisation with an access level.
+
+        Args:
+            request: Create request specifying the user and desired
+                access level.
+
+        Returns:
+            UserEntitlement for the newly added user.
+        """
+        return raw.add_user_entitlement(self._service.oop_api.vssps_api_call, request)
+
+    def update_user_access_level(
+        self, user_id: UUID, access_level: AccessLevel
+    ) -> UserEntitlement:
+        """Update the access level for an existing user entitlement.
+
+        Args:
+            user_id: UUID of the user whose access level should be updated.
+            access_level: New access level to apply.
+
+        Returns:
+            Updated UserEntitlement.
+        """
+        return raw.update_user_access_level(
+            self._service.oop_api.vssps_api_call, user_id, access_level
+        )
+
+    # ------------------------------------------------------------------
+    # Graph memberships
+    # ------------------------------------------------------------------
+
+    def add_graph_membership(
+        self, subject_descriptor: str, container_descriptor: str
+    ) -> GraphMembership:
+        """Add a user (or group) to a group.
+
+        Args:
+            subject_descriptor: Descriptor of the member to add.
+            container_descriptor: Descriptor of the group to add the
+                member to.
+
+        Returns:
+            GraphMembership describing the new membership link.
+        """
+        return raw.add_graph_membership(
+            self._service.oop_api.vssps_api_call,
+            subject_descriptor,
+            container_descriptor,
+        )
+
+    def remove_graph_membership(
+        self, subject_descriptor: str, container_descriptor: str
+    ) -> None:
+        """Remove a user (or group) from a group.
+
+        Args:
+            subject_descriptor: Descriptor of the member to remove.
+            container_descriptor: Descriptor of the group to remove the
+                member from.
+        """
+        raw.remove_graph_membership(
+            self._service.oop_api.vssps_api_call,
+            subject_descriptor,
+            container_descriptor,
+        )
+
+    # ------------------------------------------------------------------
+    # Work process templates
+    # ------------------------------------------------------------------
+
+    def iter_processes(self) -> Iterator[Process]:
+        """Iterate over all work process templates in this organisation.
+
+        Yields:
+            Process for each process template.
+        """
+        for info in raw.iter_processes(self._service.api_call):
+            yield Process(self, info)
+
+    def list_processes(self) -> list[Process]:
+        """Return all work process templates as a list."""
+        return list(self.iter_processes())
+
+    def get_process(self, process_id: ProcessId) -> Process:
+        """Return a process template by UUID.
+
+        Args:
+            process_id: UUID of the process template.
+
+        Returns:
+            Process wrapping the requested process.
+        """
+        info = raw.get_process(self._service.api_call, process_id)
+        return Process(self, info)
+
+    def create_process(self, request: ProcessCreateRequest) -> Process:
+        """Create a new inherited process template.
+
+        Args:
+            request: Create request specifying name and parent process.
+
+        Returns:
+            Process wrapping the newly created process.
+        """
+        info: ProcessDetail = raw.post_process(self._service.api_call, request)
+        return Process(self, info)

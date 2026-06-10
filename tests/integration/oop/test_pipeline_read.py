@@ -13,6 +13,7 @@ from pyado.oop import (
     ProjectPipelines,
     SecureFile,
     ServiceEndpoint,
+    TaskGroup,
 )
 from tests.integration.raw._support import _take, console
 
@@ -75,6 +76,26 @@ def test_environments(proj: Project) -> None:
         env.list_checks()
         with contextlib.suppress(Exception):
             proj.pipelines.get_environment(env.name)
+
+
+def test_task_groups(proj: Project) -> None:
+    """Exercise TaskGroup OOP class (read-only)."""
+    console.print("\n=== Pipeline: Task Groups ===")
+    groups = _take(proj.pipelines.iter_task_groups(), 3)
+    proj.pipelines.list_task_groups()
+    if groups:
+        tg: TaskGroup = groups[0]
+        _ = tg.id
+        _ = tg.name
+        _ = tg.description
+        _ = tg.category
+        _ = tg.info
+        _ = tg.project
+        _ = tg.org
+        tg.refresh()
+        with contextlib.suppress(Exception):
+            proj.pipelines.get_task_group(tg.name)
+        proj.pipelines.get_task_group_by_id(tg.id)
 
 
 def test_secure_files(proj: Project) -> None:

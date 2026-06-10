@@ -23,7 +23,7 @@
   <img src="docs/banner.svg" alt="pyado — Python bindings for the Azure DevOps REST API" width="860"/>
 </p>
 
-[![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&size=15&pause=2500&color=0078D4&vCenter=true&width=760&height=45&lines=pr+%3D+repo.create_pull_request%28%22Deploy+v2.1%22%2C+%22feature%2Fv2%22%2C+%22main%22%29;pr.add_reviewer%28reviewer_id%2C+is_required%3DTrue%29;wi.update%28%7BWorkItemFieldName.STATE%3A+%22Resolved%22%7D%29;build+%3D+proj.start_build%2842%2C+source_branch%3D%22refs%2Fheads%2Fmain%22%29;vg.set_variable%28%22API_TOKEN%22%2C+%22secret-v2%22%2C+is_secret%3DTrue%29;repo.commit%28%22main%22%2C+%22chore%3A+update+config%22%2C+%5BEditFile%28...%29%5D%29)](https://readme-typing-svg.demolab.com)
+[![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&size=15&pause=2500&color=0078D4&vCenter=true&width=760&height=45&lines=pr+%3D+repo.create_pull_request%28%22Deploy+v2.1%22%2C+%22feature%2Fv2%22%2C+%22main%22%29;wi.update%28%7B%22System.State%22%3A+%22Resolved%22%7D%29;build+%3D+proj.pipelines.start_build%28pipeline%29;vg.set_variable%28%22API_TOKEN%22%2C+%22secret-v2%22%2C+is_secret%3DTrue%29;repo.commit%28%22main%22%2C+%22chore%3A+update+config%22%2C+%5BEditFile%28...%29%5D%29;for+pr+in+proj.repos.iter_active_prs%28%29%3A+print%28pr.title%29)](https://readme-typing-svg.demolab.com)
 
 **Typed, Pydantic-backed wrappers and Pythonic convenience methods for the
 Azure DevOps REST API — no raw dicts, no string parsing, full IDE completion.**
@@ -53,66 +53,163 @@ content-type negotiation are handled entirely by the framework.
 
 ---
 
-## OOP interface
-
-Navigate a hierarchy of resource objects instead of threading `ApiCall`
-arguments through every call. Import via `from pyado.oop import
-AzureDevOpsService`, or use `pyado.AzureDevOpsService` directly.
+## Common operations
 
 ```python
 import pyado
-from pyado.raw import WorkItemFieldName
 
-# Construct once — org URL and PAT also resolve from env vars
-# (AZURE_DEVOPS_ORG / SYSTEM_TEAMFOUNDATIONCOLLECTIONURI, AZURE_DEVOPS_EXT_PAT)
+# Credentials come from env vars if not passed explicitly:
+#   AZURE_DEVOPS_ORG (or SYSTEM_TEAMFOUNDATIONCOLLECTIONURI)
+#   AZURE_DEVOPS_EXT_PAT
 svc  = pyado.AzureDevOpsService(org="https://dev.azure.com/myorg", pat="<pat>")
 proj = svc.org.get_project("MyProject")
+```
 
-# Repositories and file pushes — no local git required
-repo = proj.get_repository("myrepo")
-print(repo.default_branch)               # "refs/heads/main"
-repo.commit("main", "chore: update config", [
-    pyado.EditFile("/config.json", '{"key": "value"}'),
-    pyado.DeleteFile("/old_config.json"),
-])
+### Work items
 
-# Pull requests — branch names normalised automatically
-pr = repo.create_pr(
+```python
+# Fetch and update a work item
+wi = proj.boards.get_work_item(153)
+print(wi.title, wi.state)
+wi.update({"System.State": "Resolved"})
+wi.add_tag("reviewed")
+wi.add_comment("Confirmed in staging.", comment_format="markdown")
+
+# Query with WIQL
+for wi in proj.boards.iter_work_items(
+    "SELECT [System.Id] FROM WorkItems WHERE [System.State] = 'Active'"
+):
+    print(wi.id, wi.title)
+
+# Create a work item
+wi = proj.boards.create_work_item(
+    "Task",
+    fields={"System.Title": "Investigate memory leak", "System.AssignedTo": "jane@example.com"},
+)
+```
+
+### Pull requests
+
+```python
+repo = proj.repos.get_repository("myrepo")
+
+# Create — branch names are normalised automatically
+pr = repo.create_pull_request(
     title="Deploy v2.1",
     source_branch="feature/v2",
     target_branch="main",
-    description="Promotes the v2 feature branch to main.",
+    description="Promotes the v2 feature branch.",
 )
 pr.add_reviewer(reviewer_id, is_required=True)
 pr.add_label("ready-to-merge")
-pr.link_work_item(wi)                     # artifact link on the work item + PR page
+pr.link_work_item(wi)          # shows on both the PR page and the work item
 
-# Work items — full CRUD
-wi = proj.get_work_item(153)
-print(wi.title, wi.state)                 # "Fix the bug"  "Active"
-wi.update({WorkItemFieldName.STATE: "Resolved"})
-wi.add_tag("reviewed")
-wi.add_comment("Confirmed in staging — closing.", comment_format="markdown")
+# List all active PRs across every repo in the project
+for pr in proj.repos.iter_active_prs():
+    print(pr.repo.name, pr.title, pr.status)
 
-# Builds and pipelines
-build = proj.start_build(42, source_branch="refs/heads/main")
-print(build.status, build.number)
+# Complete a PR
+pr.enable_auto_complete()
+pr.complete(last_merge_source_commit=pr.info.last_merge_source_commit.commit_id)
+```
+
+### Builds and pipelines
+
+```python
+# Queue a build
+pipeline = proj.pipelines.get_pipeline("deploy-prod")
+build = proj.pipelines.start_build(pipeline, source_branch="refs/heads/main")
+print(build.id, build.number, build.status)
+
+# Inspect stages, jobs, and tasks
 for stage in build.iter_stages():
-    print(stage.name, stage.result)
     for job in stage.iter_jobs():
         for task in job.iter_tasks():
             print(f"  {task.name}: {task.result}")
 
-pipeline = proj.get_pipeline(99)
+# Trigger a YAML pipeline run with template parameters
 run = pipeline.start_run(template_parameters={"env": "staging"})
 
-# Variable groups — secret-safe read-modify-write
-vg = proj.get_variable_group("my-secrets")
-vg.set_variable("KEY", "v2")
-vg.set_variable("TOKEN", "abc123", is_secret=True)
+# Approve a pending environment gate
+for approval in proj.pipelines.iter_approvals():
+    proj.pipelines.approve(approval.id, comment="LGTM")
 ```
 
-See the **[full OOP usage guide][oop-usage]** for all classes and methods.
+### Repositories and file commits
+
+```python
+# Read file content — no local git clone required
+text = repo.get_file_at_branch("/config.json", "main")
+
+# Push changes programmatically
+result = repo.commit("main", "chore: update config", [
+    pyado.EditFile("/config.json", '{"key": "value"}'),
+    pyado.DeleteFile("/old_config.json"),
+    pyado.AddFile("/new_file.txt", "hello"),
+])
+print(result.commits[0].commit_id)
+
+# Branches and tags
+repo.create_branch("feature/new-branch", from_commit="abc123")
+repo.create_tag("v1.2.3", "abc123")
+for tag in proj.repos.iter_git_tags("myrepo"):
+    print(tag.name, tag.commit_id)
+```
+
+### Variable groups
+
+```python
+vg = proj.pipelines.library.get_variable_group("my-secrets")
+
+# Read-modify-write — safe for concurrent callers
+vg.set_variable("API_KEY", "new-value")
+vg.set_variable("API_SECRET", "s3cr3t", is_secret=True)
+vg.delete_variable("DEPRECATED_KEY")
+vg.refresh()
+```
+
+### Teams and iterations
+
+```python
+team = proj.boards.get_team("Backend Team")
+for sprint in team.iter_sprint_iterations():
+    print(sprint.name, sprint.attributes.start_date)
+
+for member in team.iter_members():
+    print(member.identity.display_name)
+```
+
+### Service hooks
+
+```python
+# List all webhook subscriptions
+for sub in org.iter_hook_subscriptions():
+    print(sub.publisher_id, sub.event_type, sub.consumer_id)
+
+# Create a webhook that fires on every completed build
+from pyado.raw import HookSubscriptionCreateRequest
+
+org.create_hook_subscription(HookSubscriptionCreateRequest(
+    publisher_id="tfs",
+    event_type="build.complete",
+    resource_version="1.0",
+    consumer_id="webHooks",
+    consumer_action_id="httpRequest",
+    publisher_inputs={"projectId": "<project-id>"},
+    consumer_inputs={"url": "https://hooks.example.com/ado"},
+))
+```
+
+### Task groups
+
+```python
+for tg in proj.pipelines.iter_task_groups():
+    print(tg.name, tg.description)
+
+tg = proj.pipelines.get_task_group("my-deploy-steps")
+```
+
+See the **[full usage guide][usage]** for all domains and the raw API.
 
 ---
 
@@ -127,7 +224,7 @@ pyado resolves credentials from three sources, checked in order:
 | Azure identity | `credential=DefaultAzureCredential()` | _(any azure-identity flow)_ |
 
 ```python
-# From environment variables — useful in CI/CD
+# From environment variables — useful in CI/CD (SYSTEM_ACCESSTOKEN works too)
 svc = pyado.AzureDevOpsService()
 
 # Azure managed identity or workload identity federation
@@ -136,95 +233,11 @@ svc = pyado.AzureDevOpsService(
     org="https://dev.azure.com/myorg",
     credential=DefaultAzureCredential(),
 )
-
-# Inject a custom SSL session (corporate CAs, proxies, etc.)
-import requests
-session = requests.Session()
-session.verify = "/etc/ssl/certs/corporate-ca.pem"
-svc = pyado.AzureDevOpsService(
-    org="https://dev.azure.com/myorg",
-    pat="<pat>",
-    session=session,
-)
 ```
 
 The underlying `requests.Session` is LRU-cached per access token, so
 constructing multiple `ApiCall` objects with the same token all share
 a single connection pool — no reconnect overhead.
-
----
-
-## Raw API
-
-For scripts or advanced use-cases that need direct endpoint access, import
-from `pyado.raw`:
-
-```python
-from pyado.raw import (
-    ApiCall,
-    WorkItemFieldName,
-    get_repository_api_call,
-    post_wiql,
-    get_work_item_api_call,
-    get_work_item,
-    iter_refs,
-    make_ref_update,
-    post_push,
-    GitPushRequest,
-    GitPushCommit,
-    GitPushChange,
-    GitPushNewContent,
-    GitPushContentType,
-    post_pull_request,
-    PullRequestCreateRequest,
-)
-
-# A project-level ApiCall is the root credential object.
-# Derive more scoped calls from it via get_*_api_call helpers.
-api = ApiCall(
-    access_token="<your-pat>",
-    url="https://dev.azure.com/<organisation>/<project>/_apis/",
-)
-
-# Query work items with WIQL
-refs = post_wiql(api, "SELECT [System.Id] FROM WorkItems WHERE [System.State] = 'Active'")
-for ref in refs:
-    item = get_work_item(get_work_item_api_call(api, ref.id))
-    print(f"#{item.id}  {item.fields[WorkItemFieldName.TITLE]}")
-
-# Push a file change programmatically — no local git clone required
-repo_api = get_repository_api_call(api, repo_id)
-current_sha = next(r.object_id for r in iter_refs(repo_api, name_filter="heads/main"))
-result = post_push(
-    repo_api,
-    GitPushRequest(
-        ref_updates=[make_ref_update("main", current_sha)],
-        commits=[GitPushCommit(
-            comment="chore: update config",
-            changes=[GitPushChange(
-                change_type="edit",
-                item={"path": "/config/settings.json"},
-                new_content=GitPushNewContent(
-                    content='{"key": "value"}',
-                    content_type=GitPushContentType.raw_text,
-                ),
-            )],
-        )],
-    ),
-)
-print(f"Pushed commit {result.commits[0].commit_id}")
-
-# Create a PR — branch names must be full refs at the raw layer
-pr = post_pull_request(
-    repo_api,
-    PullRequestCreateRequest(
-        title="Update config",
-        source_ref_name="refs/heads/feature/update-config",
-        target_ref_name="refs/heads/main",
-    ),
-)
-print(f"PR #{pr.pull_request_id} created")
-```
 
 ---
 
@@ -236,11 +249,10 @@ print(f"PR #{pr.pull_request_id} created")
   an HTTP 400 response long after the call was made. IDE completion works on
   every field of every request and response model.
 
-- **No boilerplate.** Authentication (Basic Auth with PAT or Azure identity),
-  session management (LRU-cached connection pools keyed on the token),
-  automatic retries on transient connection resets, and content-type
-  negotiation (JSON vs JSON Patch vs octet-stream) are handled transparently.
-  Every call site looks the same.
+- **No boilerplate.** Authentication (PAT or Azure identity), session management
+  (LRU-cached connection pools keyed on the token), automatic retries on
+  transient connection resets, and content-type negotiation (JSON vs JSON Patch
+  vs octet-stream) are handled transparently. Every call site looks the same.
 
 - **Automatic pagination.** Every list endpoint returns a plain Python
   generator. Page boundaries, `$skip`/`$top` bookkeeping, and the ADO diff
@@ -250,15 +262,12 @@ print(f"PR #{pr.pull_request_id} created")
 - **Optimistic concurrency for git operations.** pyado reads the current HEAD
   SHA before every push and passes it as `old_object_id`, so concurrent pushes
   to the same branch cannot silently overwrite each other — ADO rejects the
-  later write, and the caller retries with the updated SHA. `ZERO_SHA` marks
-  branch creation (reject if already exists) and branch deletion (set HEAD to
-  null).
+  later write, and the caller retries with the updated SHA.
 
-- **Pythonic convenience methods.** The OOP layer wraps multi-step ADO
-  workflows behind clean, intent-expressing methods. Push a commit without
-  touching git internals. Create a PR and attach work items in two lines. Fetch
-  all log output for a build in a single call. Manage tags on work items as
-  plain Python lists, with case-insensitive deduplication matching ADO's own
+- **Pythonic convenience methods.** Push a commit without touching git
+  internals. Create a PR and attach work items in two lines. Fetch all log
+  output for a build in a single call. Manage tags on work items as plain
+  Python lists, with case-insensitive deduplication matching ADO's own
   normalisation.
 
 - **Shared object identity.** The OOP service deduplicates resource objects
@@ -266,19 +275,12 @@ print(f"PR #{pr.pull_request_id} created")
   belong to the same project, regardless of how they were fetched. Back
   navigation (`.project`, `.repo`, `.org`) is always zero-cost.
 
-- **Everything covered.** Work items (full CRUD, WIQL queries, comments,
-  attachments, tags, relations, artifact links), pull requests (lifecycle,
-  reviewers, threads, status checks, labels, iterations, auto-complete), git
-  repositories (push, refs, branches, diffs, commits, ACLs), builds (queue,
-  cancel, retry, stages/jobs/tasks, logs, artifacts, tags), pipelines (YAML
-  runs, template parameters, resource permissions, approvals), variable groups
-  (read, write, secrets, create, delete), teams (members, sprint iterations,
-  area paths), classification nodes (iterations, areas), and user profiles.
-
-- **Pipeline task callback support.** pyado exposes the full distributed task
-  plane API used inside Azure Pipelines agent jobs: write to the task feed and
-  task log in real time, update timeline record state, and signal completion
-  from an external process or serverless function.
+- **Everything covered.** Work items, pull requests, git repositories, builds,
+  YAML pipeline runs, variable groups, teams, iterations and areas, wikis,
+  dashboards, policies, search, environments and deployment approvals, agent
+  pools and queues, secure files, service endpoints, service hooks, task groups,
+  work process templates, notification subscriptions, and the full distributed
+  task plane API for pipeline task callbacks.
 
 ---
 
@@ -314,8 +316,7 @@ overview to help you decide which package fits your use case.
 
 ## Further reading
 
-- **[OOP interface guide][oop-usage]** — all OOP classes and methods with examples
-- **[Full usage guide][usage]** — every domain with detailed examples
+- **[Full usage guide][usage]** — every domain with detailed examples including the raw API
 - **[API reference][read the docs]** — auto-generated from docstrings
 - **[Contributor Guide]** — coding standards, architecture, and how to get started
 - **[Alternatives][alternatives]** — side-by-side comparison with `azure-devops` and raw `requests`
@@ -345,6 +346,4 @@ Please [file an issue] with a detailed description of the problem.
 [license]: https://github.com/fredstober/pyado/blob/main/LICENSE
 [contributor guide]: https://github.com/fredstober/pyado/blob/main/CONTRIBUTING.md
 [usage]: https://github.com/fredstober/pyado/blob/main/docs/usage.md
-[oop-usage]: https://github.com/fredstober/pyado/blob/main/docs/usage.md#oop-interface
-[quick-reference]: https://github.com/fredstober/pyado/blob/main/docs/quick_reference.md
 [alternatives]: https://github.com/fredstober/pyado/blob/main/docs/alternatives.md

@@ -97,6 +97,7 @@ __all__ = [
     "PipelineLibrary",
     "PipelineRun",
     "PolicyConfiguration",
+    "Process",
     "Project",
     "ProjectBoards",
     "ProjectPipelines",
@@ -114,6 +115,7 @@ __all__ = [
     "ServiceEndpoint",
     "StatusPolicy",
     "Tag",
+    "TaskGroup",
     "Team",
     "VariableGroup",
     "Wiki",
@@ -128,6 +130,7 @@ from pyado.oop.boards.iteration import Iteration
 from pyado.oop.boards.team import Team
 from pyado.oop.boards.work_item import WorkItem
 from pyado.oop.boards.work_item_type import WorkItemType
+from pyado.oop.core.process import Process
 from pyado.oop.core.search import OrganizationSearch, ProjectSearch
 from pyado.oop.organization import Organization
 from pyado.oop.overview.dashboard import Dashboard
@@ -147,7 +150,7 @@ from pyado.oop.pipelines.distributed_task_session import (
 from pyado.oop.pipelines.environment import Environment
 from pyado.oop.pipelines.pipeline import Pipeline, PipelineRun
 from pyado.oop.pipelines.secure_file import SecureFile
-from pyado.oop.pipelines.service_endpoint import ServiceEndpoint
+from pyado.oop.pipelines.task_group import TaskGroup
 from pyado.oop.pipelines.variable_group import VariableGroup
 from pyado.oop.project import Project
 from pyado.oop.repos import ProjectRepos
@@ -178,4 +181,5 @@ from pyado.oop.repos.repository import Repository
 from pyado.oop.repos.tag import Tag
 from pyado.oop.service import AzureDevOpsService
 from pyado.oop.settings import ProjectSettings
+from pyado.oop.settings.service_endpoint import ServiceEndpoint
 from pyado.raw import AgentQueueId

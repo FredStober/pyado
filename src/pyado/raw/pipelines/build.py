@@ -30,7 +30,9 @@ __all__ = [
     "BuildLogId",
     "BuildLogInfo",
     "BuildLogType",
+    "BuildPriority",
     "BuildQueueRequest",
+    "BuildReason",
     "BuildRecordInfo",
     "BuildRecordResult",
     "BuildRecordState",
@@ -41,6 +43,9 @@ __all__ = [
     "BuildStatus",
     "PipelineDefinitionId",
     "PipelineDefinitionInfo",
+    "PipelineDefinitionQuality",
+    "PipelineDefinitionType",
+    "PipelineQueueStatus",
     "PlanId",
     "QueueId",
     "TaskId",
@@ -160,6 +165,57 @@ class BuildRecordState(StrEnum):
     COMPLETED = "completed"
     IN_PROGRESS = "inProgress"
     PENDING = "pending"
+
+
+class BuildReason(StrEnum):
+    """Why a build was triggered."""
+
+    BATCHED_CI = "batchedCI"
+    BUILD_COMPLETION = "buildCompletion"
+    CHECK_IN_SHARDING = "checkInSharding"
+    EXTERNAL_EVENT = "externalEvent"
+    INDIVIDUAL_CI = "individualCI"
+    MANUAL = "manual"
+    NONE = "none"
+    PULL_REQUEST = "pullRequest"
+    RESOURCE_TRIGGER = "resourceTrigger"
+    SCHEDULE = "schedule"
+    SCHEDULE_FORCED = "scheduleForced"
+    TRIGGERED = "triggered"
+    USER_CREATED = "userCreated"
+    VALIDATE_SHELVESET = "validateShelveset"
+
+
+class BuildPriority(StrEnum):
+    """Queue priority for a build run."""
+
+    ABOVE_NORMAL = "aboveNormal"
+    BELOW_NORMAL = "belowNormal"
+    HIGH = "high"
+    LOW = "low"
+    NORMAL = "normal"
+
+
+class PipelineQueueStatus(StrEnum):
+    """Whether new builds can be queued for a pipeline definition."""
+
+    DISABLED = "disabled"
+    ENABLED = "enabled"
+    PAUSED = "paused"
+
+
+class PipelineDefinitionType(StrEnum):
+    """Pipeline definition type."""
+
+    BUILD = "build"
+    XAML = "xaml"
+
+
+class PipelineDefinitionQuality(StrEnum):
+    """Whether a pipeline definition is a draft or a published definition."""
+
+    DEFINITION = "definition"
+    DRAFT = "draft"
 
 
 PlanId: TypeAlias = UUID
@@ -316,8 +372,8 @@ class BuildDetails(AdoBaseModel):
     definition: _BuildDefinitionRef
     requested_by: _IdentityRef
     requested_for: _IdentityRef | None = None
-    reason: str | None = None
-    priority: str | None = None
+    reason: BuildReason | None = None
+    priority: BuildPriority | None = None
     url: str | None = None
     tags: list[str] = Field(default_factory=list)
     parameters: str | None = None
@@ -378,12 +434,12 @@ class PipelineDefinitionInfo(AdoBaseModel):
     id: PipelineDefinitionId
     name: str
     path: str
-    queue_status: str
+    queue_status: PipelineQueueStatus
     revision: int
     url: AdoUrl | None = None
     uri: str | None = None
-    type: str | None = None
-    quality: str | None = None
+    type: PipelineDefinitionType | None = None
+    quality: PipelineDefinitionQuality | None = None
     created_date: datetime | None = None
     authored_by: _IdentityRef | None = None
     project: ProjectInfo | None = None
@@ -788,6 +844,7 @@ def list_work_items_between_builds(
     project_api_call: ApiCall,
     from_build_id: BuildId,
     to_build_id: BuildId,
+    *,
     top: int | None = None,
 ) -> list[WorkItemRef]:
     """Return all work items between two builds as a list."""
@@ -820,6 +877,7 @@ def list_build_logs(build_api_call: ApiCall) -> list[BuildLogInfo]:
 
 def list_builds(
     project_api_call: ApiCall,
+    *,
     search_criteria: BuildSearchCriteria | None = None,
 ) -> list[BuildDetails]:
     """Return all builds matching the given criteria as a list."""
@@ -828,6 +886,7 @@ def list_builds(
 
 def list_pipeline_definitions(
     project_api_call: ApiCall,
+    *,
     name_filter: str | None = None,
 ) -> list[PipelineDefinitionInfo]:
     """Return all pipeline definitions as a list."""

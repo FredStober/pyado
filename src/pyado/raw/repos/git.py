@@ -5,10 +5,10 @@
 from collections.abc import Iterator
 from datetime import datetime
 from enum import StrEnum
-from typing import TypeAlias, cast
+from typing import Annotated, Any, TypeAlias, cast
 from uuid import UUID
 
-from pydantic import Field, NonNegativeInt
+from pydantic import BeforeValidator, Field, NonNegativeInt
 
 from pyado.raw._core import AdoBaseModel, AdoUrl, ApiCall, AzureDevOpsNotFoundError
 from pyado.raw.boards.work_item import WorkItemRef
@@ -27,14 +27,17 @@ __all__ = [
     "AnnotatedTagRequest",
     "BranchName",
     "BranchStatistics",
+    "ChangeTypeList",
     "CommitDiffPage",
     "CommitId",
+    "GitChangeFlag",
     "GitChangeType",
     "GitCommitChange",
     "GitCommitChangeItem",
     "GitCommitRef",
     "GitCommitSearchCriteria",
     "GitItem",
+    "GitObjectType",
     "GitPushChange",
     "GitPushChangeItem",
     "GitPushCommit",
@@ -57,8 +60,7 @@ __all__ = [
     "SshUrl",
     "TagName",
     "VersionDescriptorType",
-    "create_tag",
-    "delete_tag",
+    "delete_git_tag",
     "get_annotated_tag",
     "get_commit_by_id",
     "get_commit_diff_page",
@@ -82,6 +84,7 @@ __all__ = [
     "post_annotated_tag",
     "post_push",
     "post_repository_refs",
+    "post_tag",
 ]
 
 RepositoryName: TypeAlias = str
@@ -148,12 +151,61 @@ class _RepositoryInfoResults(AdoBaseModel):
 
 
 class GitChangeType(StrEnum):
-    """Operation type for a single file change (push, diff, or PR iteration)."""
+    """Change type values accepted in push-commit requests.
+
+    Only these four operations are valid when constructing a
+    :class:`GitPushChange` to send to ADO.  For parsing *response* fields use
+    :data:`ChangeTypeList` which handles the full ADO flags set.
+    """
 
     ADD = "add"
     EDIT = "edit"
     DELETE = "delete"
     RENAME = "rename"
+
+
+class GitChangeFlag(StrEnum):
+    """All ADO ``GitChangeType`` flag values as returned in diff and PR responses.
+
+    ADO models this as a bit-flags enum and may return composite values such as
+    ``"delete, sourceRename"`` when a file is both removed and renamed.
+    :data:`ChangeTypeList` uses this enum after splitting the string.
+    """
+
+    NONE = "none"
+    ADD = "add"
+    EDIT = "edit"
+    ENCODING = "encoding"
+    RENAME = "rename"
+    DELETE = "delete"
+    UNDELETE = "undelete"
+    BRANCH = "branch"
+    MERGE = "merge"
+    LOCK = "lock"
+    ROLLBACK = "rollback"
+    SOURCE_RENAME = "sourceRename"
+    TARGET_RENAME = "targetRename"
+    PROPERTY = "property"
+    ALL = "all"
+
+
+def _parse_change_type(value: Any) -> Any:
+    """Split a comma-separated ADO changeType string into a list of values.
+
+    Returns:
+        A list of stripped flag strings, or the original value if not a string.
+    """
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",")]
+    return value
+
+
+#: Field type for ``changeType`` in ADO response models.
+#: ADO may return composite flags like ``"edit, rename"`` as a single string;
+#: the ``BeforeValidator`` splits that into ``list[GitChangeFlag]``.
+ChangeTypeList: TypeAlias = Annotated[
+    list[GitChangeFlag], BeforeValidator(_parse_change_type)
+]
 
 
 class GitCommitChangeItem(AdoBaseModel):
@@ -166,9 +218,7 @@ class GitCommitChangeItem(AdoBaseModel):
 class GitCommitChange(AdoBaseModel):
     """A single change entry in a commit diff."""
 
-    # str rather than GitChangeType: ADO returns composite flag values such as
-    # "delete, sourceRename" when a file is both removed and renamed in the same diff.
-    change_type: str
+    change_type: ChangeTypeList
     item: GitCommitChangeItem
 
 
@@ -672,7 +722,7 @@ def iter_tags(repository_api_call: ApiCall) -> Iterator[GitRef]:
     )
 
 
-def create_tag(
+def post_tag(
     repository_api_call: ApiCall,
     name: str,
     commit_id: CommitId,
@@ -693,12 +743,12 @@ def create_tag(
     )
 
 
-def delete_tag(
+def delete_git_tag(
     repository_api_call: ApiCall,
     name: str,
     commit_id: CommitId,
 ) -> None:
-    """Delete a tag from the repository.
+    """Remove a git tag from the repository.
 
     Args:
         repository_api_call: Repository-level ADO API call (from
@@ -897,11 +947,20 @@ class RecursionLevel(StrEnum):
     FULL = "full"
 
 
+class GitObjectType(StrEnum):
+    """Git object types returned in repository item metadata."""
+
+    BLOB = "blob"
+    COMMIT = "commit"
+    TAG = "tag"
+    TREE = "tree"
+
+
 class GitItem(AdoBaseModel):
     """A single file or folder entry returned by the items endpoint."""
 
     object_id: str
-    git_object_type: str
+    git_object_type: GitObjectType
     path: str
     url: str | None = None
     is_folder: bool = False

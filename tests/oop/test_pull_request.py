@@ -587,12 +587,38 @@ class TestPullRequest:
         assert relation.attributes is not None
         assert relation.attributes.get("comment") == "Linked via PR"
 
-    def test_get_tags_delegates(self) -> None:
+    def test_iter_tag_details_yields_labels(self) -> None:
+        label = PullRequestLabel(id="abc", name="ready", active=True)
+        with patch(
+            "pyado.oop.repos.pull_request.raw.get_pull_request_labels_details"
+        ) as mock_labels:
+            mock_labels.return_value = [label]
+            result = list(_make_pr().iter_tag_details())
+        assert result == [label]
+
+    def test_list_tag_details_delegates_to_iter(self) -> None:
+        label = PullRequestLabel(id="abc", name="ready", active=True)
+        with patch(
+            "pyado.oop.repos.pull_request.raw.get_pull_request_labels_details"
+        ) as mock_labels:
+            mock_labels.return_value = [label]
+            result = _make_pr().list_tag_details()
+        assert result == [label]
+
+    def test_iter_tags_delegates(self) -> None:
         with patch(
             "pyado.oop.repos.pull_request._pull_request.get_pull_request_tags"
         ) as mock_tags:
             mock_tags.return_value = ["tag-a", "tag-b"]
-            tags = _make_pr().get_tags()
+            tags = list(_make_pr().iter_tags())
+        assert tags == ["tag-a", "tag-b"]
+
+    def test_list_tags_delegates(self) -> None:
+        with patch(
+            "pyado.oop.repos.pull_request._pull_request.get_pull_request_tags"
+        ) as mock_tags:
+            mock_tags.return_value = ["tag-a", "tag-b"]
+            tags = _make_pr().list_tags()
         assert tags == ["tag-a", "tag-b"]
 
     def test_add_tag_delegates(self) -> None:
@@ -634,12 +660,12 @@ class TestPullRequest:
         assert mock_reply.call_args.args[1] == 1
         assert mock_reply.call_args.args[2] == "reply text"
 
-    def test_get_reviewers_delegates(self) -> None:
+    def test_list_reviewers_delegates(self) -> None:
         with patch(
             "pyado.oop.repos.pull_request.raw.get_pull_request_reviewers"
         ) as mock_get:
             mock_get.return_value = [MagicMock()]
-            result = _make_pr().get_reviewers()
+            result = _make_pr().list_reviewers()
         assert len(result) == 1
 
     def test_add_reviewer_delegates(self) -> None:
@@ -850,13 +876,13 @@ class TestPullRequest:
     def test_created_by_returns_display_name(self) -> None:
         assert self._pr_with_branches().created_by == "Alice"
 
-    def test_get_tag_details_delegates_to_raw(self) -> None:
+    def test_list_tag_details_delegates_to_raw(self) -> None:
         label = PullRequestLabel(name="my-tag")
         with patch(
             "pyado.oop.repos.pull_request.raw.get_pull_request_labels_details"
         ) as mock_get:
             mock_get.return_value = [label]
-            result = _make_pr().get_tag_details()
+            result = _make_pr().list_tag_details()
         assert result == [label]
         mock_get.assert_called_once()
 

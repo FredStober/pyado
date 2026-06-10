@@ -11,6 +11,7 @@ from pydantic.networks import AnyUrl
 
 from pyado.raw import (
     ApiCall,
+    GitChangeFlag,
     PullRequestCompletionOptions,
     PullRequestCreateRequest,
     PullRequestIterationChange,
@@ -172,9 +173,11 @@ class TestPullRequestThreadCommentRequest:
     def test_instantiation_with_aliases() -> None:
         """Model can be instantiated using camelCase alias names."""
         comment = PullRequestThreadCommentRequest(
-            comment_type=2, parent_comment_id=0, content="Hello"
+            comment_type=PullRequestThreadCommentType.CODE_CHANGE,
+            parent_comment_id=0,
+            content="Hello",
         )
-        assert comment.comment_type == 2
+        assert comment.comment_type == PullRequestThreadCommentType.CODE_CHANGE
         assert comment.parent_comment_id == 0
 
 
@@ -501,18 +504,18 @@ class TestGetPullRequestIterationChanges:
             result = get_pull_request_iteration_changes(api_call, 2)
         assert len(result) == 1
         assert isinstance(result[0], PullRequestIterationChange)
-        assert result[0].change_type == "add"
+        assert result[0].change_type == [GitChangeFlag.ADD]
         assert result[0].item.path == "/src/foo.py"
 
     @staticmethod
     def test_accepts_composite_change_type(api_call: ApiCall) -> None:
-        """Composite change types like 'edit, rename' are accepted as strings."""
+        """Composite change types like 'edit, rename' are split into a list."""
         entries = [{"changeType": "edit, rename", "item": {"path": "/src/bar.py"}}]
         mock_response = _make_mock_response({"changeEntries": entries})
         with patch.object(requests.Session, "request", return_value=mock_response):
             result = get_pull_request_iteration_changes(api_call, 2)
         assert len(result) == 1
-        assert result[0].change_type == "edit, rename"
+        assert result[0].change_type == [GitChangeFlag.EDIT, GitChangeFlag.RENAME]
 
     @staticmethod
     def test_returns_empty_list_when_no_change_entries(api_call: ApiCall) -> None:
@@ -908,7 +911,7 @@ class TestSmokeIterPrThreads:
             result = list(iter_pull_request_threads(api_call))
         assert len(result) == 1
         assert isinstance(result[0], PullRequestThreadResponse)
-        assert result[0].comments[0].comment_type == "system"
+        assert result[0].comments[0].comment_type == PullRequestThreadCommentType.SYSTEM
 
     @staticmethod
     def test_parses_thread_id_and_comment_count(api_call: ApiCall) -> None:

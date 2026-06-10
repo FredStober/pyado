@@ -203,7 +203,7 @@ class VariableGroup:
         )
         self.update(updated)
 
-    def delete_variable(self, var_name: str) -> None:
+    def unset_variable(self, var_name: str) -> None:
         """Remove a variable from the group.
 
         Args:

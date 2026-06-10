@@ -2,15 +2,18 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, TypeAlias
+from uuid import UUID, uuid4
 
 from pyado import raw
+from pyado.oop.pipelines.build_timeline import BuildJob, BuildTask
 from pyado.raw import (
     ApiCall,
     BuildId,
-    BuildIssue,
     BuildLogId,
     BuildRecordInfo,
+    BuildRecordState,
     BuildRecordType,
     JobId,
     PlanId,
@@ -23,6 +26,8 @@ if TYPE_CHECKING:
     from pyado.oop.organization import Organization
     from pyado.oop.pipelines.build import Build
     from pyado.oop.project import Project
+
+TeamProjectId: TypeAlias = UUID
 
 __all__ = ["DistributedTaskSession"]
 
@@ -87,7 +92,7 @@ class DistributedTaskSession:
         bearer_token: str,
         *,
         collection_uri: str,
-        team_project_id: str,
+        team_project_id: TeamProjectId,
         build_id: BuildId,
         hub_name: str,
         plan_id: PlanId,
@@ -104,7 +109,7 @@ class DistributedTaskSession:
             collection_uri: ADO organisation root URL
                 (e.g. ``"https://dev.azure.com/myorg/"``).  Available as
                 ``SYSTEM_TEAMFOUNDATIONCOLLECTIONURI`` in pipeline variables.
-            team_project_id: Project UUID string (``System.TeamProjectId``).
+            team_project_id: Project UUID (``System.TeamProjectId``).
             build_id: Numeric build ID (``Build.BuildId``).
             hub_name: Distributed-task hub name (e.g. ``"Build"``).
             plan_id: The orchestration plan UUID (``System.PlanId``).
@@ -145,7 +150,8 @@ class DistributedTaskSession:
             self._project_api_call, self._hub_name, self._plan_id
         )
 
-    def _make_timeline_api_call(self) -> ApiCall:
+    def make_timeline_api_call(self) -> ApiCall:
+        """Return an ApiCall scoped to this session's timeline."""
         return raw.get_timeline_api_call(
             self._project_api_call,
             self._hub_name,
@@ -231,10 +237,21 @@ class DistributedTaskSession:
         """Discard the cached timeline record and log ID.
 
         The next access to any cached data (e.g. via :meth:`get_record`,
-        :meth:`add_issues`, :meth:`send_log`) will re-fetch from the API.
+        :meth:`send_log`) will re-fetch from the API.
         """
         self._record = None
         self._log_id = None
+
+    def get_task(self) -> BuildTask:
+        """Return a BuildTask representing this session's own timeline record.
+
+        The underlying record is loaded lazily on first call (and cached via
+        :meth:`_resolve`); call :meth:`refresh` to invalidate the cache.
+
+        Returns:
+            BuildTask wrapping this session's timeline record.
+        """
+        return BuildTask(self._resolve())
 
     # ------------------------------------------------------------------
     # OOP back-references (populated only via Build.get_distributed_task_session)
@@ -318,21 +335,51 @@ class DistributedTaskSession:
         self.send_feed(messages)
         raw.post_job_logs(self._make_log_api_call(), "\n".join(messages))
 
-    def add_issues(self, issues: list[BuildIssue]) -> None:
-        """Append issues to this task's timeline record.
+    def add_task(self, job: BuildJob, name: str) -> TaskId:
+        """Add a new Task-type record to the timeline under the given job.
 
-        Uses the stable ``7.1`` distributed-task API.  Fetches the current
-        record, merges in the new issues, then patches the timeline.
+        The new record is created in ``pending`` state.  Set
+        :attr:`BuildTask.percent_complete` to advance it once work begins.
 
         Args:
-            issues: Issues to append to the task's timeline record.
+            job: The BuildJob under which the new task will appear.
+            name: Display name of the new task record.
+
+        Returns:
+            UUID of the newly created task record.
         """
-        record = self._resolve()
-        updated = record.model_copy(update={"issues": (record.issues or []) + issues})
-        raw.patch_timeline_records(
-            self._make_timeline_api_call(),
-            raw.TimelineRecordsUpdatePayload(value=[updated], count=1),
+        task_id = uuid4()
+        new_record = BuildRecordInfo.model_validate(
+            {
+                "attempt": 1,
+                "changeId": None,
+                "currentOperation": None,
+                "details": None,
+                "finishTime": None,
+                "id": str(task_id),
+                "identifier": None,
+                "lastModified": datetime.now(UTC).isoformat(),
+                "log": None,
+                "name": name,
+                "refName": None,
+                "parentId": str(job.id),
+                "percentComplete": None,
+                "previousAttempts": [],
+                "result": None,
+                "resultCode": None,
+                "startTime": None,
+                "state": BuildRecordState.PENDING,
+                "task": None,
+                "type": BuildRecordType.TASK,
+                "url": None,
+                "workerName": None,
+            }
         )
+        raw.patch_timeline_records(
+            self.make_timeline_api_call(),
+            raw.TimelineRecordsUpdatePayload(value=[new_record], count=1),
+        )
+        return task_id
 
     def complete(self, *, succeeded: bool) -> None:
         """Signal task completion to the pipeline.

@@ -30,6 +30,13 @@ pyado provides two layers:
    :members:
 ```
 
+### Process
+
+```{eval-rst}
+.. automodule:: pyado.oop.core.process
+   :members:
+```
+
 ### Project
 
 ```{eval-rst}
@@ -41,6 +48,13 @@ pyado provides two layers:
 
 ```{eval-rst}
 .. automodule:: pyado.oop.settings
+   :members:
+```
+
+#### Service Endpoint
+
+```{eval-rst}
+.. automodule:: pyado.oop.settings.service_endpoint
    :members:
 ```
 
@@ -232,18 +246,19 @@ pyado provides two layers:
    :members:
 ```
 
+#### Task Group
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipelines.task_group
+   :members:
+```
+
 #### Distributed Task Session
 
 ```{eval-rst}
 .. automodule:: pyado.oop.pipelines.distributed_task_session
    :members:
-```
-
-#### Service Endpoint
-
-```{eval-rst}
-.. automodule:: pyado.oop.pipelines.service_endpoint
-   :members:
+   :no-index:
 ```
 
 ---
@@ -313,6 +328,13 @@ pyado provides two layers:
    :members:
 ```
 
+### Hook
+
+```{eval-rst}
+.. automodule:: pyado.raw.settings.hook
+   :members:
+```
+
 ### Service Endpoint
 
 ```{eval-rst}
@@ -365,6 +387,13 @@ pyado provides two layers:
 
 ```{eval-rst}
 .. automodule:: pyado.raw.pipelines.pipeline
+   :members:
+```
+
+#### Task Group
+
+```{eval-rst}
+.. automodule:: pyado.raw.pipelines.task_group
    :members:
 ```
 

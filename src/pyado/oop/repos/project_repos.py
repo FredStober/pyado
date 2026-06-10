@@ -276,8 +276,8 @@ class ProjectRepos:
     # Tags (project-wide convenience)
     # ------------------------------------------------------------------
 
-    def iter_tags(self, repo_name: str) -> Iterator[Tag]:
-        """Iterate over tags in a named repository.
+    def iter_git_tags(self, repo_name: str) -> Iterator[Tag]:
+        """Iterate over git tags in a named repository.
 
         Args:
             repo_name: Repository name (case-sensitive).
@@ -285,10 +285,8 @@ class ProjectRepos:
         Yields:
             :class:`Tag` for each tag.
         """
-        repo = self.get_repository(repo_name)
-        for ref in repo.iter_tags():
-            yield Tag(repo, ref)
+        yield from self.get_repository(repo_name).iter_git_tags()
 
-    def list_tags(self, repo_name: str) -> list[Tag]:
-        """Return all tags in a named repository as a list."""
-        return list(self.iter_tags(repo_name))
+    def list_git_tags(self, repo_name: str) -> list[Tag]:
+        """Return all git tags in a named repository as a list."""
+        return list(self.iter_git_tags(repo_name))

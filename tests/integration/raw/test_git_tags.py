@@ -24,8 +24,8 @@ def test_git_tags_write(
 
     tag_name = f"smoke-tag-{rng.randint(10000, 99999)}"
     head_sha = commits[0].commit_id
-    raw.create_tag(repo_api_call, tag_name, head_sha)
-    raw.delete_tag(repo_api_call, tag_name, head_sha)
+    raw.post_tag(repo_api_call, tag_name, head_sha)
+    raw.delete_git_tag(repo_api_call, tag_name, head_sha)
     annotated_name = f"smoke-atag-{rng.randint(10000, 99999)}"
     atag = raw.post_annotated_tag(
         repo_api_call,
@@ -35,5 +35,5 @@ def test_git_tags_write(
     )
     if atag:
         raw.get_annotated_tag(repo_api_call, atag.object_id)
-        # Clean up the annotated tag ref using delete_tag (zeroes the ref).
-        raw.delete_tag(repo_api_call, annotated_name, head_sha)
+        # Clean up the annotated tag ref using delete_git_tag (zeroes the ref).
+        raw.delete_git_tag(repo_api_call, annotated_name, head_sha)

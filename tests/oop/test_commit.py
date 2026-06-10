@@ -130,17 +130,17 @@ class TestCommit:
         assert mock_diff.call_args.args[1] == "parent456"
         assert mock_diff.call_args.args[2] == "child123"
 
-    def test_get_statuses_returns_list(self) -> None:
+    def test_list_statuses_returns_list(self) -> None:
         status = GitStatus.model_validate({"state": "succeeded"})
         ref = _git_commit_ref()
         ref.statuses = [status]
         commit = Commit(_make_repo(), ref)
-        result = commit.get_statuses()
+        result = commit.list_statuses()
         assert result == [status]
 
-    def test_get_statuses_empty_when_none(self) -> None:
+    def test_list_statuses_empty_when_none(self) -> None:
         commit = Commit(_make_repo(), _git_commit_ref())
-        assert commit.get_statuses() == []
+        assert commit.list_statuses() == []
 
     def test_refresh_invalidates_and_refetches(self) -> None:
         commit = Commit(_make_repo(), _git_commit_ref("abc123"))

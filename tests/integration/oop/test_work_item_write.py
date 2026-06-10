@@ -66,7 +66,7 @@ def test_write_work_item(
     comment = wi.add_comment("<p>OOP smoke comment</p>")
     if comment:
         wi.update_comment(comment.id, "<p>updated</p>")
-        wi.delete_comment(comment.id)
+        wi.remove_comment(comment.id)
     attachment_ref = wi.add_attachment("smoke.txt", b"hello from oop smoke test")
     if attachment_ref is not None:
         wi.download_attachment(attachment_ref)
@@ -82,7 +82,7 @@ def test_write_work_item(
         WorkItemTypeName.TASK, f"[oop-smoke] Child task {uuid.uuid4().hex[:6]}"
     )
     if child_wi:
-        wi.get_child_ids()
+        wi.list_child_ids()
         child_wi.delete()
 
     _exercise_wi_links(wi, wi2, build, repo, existing_pr)

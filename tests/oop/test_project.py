@@ -43,6 +43,7 @@ from pyado.raw import (
     EnvironmentInfo,
     GitRef,
     PipelineDefinitionInfo,
+    ProcessDetail,
     ProjectInfo,
     PullRequestSearchCriteria,
     PullRequestStatus,
@@ -138,6 +139,26 @@ class TestProject:
 
     def test_settings_returns_project_settings(self) -> None:
         assert isinstance(_make_project().settings, ProjectSettings)
+
+    def test_repos_is_identity_stable(self) -> None:
+        proj = _make_project()
+        assert proj.repos is proj.repos
+
+    def test_boards_is_identity_stable(self) -> None:
+        proj = _make_project()
+        assert proj.boards is proj.boards
+
+    def test_pipelines_is_identity_stable(self) -> None:
+        proj = _make_project()
+        assert proj.pipelines is proj.pipelines
+
+    def test_search_is_identity_stable(self) -> None:
+        proj = _make_project()
+        assert proj.search is proj.search
+
+    def test_settings_is_identity_stable(self) -> None:
+        proj = _make_project()
+        assert proj.settings is proj.settings
 
     def test_settings_get_project_info_calls_raw(self) -> None:
         proj = _make_project()
@@ -473,13 +494,13 @@ class TestProjectBoards:
             == SprintIterationTimeframe.CURRENT
         )
 
-    def test_get_team_field_values_delegates(self) -> None:
+    def test_list_team_field_values_delegates(self) -> None:
         proj = _make_project()
         with patch(
             "pyado.oop.boards.project_boards.raw.get_team_field_values"
         ) as mock_get:
             mock_get.return_value = [MagicMock()]
-            result = proj.boards.get_team_field_values("MyTeam")
+            result = proj.boards.list_team_field_values("MyTeam")
         assert len(result) == 1
         team_call = mock_get.call_args.args[0]
         assert "MyTeam" in str(team_call.url)
@@ -496,7 +517,7 @@ class TestProjectBoards:
         assert "MyTeam" in str(team_call.url)
         assert mock_add.call_args.args[1] == iteration_id
 
-    def test_get_work_items_returns_list_of_work_items(self) -> None:
+    def test_list_work_items_by_ids_returns_list_of_work_items(self) -> None:
         proj = _make_project()
         wi_infos = [_work_item_info(1), _work_item_info(2)]
         with (
@@ -509,11 +530,11 @@ class TestProjectBoards:
         ):
             mock_batch.return_value = wi_infos
             mock_api.side_effect = lambda _call, _wi_id: _api_call()
-            result = proj.boards.get_work_items([1, 2])
+            result = proj.boards.list_work_items_by_ids([1, 2])
         assert len(result) == 2
         assert all(isinstance(item, WorkItem) for item in result)
 
-    def test_get_work_items_passes_ids(self) -> None:
+    def test_list_work_items_by_ids_passes_ids(self) -> None:
         proj = _make_project()
         with (
             patch(
@@ -525,11 +546,11 @@ class TestProjectBoards:
         ):
             mock_batch.return_value = []
             mock_api.side_effect = lambda _call, _wi_id: _api_call()
-            proj.boards.get_work_items([10, 20, 30])
+            proj.boards.list_work_items_by_ids([10, 20, 30])
         batch_request = mock_batch.call_args.args[1]
         assert batch_request.ids == [10, 20, 30]
 
-    def test_get_work_items_expands_relations_by_default(self) -> None:
+    def test_list_work_items_by_ids_expands_relations_by_default(self) -> None:
         proj = _make_project()
         with (
             patch(
@@ -541,11 +562,11 @@ class TestProjectBoards:
         ):
             mock_batch.return_value = []
             mock_api.side_effect = lambda _call, _wi_id: _api_call()
-            proj.boards.get_work_items([1])
+            proj.boards.list_work_items_by_ids([1])
         batch_request = mock_batch.call_args.args[1]
         assert batch_request.expand == WorkItemExpand.RELATIONS
 
-    def test_get_work_items_no_expand_when_passed_none(self) -> None:
+    def test_list_work_items_by_ids_no_expand_when_passed_none(self) -> None:
         proj = _make_project()
         with (
             patch(
@@ -557,7 +578,7 @@ class TestProjectBoards:
         ):
             mock_batch.return_value = []
             mock_api.side_effect = lambda _call, _wi_id: _api_call()
-            proj.boards.get_work_items([1], expand=None)
+            proj.boards.list_work_items_by_ids([1], expand=None)
         batch_request = mock_batch.call_args.args[1]
         assert batch_request.expand is None
 
@@ -706,7 +727,7 @@ class TestProjectBoardsIterationArea:
         proj = _make_project()
         node = ClassificationNode.model_validate({"id": 1, "name": "Sprint 2"})
         with patch(
-            "pyado.oop.boards.project_boards.raw.create_classification_node"
+            "pyado.oop.boards.project_boards.raw.post_classification_node"
         ) as mock_create:
             mock_create.return_value = node
             result = proj.boards.create_iteration(
@@ -749,7 +770,7 @@ class TestProjectBoardsIterationArea:
         proj = _make_project()
         node = ClassificationNode.model_validate({"id": 1, "name": "Sprint 3"})
         with patch(
-            "pyado.oop.boards.project_boards.raw.create_classification_node"
+            "pyado.oop.boards.project_boards.raw.post_classification_node"
         ) as mock_create:
             mock_create.return_value = node
             proj.boards.create_iteration("Sprint 3")
@@ -759,7 +780,7 @@ class TestProjectBoardsIterationArea:
         proj = _make_project()
         node = ClassificationNode.model_validate({"id": 1, "name": "Backend"})
         with patch(
-            "pyado.oop.boards.project_boards.raw.create_classification_node"
+            "pyado.oop.boards.project_boards.raw.post_classification_node"
         ) as mock_create:
             mock_create.return_value = node
             result = proj.boards.create_area("Backend")
@@ -1276,6 +1297,12 @@ class TestProjectLibrary:
             list(proj.pipelines.iter_runs(pipeline.id, top=3))
         mock_iter.assert_called_once_with(proj.api_call, 7, top=3)
 
+    def test_list_runs_delegates(self) -> None:
+        proj = _make_project()
+        pipelines = proj.pipelines
+        with patch.object(pipelines, "iter_runs", return_value=iter([])):
+            assert pipelines.list_runs(7) == []
+
     def test_get_run_returns_pipeline_run(self) -> None:
         proj = _make_project()
         pipeline = MagicMock(spec=Pipeline)
@@ -1294,6 +1321,24 @@ class TestProjectLibrary:
             result = proj.pipelines.get_run(pipeline.id, 42)
         mock_get.assert_called_once_with(proj.api_call, 7, 42)
         assert isinstance(result, PipelineRun)
+
+    def test_get_environment_by_id_returns_environment(self) -> None:
+        proj = _make_project()
+        env_info = EnvironmentInfo.model_validate({"id": 5, "name": "Staging"})
+        with (
+            patch(
+                "pyado.oop.pipelines.project_pipelines.raw.get_environment_api_call"
+            ) as mock_ac,
+            patch(
+                "pyado.oop.pipelines.project_pipelines.raw.get_environment"
+            ) as mock_get,
+        ):
+            mock_ac.return_value = _api_call()
+            mock_get.return_value = env_info
+            result = proj.pipelines.get_environment_by_id(5)
+        assert isinstance(result, Environment)
+        assert result.id == 5
+        mock_get.assert_called_once_with(proj.api_call, 5)
 
     def test_get_environment_skips_non_matching_name(self) -> None:
         proj = _make_project()
@@ -1548,7 +1593,7 @@ class TestProjectReposBranches:
 
 
 class TestProjectReposTags:
-    def test_iter_tags_yields_tag_wrappers(self) -> None:
+    def test_iter_git_tags_yields_tag_wrappers(self) -> None:
         proj = _make_project()
         ref = GitRef.model_validate(
             {"name": "refs/tags/v1.0", "objectId": str(uuid4())}
@@ -1565,16 +1610,16 @@ class TestProjectReposTags:
             mock_iter.return_value = iter([_repo_info("myrepo")])
             mock_repo_call.return_value = _api_call()
             mock_refs.return_value = iter([ref])
-            result = list(proj.repos.iter_tags("myrepo"))
+            result = list(proj.repos.iter_git_tags("myrepo"))
         assert len(result) == 1
         assert isinstance(result[0], Tag)
         assert result[0].name == "v1.0"
 
-    def test_list_tags_delegates(self) -> None:
+    def test_list_git_tags_delegates(self) -> None:
         proj = _make_project()
         repos = proj.repos
-        with patch.object(repos, "iter_tags", return_value=iter([])):
-            assert repos.list_tags("myrepo") == []
+        with patch.object(repos, "iter_git_tags", return_value=iter([])):
+            assert repos.list_git_tags("myrepo") == []
 
 
 # ---------------------------------------------------------------------------
@@ -1644,6 +1689,81 @@ class TestProjectTeams:
         assert isinstance(result, Team)
         mock_get.assert_called_once()
         assert mock_get.call_args[0][2] == "ICS Team"
+
+
+# ---------------------------------------------------------------------------
+# Process info
+# ---------------------------------------------------------------------------
+
+
+class TestProjectGetProcessInfo:
+    def test_get_process_info_returns_detail(self) -> None:
+        svc = _make_service()
+        template_id = uuid4()
+        proj_info_with_caps = ProjectInfo.model_validate(
+            {
+                "id": str(PROJECT_ID),
+                "name": "TestProject",
+                "state": "wellFormed",
+                "revision": 1,
+                "visibility": "private",
+                "lastUpdateTime": "2024-01-01T00:00:00Z",
+                "capabilities": {
+                    "processTemplate": {
+                        "templateName": "Agile",
+                        "templateTypeId": str(template_id),
+                    },
+                    "versioncontrol": {
+                        "sourceControlType": "Git",
+                        "gitEnabled": "True",
+                        "tfvcEnabled": "False",
+                    },
+                },
+            }
+        )
+        process_detail = ProcessDetail.model_validate(
+            {
+                "typeId": str(template_id),
+                "name": "Agile",
+                "referenceType": "system",
+            }
+        )
+        proj = Project(svc, "TestProject")
+        with (
+            patch(
+                "pyado.oop.project.raw.get_project",
+                return_value=proj_info_with_caps,
+            ),
+            patch(
+                "pyado.oop.project.raw.get_process_info",
+                return_value=process_detail,
+            ) as mock_process,
+        ):
+            result = proj.get_process_info()
+        assert isinstance(result, ProcessDetail)
+        mock_process.assert_called_once()
+
+    def test_get_process_info_raises_when_no_capabilities(self) -> None:
+        svc = _make_service()
+        proj_info_no_caps = ProjectInfo.model_validate(
+            {
+                "id": str(PROJECT_ID),
+                "name": "TestProject",
+                "state": "wellFormed",
+                "revision": 1,
+                "visibility": "private",
+                "lastUpdateTime": "2024-01-01T00:00:00Z",
+            }
+        )
+        proj = Project(svc, "TestProject")
+        with (
+            patch(
+                "pyado.oop.project.raw.get_project",
+                return_value=proj_info_no_caps,
+            ),
+            pytest.raises(ValueError, match="capabilities"),
+        ):
+            proj.get_process_info()
 
 
 # ---------------------------------------------------------------------------

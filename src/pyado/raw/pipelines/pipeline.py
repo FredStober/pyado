@@ -672,6 +672,7 @@ def list_pipelines(
 def list_pipeline_runs(
     project_api_call: ApiCall,
     pipeline_id: PipelineId,
+    *,
     top: int | None = None,
 ) -> list[PipelineRunInfo]:
     """Return all runs for a pipeline as a list."""
