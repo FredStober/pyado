@@ -9,10 +9,6 @@ from pyado.oop import (
     Area,
     AzureDevOpsService,
     Build,
-    BuildJob,
-    BuildPhase,
-    BuildStage,
-    DistributedTaskSession,
     Iteration,
     Pipeline,
     Project,
@@ -299,56 +295,9 @@ def _make_all_records(use_phase: bool = False) -> list[BuildRecordInfo]:
     return [stage, job, task]
 
 
-def _make_tl_stage(
-    all_records: list[BuildRecordInfo],
-    record: BuildRecordInfo | None = None,
-    build: Build | None = None,
-) -> BuildStage:
-    """Create a BuildStage with an optional build back-reference."""
-    rec = record or next(r for r in all_records if r.type_name == "Stage")
-    return BuildStage(rec, all_records, build=build or _make_build())
-
-
-def _make_tl_phase(
-    all_records: list[BuildRecordInfo],
-    record: BuildRecordInfo | None = None,
-    stage: BuildStage | None = None,
-) -> BuildPhase:
-    """Create a BuildPhase with an optional stage back-reference."""
-    rec = record or next(r for r in all_records if r.type_name == "Phase")
-    return BuildPhase(rec, all_records, stage=stage or _make_tl_stage(all_records))
-
-
-def _make_tl_job(
-    all_records: list[BuildRecordInfo],
-    record: BuildRecordInfo | None = None,
-    stage: BuildStage | None = None,
-    phase: BuildPhase | None = None,
-) -> BuildJob:
-    """Create a BuildJob with stage/phase back-references."""
-    rec = record or next(r for r in all_records if r.type_name == "Job")
-    return BuildJob(
-        rec, all_records, stage=stage or _make_tl_stage(all_records), phase=phase
-    )
-
-
 # ---------------------------------------------------------------------------
 # DistributedTaskSession helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_active_task() -> DistributedTaskSession:
-    return DistributedTaskSession(
-        BEARER_TOKEN,
-        collection_uri=ORG_URL,
-        team_project_id=PROJECT_ID,
-        build_id=ACTIVE_BUILD_ID,
-        hub_name=HUB_NAME,
-        plan_id=PLAN_ID,
-        timeline_id=TIMELINE_ID,
-        job_id=ACTIVE_JOB_ID,
-        task_instance_id=TASK_INSTANCE_ID,
-    )
 
 
 def _task_record(log_id: int | None = None) -> BuildRecordInfo:

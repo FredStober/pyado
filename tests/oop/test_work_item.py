@@ -1599,14 +1599,18 @@ class TestWorkItemSyncTags:
 class TestWorkItemRestore:
     def test_restore_calls_raw(self) -> None:
         wi = _make_wi()
-        with patch("pyado.oop.boards.work_item.raw.restore_work_item") as mock_restore:
+        with patch(
+            "pyado.oop.boards.work_item.raw.patch_recycle_bin_work_item"
+        ) as mock_restore:
             wi.restore()
         mock_restore.assert_called_once()
 
     def test_restore_passes_project_api_call_and_id(self) -> None:
         wi = _make_wi()
         wi_id = wi.id
-        with patch("pyado.oop.boards.work_item.raw.restore_work_item") as mock_restore:
+        with patch(
+            "pyado.oop.boards.work_item.raw.patch_recycle_bin_work_item"
+        ) as mock_restore:
             wi.restore()
         args = mock_restore.call_args.args
         assert args[0] == wi._project.api_call
@@ -1615,7 +1619,7 @@ class TestWorkItemRestore:
     def test_restore_calls_refresh(self) -> None:
         wi = _make_wi()
         with (
-            patch("pyado.oop.boards.work_item.raw.restore_work_item"),
+            patch("pyado.oop.boards.work_item.raw.patch_recycle_bin_work_item"),
             patch.object(wi, "refresh") as mock_refresh,
         ):
             wi.restore()

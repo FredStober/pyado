@@ -265,8 +265,7 @@ class ProjectRepos:
             :class:`Branch` for each branch.
         """
         repo = self.get_repository(repo_name)
-        for ref in repo.iter_branches():
-            yield Branch(repo, ref)
+        yield from repo.iter_branches()
 
     def list_branches(self, repo_name: str) -> list[Branch]:
         """Return all branches in a named repository as a list."""

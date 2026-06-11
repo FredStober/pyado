@@ -204,6 +204,7 @@ def _run_agent_phase(
     )
 
     plan_api_call = raw.get_plan_api_call(agent_project_api_call, hub_name, plan_id)
+    raw.post_new_log(plan_api_call, f"logs\\pyado-smoke-{rng.randint(0, 99999)}")
     job_api_call_result = raw.get_job_api_call(
         agent_project_api_call, hub_name, plan_id, timeline_id, job_id
     )

@@ -82,9 +82,9 @@ __all__ = [
     "make_git_acl_token",
     "make_ref_update",
     "post_annotated_tag",
+    "post_git_tag",
     "post_push",
     "post_repository_refs",
-    "post_tag",
 ]
 
 RepositoryName: TypeAlias = str
@@ -722,7 +722,7 @@ def iter_tags(repository_api_call: ApiCall) -> Iterator[GitRef]:
     )
 
 
-def post_tag(
+def post_git_tag(
     repository_api_call: ApiCall,
     name: str,
     commit_id: CommitId,

@@ -16,8 +16,7 @@ from pyado.raw import (
     IdentityInfo,
     UserEntitlement,
     UserEntitlementCreateRequest,
-    add_graph_membership,
-    add_user_entitlement,
+    delete_graph_membership,
     get_graph_user,
     get_identities,
     get_session,
@@ -28,10 +27,12 @@ from pyado.raw import (
     list_graph_groups,
     list_graph_users,
     list_user_entitlements,
-    remove_graph_membership,
-    update_user_access_level,
+    patch_user_entitlement,
+    post_user_entitlement,
+    put_graph_membership,
 )
 from pyado.raw._core import ApiCall
+from pyado.raw.core.identity import list_graph_memberships
 from tests.conftest import ACCESS_TOKEN, _make_mock_response
 
 _USER_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -247,7 +248,7 @@ class TestListGraphUsers:
 
 
 class TestAddGraphMembership:
-    """Tests for add_graph_membership."""
+    """Tests for put_graph_membership."""
 
     @staticmethod
     def test_returns_membership() -> None:
@@ -259,7 +260,7 @@ class TestAddGraphMembership:
         }
         mock_response = _make_mock_response(payload)
         with patch.object(requests.Session, "request", return_value=mock_response):
-            result = add_graph_membership(
+            result = put_graph_membership(
                 vssps_call, _DESCRIPTOR, _CONTAINER_DESCRIPTOR
             )
         assert isinstance(result, GraphMembership)
@@ -278,7 +279,7 @@ class TestAddGraphMembership:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            add_graph_membership(vssps_call, _DESCRIPTOR, _CONTAINER_DESCRIPTOR)
+            put_graph_membership(vssps_call, _DESCRIPTOR, _CONTAINER_DESCRIPTOR)
         assert mock_req.call_args.args[0] == "PUT"
 
     @staticmethod
@@ -293,14 +294,14 @@ class TestAddGraphMembership:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            add_graph_membership(vssps_call, _DESCRIPTOR, _CONTAINER_DESCRIPTOR)
+            put_graph_membership(vssps_call, _DESCRIPTOR, _CONTAINER_DESCRIPTOR)
         called_url: str = mock_req.call_args.kwargs["url"]
         assert _DESCRIPTOR in called_url
         assert _CONTAINER_DESCRIPTOR in called_url
 
 
 class TestRemoveGraphMembership:
-    """Tests for remove_graph_membership."""
+    """Tests for delete_graph_membership."""
 
     @staticmethod
     def test_sends_delete_request() -> None:
@@ -310,7 +311,7 @@ class TestRemoveGraphMembership:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            remove_graph_membership(vssps_call, _DESCRIPTOR, _CONTAINER_DESCRIPTOR)
+            delete_graph_membership(vssps_call, _DESCRIPTOR, _CONTAINER_DESCRIPTOR)
         assert mock_req.call_args.args[0] == "DELETE"
 
     @staticmethod
@@ -321,7 +322,7 @@ class TestRemoveGraphMembership:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            remove_graph_membership(vssps_call, _DESCRIPTOR, _CONTAINER_DESCRIPTOR)
+            delete_graph_membership(vssps_call, _DESCRIPTOR, _CONTAINER_DESCRIPTOR)
         called_url: str = mock_req.call_args.kwargs["url"]
         assert _DESCRIPTOR in called_url
         assert _CONTAINER_DESCRIPTOR in called_url
@@ -371,7 +372,7 @@ class TestListUserEntitlements:
 
 
 class TestAddUserEntitlement:
-    """Tests for add_user_entitlement."""
+    """Tests for post_user_entitlement."""
 
     @staticmethod
     def _make_request() -> UserEntitlementCreateRequest:
@@ -395,7 +396,7 @@ class TestAddUserEntitlement:
         mock_response = _make_mock_response(op_result)
         request = TestAddUserEntitlement._make_request()
         with patch.object(requests.Session, "request", return_value=mock_response):
-            result = add_user_entitlement(vssps_call, request)
+            result = post_user_entitlement(vssps_call, request)
         assert isinstance(result, UserEntitlement)
         assert result.id == UUID(_USER_ID)
 
@@ -409,7 +410,7 @@ class TestAddUserEntitlement:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            add_user_entitlement(vssps_call, request)
+            post_user_entitlement(vssps_call, request)
         assert mock_req.call_args.args[0] == "POST"
 
     @staticmethod
@@ -422,14 +423,14 @@ class TestAddUserEntitlement:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            add_user_entitlement(vssps_call, request)
+            post_user_entitlement(vssps_call, request)
         sent_json = mock_req.call_args.kwargs["json"]
         assert "user" in sent_json
         assert "accessLevel" in sent_json
 
 
 class TestUpdateUserAccessLevel:
-    """Tests for update_user_access_level."""
+    """Tests for patch_user_entitlement."""
 
     @staticmethod
     def test_returns_updated_entitlement() -> None:
@@ -442,7 +443,7 @@ class TestUpdateUserAccessLevel:
         mock_response = _make_mock_response(op_result)
         access_level = AccessLevel(account_license_type="express")
         with patch.object(requests.Session, "request", return_value=mock_response):
-            result = update_user_access_level(vssps_call, UUID(_USER_ID), access_level)
+            result = patch_user_entitlement(vssps_call, UUID(_USER_ID), access_level)
         assert isinstance(result, UserEntitlement)
         assert result.id == UUID(_USER_ID)
 
@@ -456,7 +457,7 @@ class TestUpdateUserAccessLevel:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            update_user_access_level(vssps_call, UUID(_USER_ID), access_level)
+            patch_user_entitlement(vssps_call, UUID(_USER_ID), access_level)
         assert mock_req.call_args.args[0] == "PATCH"
 
     @staticmethod
@@ -469,7 +470,7 @@ class TestUpdateUserAccessLevel:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            update_user_access_level(vssps_call, UUID(_USER_ID), access_level)
+            patch_user_entitlement(vssps_call, UUID(_USER_ID), access_level)
         called_url: str = mock_req.call_args.kwargs["url"]
         assert _USER_ID in called_url
 
@@ -483,9 +484,43 @@ class TestUpdateUserAccessLevel:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            update_user_access_level(vssps_call, UUID(_USER_ID), access_level)
+            patch_user_entitlement(vssps_call, UUID(_USER_ID), access_level)
         sent_json = mock_req.call_args.kwargs["json"]
         assert isinstance(sent_json, list)
         assert sent_json[0]["op"] == "replace"
         assert sent_json[0]["path"] == "/accessLevel"
         assert sent_json[0]["value"]["accountLicenseType"] == "express"
+
+
+class TestListGraphMemberships:
+    """Tests for list_graph_memberships."""
+
+    @staticmethod
+    def test_returns_sorted_member_descriptors() -> None:
+        """Returns sorted member descriptor strings."""
+        vssps_call = get_vssps_api_call(get_session(pat=ACCESS_TOKEN), "myorg")
+        payload = {
+            "value": [
+                {
+                    "containerDescriptor": _CONTAINER_DESCRIPTOR,
+                    "memberDescriptor": "aad.zzz",
+                },
+                {
+                    "containerDescriptor": _CONTAINER_DESCRIPTOR,
+                    "memberDescriptor": "aad.aaa",
+                },
+            ]
+        }
+        mock_response = _make_mock_response(payload)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = list_graph_memberships(vssps_call, _CONTAINER_DESCRIPTOR)
+        assert result == ["aad.aaa", "aad.zzz"]
+
+    @staticmethod
+    def test_returns_empty_list_when_no_response() -> None:
+        """Returns empty list when API returns no body."""
+        vssps_call = get_vssps_api_call(get_session(pat=ACCESS_TOKEN), "myorg")
+        mock_response = _make_mock_response(None)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = list_graph_memberships(vssps_call, _CONTAINER_DESCRIPTOR)
+        assert result == []

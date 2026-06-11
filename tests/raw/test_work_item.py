@@ -28,7 +28,6 @@ from pyado.raw import (
     WorkItemQueryExpand,
     WorkItemRef,
     WorkItemRelation,
-    add_team_iteration,
     delete_classification_node,
     delete_team_iteration,
     delete_work_item,
@@ -47,11 +46,12 @@ from pyado.raw import (
     list_work_item_comments,
     list_work_item_revisions,
     patch_classification_node,
+    patch_recycle_bin_work_item,
     patch_work_item_comment,
     post_classification_node,
+    post_team_iteration,
     post_wiql,
     post_work_item_comment,
-    restore_work_item,
 )
 from tests.conftest import NOW_ISO, _make_mock_response
 
@@ -754,7 +754,7 @@ class TestGetTeamFieldValues:
 
 
 class TestAddTeamIteration:
-    """Tests for add_team_iteration."""
+    """Tests for post_team_iteration."""
 
     @staticmethod
     def test_posts_iteration_id_to_endpoint(api_call: ApiCall) -> None:
@@ -764,7 +764,7 @@ class TestAddTeamIteration:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            add_team_iteration(api_call, iteration_id)
+            post_team_iteration(api_call, iteration_id)
         call = mock_req.call_args
         assert call.args[0] == "POST"
         sent_json = call.kwargs.get("json") or {}
@@ -777,7 +777,7 @@ class TestAddTeamIteration:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            add_team_iteration(api_call, uuid4())
+            post_team_iteration(api_call, uuid4())
         url = mock_req.call_args.kwargs.get("url", "")
         assert "teamsettings/iterations" in url
 
@@ -1092,7 +1092,7 @@ class TestDeleteTeamIteration:
 
 
 class TestRestoreWorkItem:
-    """Tests for restore_work_item."""
+    """Tests for patch_recycle_bin_work_item."""
 
     @staticmethod
     def test_sends_patch_request(api_call: ApiCall) -> None:
@@ -1101,7 +1101,7 @@ class TestRestoreWorkItem:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            restore_work_item(api_call, 42)
+            patch_recycle_bin_work_item(api_call, 42)
         assert mock_req.call_args.args[0] == "PATCH"
 
     @staticmethod
@@ -1111,7 +1111,7 @@ class TestRestoreWorkItem:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            restore_work_item(api_call, 99)
+            patch_recycle_bin_work_item(api_call, 99)
         url = mock_req.call_args.kwargs.get("url", "")
         assert "recycleBin" in url
         assert "99" in url
@@ -1123,7 +1123,7 @@ class TestRestoreWorkItem:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            restore_work_item(api_call, 42)
+            patch_recycle_bin_work_item(api_call, 42)
         sent_json = mock_req.call_args.kwargs.get("json") or {}
         assert sent_json.get("isDeleted") is False
 

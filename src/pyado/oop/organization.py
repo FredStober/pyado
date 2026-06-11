@@ -380,7 +380,7 @@ class Organization:
         Returns:
             UserEntitlement for the newly added user.
         """
-        return raw.add_user_entitlement(self._service.oop_api.vssps_api_call, request)
+        return raw.post_user_entitlement(self._service.oop_api.vssps_api_call, request)
 
     def update_user_access_level(
         self, user_id: UUID, access_level: AccessLevel
@@ -394,7 +394,7 @@ class Organization:
         Returns:
             Updated UserEntitlement.
         """
-        return raw.update_user_access_level(
+        return raw.patch_user_entitlement(
             self._service.oop_api.vssps_api_call, user_id, access_level
         )
 
@@ -415,7 +415,7 @@ class Organization:
         Returns:
             GraphMembership describing the new membership link.
         """
-        return raw.add_graph_membership(
+        return raw.put_graph_membership(
             self._service.oop_api.vssps_api_call,
             subject_descriptor,
             container_descriptor,
@@ -431,7 +431,7 @@ class Organization:
             container_descriptor: Descriptor of the group to remove the
                 member from.
         """
-        raw.remove_graph_membership(
+        raw.delete_graph_membership(
             self._service.oop_api.vssps_api_call,
             subject_descriptor,
             container_descriptor,

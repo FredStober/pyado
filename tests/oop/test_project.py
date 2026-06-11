@@ -509,7 +509,7 @@ class TestProjectBoards:
         proj = _make_project()
         iteration_id = uuid4()
         with patch(
-            "pyado.oop.boards.project_boards.raw.add_team_iteration"
+            "pyado.oop.boards.project_boards.raw.post_team_iteration"
         ) as mock_add:
             proj.boards.add_team_iteration("MyTeam", iteration_id)
         mock_add.assert_called_once()
@@ -633,6 +633,30 @@ class TestProjectBoards:
         boards = _make_project().boards
         with patch.object(boards, "iter_teams", return_value=iter([])):
             assert boards.list_teams() == []
+
+    def test_iter_work_items_by_ids_yields_work_items(self) -> None:
+        proj = _make_project()
+        wi_infos = [_work_item_info(1), _work_item_info(2)]
+        with (
+            patch(
+                "pyado.oop.boards.project_boards.raw.post_work_items_batch"
+            ) as mock_batch,
+            patch(
+                "pyado.oop.boards.project_boards.raw.get_work_item_api_call"
+            ) as mock_api,
+        ):
+            mock_batch.return_value = wi_infos
+            mock_api.side_effect = lambda _call, _wi_id: _api_call()
+            result = list(proj.boards.iter_work_items_by_ids([1, 2]))
+        assert len(result) == 2
+        assert all(isinstance(item, WorkItem) for item in result)
+
+    def test_list_work_items_by_ids_delegates_to_iter(self) -> None:
+        boards = _make_project().boards
+        wi = MagicMock(spec=WorkItem)
+        with patch.object(boards, "iter_work_items_by_ids", return_value=iter([wi])):
+            result = boards.list_work_items_by_ids([1])
+        assert result == [wi]
 
     def test_list_work_items_delegates(self) -> None:
         boards = _make_project().boards
@@ -1023,6 +1047,67 @@ class TestProjectPipelines:
             result = proj.pipelines.get_build_details(33)
         assert isinstance(result, BuildDetails)
         assert result.id == 33
+
+    def test_library_returns_same_instance_on_repeated_access(self) -> None:
+        proj = _make_project()
+        first = proj.pipelines.library
+        second = proj.pipelines.library
+        assert first is second
+
+    def test_iter_variable_groups_delegates_to_library(self) -> None:
+        proj = _make_project()
+        vg_info = _variable_group_info(1, "MyVars")
+        with (
+            patch(
+                "pyado.oop.pipelines.pipeline_library.raw.iter_variable_group_details"
+            ) as mock_iter,
+            patch(
+                "pyado.oop.pipelines.pipeline_library.raw.get_variable_group_api_call"
+            ) as mock_ac,
+        ):
+            mock_iter.return_value = iter([vg_info])
+            mock_ac.return_value = _api_call()
+            result = list(proj.pipelines.iter_variable_groups())
+        assert len(result) == 1
+        assert isinstance(result[0], VariableGroup)
+
+    def test_list_variable_groups_delegates(self) -> None:
+        pipelines = _make_project().pipelines
+        vg = MagicMock(spec=VariableGroup)
+        with patch.object(pipelines, "iter_variable_groups", return_value=iter([vg])):
+            assert pipelines.list_variable_groups() == [vg]
+
+    def test_get_variable_group_delegates_to_library(self) -> None:
+        proj = _make_project()
+        vg_info = _variable_group_info(3, "StagingVars")
+        with (
+            patch(
+                "pyado.oop.pipelines.pipeline_library.raw.iter_variable_group_details"
+            ) as mock_iter,
+            patch(
+                "pyado.oop.pipelines.pipeline_library.raw.get_variable_group_api_call"
+            ) as mock_ac,
+        ):
+            mock_iter.return_value = iter([vg_info])
+            mock_ac.return_value = _api_call()
+            vg = proj.pipelines.get_variable_group("StagingVars")
+        assert vg.name == "StagingVars"
+
+    def test_get_variable_group_by_id_delegates_to_library(self) -> None:
+        proj = _make_project()
+        vg_info = _variable_group_info(7, "ProdVars")
+        with (
+            patch(
+                "pyado.oop.pipelines.pipeline_library.raw.get_variable_group_details"
+            ) as mock_get,
+            patch(
+                "pyado.oop.pipelines.pipeline_library.raw.get_variable_group_api_call"
+            ) as mock_ac,
+        ):
+            mock_get.return_value = vg_info
+            mock_ac.return_value = _api_call()
+            vg = proj.pipelines.get_variable_group_by_id(7)
+        assert vg.id == 7
 
 
 class TestProjectLibrary:

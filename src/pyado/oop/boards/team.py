@@ -34,7 +34,7 @@ class Team:
 
     The :attr:`api_call` property returns a team-level call suitable for
     raw functions such as :func:`~pyado.raw.get_team_field_values` and
-    :func:`~pyado.raw.add_team_iteration`.
+    :func:`~pyado.raw.post_team_iteration`.
 
     Attributes:
         _project: The Project this team belongs to.
@@ -148,7 +148,7 @@ class Team:
         Args:
             iteration_id: UUID of the iteration classification node to assign.
         """
-        raw.add_team_iteration(self.api_call, iteration_id)
+        raw.post_team_iteration(self.api_call, iteration_id)
 
     def remove_iteration(self, iteration_id: SprintIterationId) -> None:
         """Remove an iteration from this team's sprint backlog.

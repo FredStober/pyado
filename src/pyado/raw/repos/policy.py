@@ -20,7 +20,6 @@ __all__ = [
     "PolicyType",
     "PolicyTypeId",
     "PolicyTypeIdRef",
-    "create_policy_configuration",
     "delete_policy_configuration",
     "get_policy_configuration",
     "get_policy_configuration_api_call",
@@ -29,7 +28,8 @@ __all__ = [
     "iter_policy_types",
     "list_policy_configurations",
     "list_policy_types",
-    "update_policy_configuration",
+    "post_policy_configuration",
+    "put_policy_configuration",
 ]
 
 _POLICY_API_VERSION = "7.1"
@@ -239,7 +239,7 @@ def get_policy_configuration(
     return PolicyConfigurationInfo.model_validate(result)
 
 
-def create_policy_configuration(
+def post_policy_configuration(
     project_api_call: ApiCall,
     request: PolicyConfigurationRequest,
 ) -> PolicyConfigurationInfo:
@@ -261,7 +261,7 @@ def create_policy_configuration(
     return PolicyConfigurationInfo.model_validate(result)
 
 
-def update_policy_configuration(
+def put_policy_configuration(
     policy_configuration_api_call: ApiCall,
     request: PolicyConfigurationRequest,
 ) -> PolicyConfigurationInfo:

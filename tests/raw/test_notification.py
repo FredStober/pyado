@@ -12,6 +12,12 @@ from pyado.raw import (
     iter_notification_subscriptions,
     list_notification_subscriptions,
 )
+from pyado.raw.settings.notification import (
+    delete_notification_subscription,
+    get_notification_subscription,
+    patch_notification_subscription,
+    post_notification_subscription,
+)
 from tests.conftest import _make_mock_response
 
 
@@ -106,3 +112,50 @@ class TestIterNotificationSubscriptions:
         assert len(results) == 2
         assert results[0].id == "sub-3"
         assert results[1].id == "sub-4"
+
+
+class TestGetNotificationSubscription:
+    @staticmethod
+    def test_returns_subscription(api_call: ApiCall) -> None:
+        payload = {"id": "sub-get-1", "description": "Get test"}
+        mock_resp = _make_mock_response(payload)
+        with patch.object(requests.Session, "request", return_value=mock_resp):
+            result = get_notification_subscription(api_call, "sub-get-1")
+        assert isinstance(result, NotificationSubscription)
+        assert result.id == "sub-get-1"
+        assert result.description == "Get test"
+
+
+class TestPostNotificationSubscription:
+    @staticmethod
+    def test_creates_subscription(api_call: ApiCall) -> None:
+        payload = {"id": "sub-post-1", "description": "Post test", "status": "enabled"}
+        mock_resp = _make_mock_response(payload)
+        body = {"description": "Post test", "filter": {}, "channel": {}}
+        with patch.object(requests.Session, "request", return_value=mock_resp):
+            result = post_notification_subscription(api_call, body)
+        assert isinstance(result, NotificationSubscription)
+        assert result.id == "sub-post-1"
+        assert result.status == "enabled"
+
+
+class TestPatchNotificationSubscription:
+    @staticmethod
+    def test_updates_subscription(api_call: ApiCall) -> None:
+        payload = {"id": "sub-patch-1", "description": "Updated", "status": "disabled"}
+        mock_resp = _make_mock_response(payload)
+        with patch.object(requests.Session, "request", return_value=mock_resp):
+            result = patch_notification_subscription(
+                api_call, "sub-patch-1", {"status": "disabled"}
+            )
+        assert isinstance(result, NotificationSubscription)
+        assert result.id == "sub-patch-1"
+        assert result.status == "disabled"
+
+
+class TestDeleteNotificationSubscription:
+    @staticmethod
+    def test_deletes_subscription(api_call: ApiCall) -> None:
+        mock_resp = _make_mock_response(None)
+        with patch.object(requests.Session, "request", return_value=mock_resp):
+            delete_notification_subscription(api_call, "sub-del-1")

@@ -23,7 +23,16 @@ from pyado.raw.repos.git import (
 __all__ = [
     "CommentId",
     "CommitIdRef",
+    "GitCherryPickRequest",
+    "GitCherryPickResponse",
+    "GitCherryPickStatus",
     "GitForkRef",
+    "GitMergeRequest",
+    "GitMergeResponse",
+    "GitMergeStatus",
+    "GitRevertRequest",
+    "GitRevertResponse",
+    "GitRevertStatus",
     "IdentityIdRef",
     "PullRequestCompletionOptions",
     "PullRequestCreateRequest",
@@ -64,6 +73,9 @@ __all__ = [
     "ThreadId",
     "delete_pull_request_label",
     "delete_pull_request_reviewer",
+    "get_git_cherry_pick",
+    "get_git_merge",
+    "get_git_revert",
     "get_pull_request_api_call",
     "get_pull_request_details",
     "get_pull_request_iteration_changes",
@@ -84,6 +96,9 @@ __all__ = [
     "list_pull_requests",
     "patch_pull_request",
     "patch_pull_request_thread",
+    "post_git_cherry_pick",
+    "post_git_merge",
+    "post_git_revert",
     "post_pull_request",
     "post_pull_request_label",
     "post_pull_request_new_thread",
@@ -544,6 +559,129 @@ class PullRequestResponse(AdoBaseModel):
     merge_failure_type: PullRequestMergeFailureType | None = None
     merge_failure_message: str | None = None
     has_multiple_merge_bases: bool = False
+
+
+class GitMergeStatus(StrEnum):
+    """Possible completion states of a git merge operation."""
+
+    COMPLETED = "completed"
+    CONFLICTS = "conflicts"
+    FAILURE = "failure"
+    IN_PROGRESS = "inProgress"
+    INVALID_REFS = "invalidRefs"
+    NONE = "none"
+    QUEUED = "queued"
+    REJECTED_BY_POLICY = "rejectedByPolicy"
+
+
+class GitMergeRequest(AdoBaseModel):
+    """Request body for creating a git merge operation.
+
+    Attributes:
+        comment: Optional merge commit message.
+        parents: List of commit SHAs to merge (must have exactly two entries).
+    """
+
+    comment: str | None = None
+    parents: list[CommitId]
+
+
+class GitMergeResponse(AdoBaseModel):
+    """Response from the git merge endpoint.
+
+    Attributes:
+        merge_operation_id: Unique identifier for this merge operation.
+        status: Current state of the merge (e.g. ``completed``, ``conflicts``).
+        merge_commit_id: The resulting merge commit SHA once the merge completes,
+            or ``None`` if the merge has not yet finished.
+    """
+
+    merge_operation_id: int | None = None
+    status: GitMergeStatus
+    merge_commit_id: CommitId | None = None
+
+
+class GitCherryPickStatus(StrEnum):
+    """Possible completion states of a git cherry-pick operation."""
+
+    COMPLETED = "completed"
+    CONFLICTS = "conflicts"
+    FAILED = "failed"
+    NONE = "none"
+    QUEUED = "queued"
+
+
+class GitCherryPickRequest(AdoBaseModel):
+    """Request body for creating a git cherry-pick operation.
+
+    Attributes:
+        onto: Target branch ref name (e.g. ``"refs/heads/main"``) to cherry-pick
+            onto.
+        cherry_pick_ref: Name of the new branch to create with the cherry-picked
+            commit applied.
+        generated_ref_name: Optional name for the generated ref; if omitted ADO
+            generates one.
+    """
+
+    onto: str
+    cherry_pick_ref: str
+    generated_ref_name: str | None = None
+
+
+class GitCherryPickResponse(AdoBaseModel):
+    """Response from the git cherry-pick endpoint.
+
+    Attributes:
+        cherry_pick_id: Unique identifier for this cherry-pick operation.
+        status: Current state of the cherry-pick.
+        onto: The target branch ref name.
+        cherry_pick_ref: The new branch created by the cherry-pick.
+    """
+
+    cherry_pick_id: int | None = None
+    status: GitCherryPickStatus
+    onto: str | None = None
+    cherry_pick_ref: str | None = None
+
+
+class GitRevertStatus(StrEnum):
+    """Possible completion states of a git revert operation."""
+
+    COMPLETED = "completed"
+    CONFLICTS = "conflicts"
+    FAILED = "failed"
+    NONE = "none"
+    QUEUED = "queued"
+
+
+class GitRevertRequest(AdoBaseModel):
+    """Request body for creating a git revert operation.
+
+    Attributes:
+        onto: Target branch ref name (e.g. ``"refs/heads/main"``) to revert onto.
+        revert_ref: Name of the new branch to create with the revert commit applied.
+        generated_ref_name: Optional name for the generated ref.
+    """
+
+    onto: str
+    revert_ref: str
+    generated_ref_name: str | None = None
+
+
+class GitRevertResponse(AdoBaseModel):
+    """Response from the git revert endpoint.
+
+    Attributes:
+        revert_id: Unique identifier for this revert operation.
+        status: Current state of the revert.
+        onto: The target branch ref name.
+        revert_ref: The new branch created by the revert.
+    """
+
+    revert_id: int | None = None
+    status: GitRevertStatus
+    onto: str | None = None
+    revert_ref: str | None = None
 
 
 class PullRequestCreateRequest(AdoBaseModel):
@@ -1019,6 +1157,184 @@ def iter_pull_request_statuses(pr_api_call: ApiCall) -> Iterator[PullRequestStat
     """
     response = pr_api_call.get("statuses", version="7.1-preview.1")
     yield from _PullRequestStatusResults.model_validate(response).value
+
+
+def get_git_merge(
+    repository_api_call: ApiCall,
+    merge_operation_id: int,
+) -> GitMergeResponse:
+    """Return the current status of a git merge operation.
+
+    Use this to poll a previously queued merge (from ``post_git_merge``) until
+    its status transitions away from ``GitMergeStatus.QUEUED``.
+
+    Reference:
+        https://learn.microsoft.com/en-us/rest/api/azure/devops/git/merges/get
+
+    Args:
+        repository_api_call: Repository-level ADO API call
+            (from ``get_repository_api_call``).
+        merge_operation_id: The merge operation ID returned by ``post_git_merge``.
+
+    Returns:
+        GitMergeResponse with the current operation status and, once complete,
+        the resulting merge commit ID.
+    """
+    response = repository_api_call.get(
+        "merges",
+        merge_operation_id,
+        version="7.1-preview.1",
+    )
+    return GitMergeResponse.model_validate(response)
+
+
+def post_git_merge(
+    repository_api_call: ApiCall,
+    request: GitMergeRequest,
+) -> GitMergeResponse:
+    """Create a git merge operation to test whether two commits can be merged.
+
+    ADO merges asynchronously — the returned status is typically
+    ``GitMergeStatus.QUEUED`` immediately after the call.  Poll
+    ``get_git_merge`` (or use ``post_git_merge`` with ``detect_renames=False``)
+    to retrieve the final result.
+
+    Reference:
+        https://learn.microsoft.com/en-us/rest/api/azure/devops/git/merges/create
+
+    Args:
+        repository_api_call: Repository-level ADO API call
+            (from ``get_repository_api_call``).
+        request: Merge request specifying the two parent commit SHAs and an
+            optional merge commit message.
+
+    Returns:
+        GitMergeResponse with the initial operation status and, once
+        complete, the resulting merge commit ID.
+    """
+    response = repository_api_call.post(
+        "merges",
+        version="7.1-preview.1",
+        json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
+    )
+    return GitMergeResponse.model_validate(response)
+
+
+def post_git_cherry_pick(
+    repository_api_call: ApiCall,
+    request: GitCherryPickRequest,
+) -> GitCherryPickResponse:
+    """Create a git cherry-pick operation.
+
+    ADO cherry-picks asynchronously — the returned status is typically
+    ``GitCherryPickStatus.QUEUED`` immediately.  Poll ``get_git_cherry_pick``
+    until the status transitions to ``COMPLETED`` or ``CONFLICTS``/``FAILED``.
+
+    Reference:
+        https://learn.microsoft.com/en-us/rest/api/azure/devops/git/cherry-picks/create
+
+    Args:
+        repository_api_call: Repository-level ADO API call
+            (from ``get_repository_api_call``).
+        request: Cherry-pick request specifying the target branch and new branch
+            name.
+
+    Returns:
+        GitCherryPickResponse with the initial operation status.
+    """
+    response = repository_api_call.post(
+        "cherryPicks",
+        version="7.1-preview.1",
+        json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
+    )
+    return GitCherryPickResponse.model_validate(response)
+
+
+def get_git_cherry_pick(
+    repository_api_call: ApiCall,
+    cherry_pick_id: int,
+) -> GitCherryPickResponse:
+    """Return the current status of a git cherry-pick operation.
+
+    Use this to poll a previously queued cherry-pick (from
+    ``post_git_cherry_pick``) until its status transitions away from
+    ``GitCherryPickStatus.QUEUED``.
+
+    Reference:
+        https://learn.microsoft.com/en-us/rest/api/azure/devops/git/cherry-picks/get
+
+    Args:
+        repository_api_call: Repository-level ADO API call
+            (from ``get_repository_api_call``).
+        cherry_pick_id: The cherry-pick operation ID returned by
+            ``post_git_cherry_pick``.
+
+    Returns:
+        GitCherryPickResponse with the current operation status.
+    """
+    response = repository_api_call.get(
+        "cherryPicks",
+        cherry_pick_id,
+        version="7.1-preview.1",
+    )
+    return GitCherryPickResponse.model_validate(response)
+
+
+def post_git_revert(
+    repository_api_call: ApiCall,
+    request: GitRevertRequest,
+) -> GitRevertResponse:
+    """Create a git revert operation.
+
+    ADO reverts asynchronously — the returned status is typically
+    ``GitRevertStatus.QUEUED`` immediately.  Poll ``get_git_revert`` until the
+    status transitions to ``COMPLETED`` or ``CONFLICTS``/``FAILED``.
+
+    Reference:
+        https://learn.microsoft.com/en-us/rest/api/azure/devops/git/reverts/create
+
+    Args:
+        repository_api_call: Repository-level ADO API call
+            (from ``get_repository_api_call``).
+        request: Revert request specifying the target branch and new branch name.
+
+    Returns:
+        GitRevertResponse with the initial operation status.
+    """
+    response = repository_api_call.post(
+        "reverts",
+        version="7.1-preview.1",
+        json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
+    )
+    return GitRevertResponse.model_validate(response)
+
+
+def get_git_revert(
+    repository_api_call: ApiCall,
+    revert_id: int,
+) -> GitRevertResponse:
+    """Return the current status of a git revert operation.
+
+    Use this to poll a previously queued revert (from ``post_git_revert``) until
+    its status transitions away from ``GitRevertStatus.QUEUED``.
+
+    Reference:
+        https://learn.microsoft.com/en-us/rest/api/azure/devops/git/reverts/get
+
+    Args:
+        repository_api_call: Repository-level ADO API call
+            (from ``get_repository_api_call``).
+        revert_id: The revert operation ID returned by ``post_git_revert``.
+
+    Returns:
+        GitRevertResponse with the current operation status.
+    """
+    response = repository_api_call.get(
+        "reverts",
+        revert_id,
+        version="7.1-preview.1",
+    )
+    return GitRevertResponse.model_validate(response)
 
 
 def list_pull_requests(

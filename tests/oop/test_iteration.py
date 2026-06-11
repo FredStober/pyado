@@ -461,7 +461,7 @@ class TestIterationAddToTeam:
     def test_add_to_team_delegates(self) -> None:
         it = self._make_iteration_with_id()
         team = Team(_make_project(), _team_info(), _make_service())
-        with patch("pyado.oop.boards.iteration.raw.add_team_iteration") as mock_add:
+        with patch("pyado.oop.boards.iteration.raw.post_team_iteration") as mock_add:
             it.add_to_team(team)
         mock_add.assert_called_once_with(
             team.api_call, UUID("aaaaaaaa-0000-0000-0000-000000000001")

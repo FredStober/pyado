@@ -175,6 +175,40 @@ class TestVariableGroup:
         call = mock_upd.call_args
         assert call.args[1] == "NewName"
 
+    def test_update_preserves_description_when_none(self) -> None:
+        proj = _make_project()
+        info = VariableGroupInfo.model_validate(
+            {
+                "id": 1,
+                "name": "MyVars",
+                "type": "Vsts",
+                "description": "keep me",
+                "variables": {"FOO": {"value": "bar"}},
+                "createdBy": {
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "displayName": "U",
+                    "uniqueName": "u@x.com",
+                },
+                "createdOn": NOW_ISO,
+                "modifiedBy": {
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "displayName": "U",
+                    "uniqueName": "u@x.com",
+                },
+                "modifiedOn": NOW_ISO,
+                "isShared": False,
+                "variableGroupProjectReferences": [],
+            }
+        )
+        vg = VariableGroup(proj, _api_call(), info)
+        with patch(
+            "pyado.oop.pipelines.variable_group._variable_group.update_variable_group"
+        ) as mock_upd:
+            mock_upd.return_value = _variable_group_info()
+            vg.update({})
+        call = mock_upd.call_args
+        assert call.kwargs["description"] == "keep me"
+
     def test_update_stores_returned_info(self) -> None:
         vg = _make_variable_group()
         new_info = _variable_group_info(group_id=1, name="Updated")

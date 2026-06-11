@@ -203,14 +203,6 @@ pyado provides two layers:
    :no-index:
 ```
 
-#### Build Timeline
-
-```{eval-rst}
-.. automodule:: pyado.oop.pipelines.build_timeline
-   :members:
-   :no-index:
-```
-
 #### Pipeline
 
 ```{eval-rst}
@@ -251,14 +243,6 @@ pyado provides two layers:
 ```{eval-rst}
 .. automodule:: pyado.oop.pipelines.task_group
    :members:
-```
-
-#### Distributed Task Session
-
-```{eval-rst}
-.. automodule:: pyado.oop.pipelines.distributed_task_session
-   :members:
-   :no-index:
 ```
 
 ---

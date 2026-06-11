@@ -112,7 +112,7 @@ class PolicyConfiguration:
         Args:
             request: Updated settings for the policy configuration.
         """
-        self._info = raw.update_policy_configuration(self.api_call, request)
+        self._info = raw.put_policy_configuration(self.api_call, request)
 
     def delete(self) -> None:
         """Delete this policy configuration from the project."""

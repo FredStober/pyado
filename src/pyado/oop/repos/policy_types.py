@@ -107,8 +107,8 @@ class BasePolicyModel(AdoBaseModel):
 
         Returns:
             A :class:`~pyado.raw.PolicyConfigurationRequest` ready to
-            pass to :func:`~pyado.raw.create_policy_configuration` or
-            :func:`~pyado.raw.update_policy_configuration`.
+            pass to :func:`~pyado.raw.post_policy_configuration` or
+            :func:`~pyado.raw.put_policy_configuration`.
         """
         settings = self.model_dump(
             mode="json",

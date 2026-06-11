@@ -22,18 +22,19 @@ __all__ = [
     "IdentityInfo",
     "UserEntitlement",
     "UserEntitlementCreateRequest",
-    "add_graph_membership",
-    "add_user_entitlement",
+    "delete_graph_membership",
     "get_graph_user",
     "get_identities",
     "get_vssps_api_call",
     "iter_graph_groups",
     "iter_graph_users",
     "iter_user_entitlements",
+    "list_graph_memberships",
     "list_graph_users",
     "list_user_entitlements",
-    "remove_graph_membership",
-    "update_user_access_level",
+    "patch_user_entitlement",
+    "post_user_entitlement",
+    "put_graph_membership",
 ]
 
 # Full absolute base URL for the vssps service — relative paths return 404.
@@ -171,6 +172,41 @@ class GraphMembership(AdoBaseModel):
     member_descriptor: str
 
 
+class _GraphMembershipResults(AdoBaseModel):
+    """Internal: container for graph membership list results."""
+
+    value: list[GraphMembership]
+
+
+def list_graph_memberships(
+    vssps_call: ApiCall,
+    descriptor: str,
+) -> list[str]:
+    """Return the member descriptors of a group (direction=Down).
+
+    Args:
+        vssps_call: vssps-scoped API call (from get_vssps_api_call).
+        descriptor: Subject descriptor of the container group.
+
+    Returns:
+        Sorted list of member subject descriptors.
+    """
+    response = vssps_call.get(
+        "_apis",
+        "graph",
+        "memberships",
+        descriptor,
+        parameters={"direction": "Down"},
+        version="7.1-preview.1",
+    )
+    if not response:
+        return []
+    return sorted(
+        m.member_descriptor
+        for m in _GraphMembershipResults.model_validate(response).value
+    )
+
+
 class AccessLevel(AdoBaseModel):
     """License / access-level information for a user entitlement."""
 
@@ -254,7 +290,7 @@ def list_graph_users(vssps_call: ApiCall) -> list[GraphUser]:
     return list(iter_graph_users(vssps_call))
 
 
-def add_graph_membership(
+def put_graph_membership(
     vssps_call: ApiCall,
     subject_descriptor: str,
     container_descriptor: str,
@@ -280,7 +316,7 @@ def add_graph_membership(
     return GraphMembership.model_validate(response)
 
 
-def remove_graph_membership(
+def delete_graph_membership(
     vssps_call: ApiCall,
     subject_descriptor: str,
     container_descriptor: str,
@@ -325,7 +361,7 @@ def list_user_entitlements(vssps_call: ApiCall) -> list[UserEntitlement]:
     return list(iter_user_entitlements(vssps_call))
 
 
-def add_user_entitlement(
+def post_user_entitlement(
     vssps_call: ApiCall,
     request: UserEntitlementCreateRequest,
 ) -> UserEntitlement:
@@ -348,7 +384,7 @@ def add_user_entitlement(
     return _UserEntitlementOperationResult.model_validate(response).result
 
 
-def update_user_access_level(
+def patch_user_entitlement(
     vssps_call: ApiCall,
     user_id: UUID,
     access_level: AccessLevel,

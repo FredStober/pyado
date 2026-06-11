@@ -54,7 +54,7 @@ from pyado.raw import (
     list_tags,
     make_git_acl_token,
     post_annotated_tag,
-    post_tag,
+    post_git_tag,
 )
 from tests.conftest import _make_mock_response
 
@@ -735,7 +735,7 @@ class TestIterTags:
 
 
 class TestCreateTag:
-    """Tests for post_tag."""
+    """Tests for post_git_tag."""
 
     @staticmethod
     def test_posts_to_refs_endpoint(api_call: ApiCall) -> None:
@@ -744,7 +744,7 @@ class TestCreateTag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            post_tag(api_call, "v1.0", "abc123")
+            post_git_tag(api_call, "v1.0", "abc123")
         assert mock_req.call_args.args[0] == "POST"
         url = mock_req.call_args.kwargs.get("url", "")
         assert "refs" in url
@@ -756,7 +756,7 @@ class TestCreateTag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            post_tag(api_call, "v1.0", "abc123")
+            post_git_tag(api_call, "v1.0", "abc123")
         body = mock_req.call_args.kwargs.get("json") or []
         assert body[0]["name"] == "refs/tags/v1.0"
 
@@ -767,7 +767,7 @@ class TestCreateTag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            post_tag(api_call, "refs/tags/v2.0", "deadbeef")
+            post_git_tag(api_call, "refs/tags/v2.0", "deadbeef")
         body = mock_req.call_args.kwargs.get("json") or []
         assert body[0]["name"] == "refs/tags/v2.0"
 
@@ -778,7 +778,7 @@ class TestCreateTag:
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            post_tag(api_call, "v1.0", "abc123")
+            post_git_tag(api_call, "v1.0", "abc123")
         body = mock_req.call_args.kwargs.get("json") or []
         assert body[0]["oldObjectId"] == ZERO_SHA
 

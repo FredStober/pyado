@@ -225,4 +225,4 @@ class Iteration:
                 "cannot assign to team."
             )
             raise ValueError(err_msg)
-        raw.add_team_iteration(team.api_call, UUID(self.info.identifier))
+        raw.post_team_iteration(team.api_call, UUID(self.info.identifier))

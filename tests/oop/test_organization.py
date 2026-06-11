@@ -478,7 +478,7 @@ class TestOrganizationUserEntitlements:
             access_level=_access_level(),
         )
         with patch(
-            "pyado.oop.organization.raw.add_user_entitlement",
+            "pyado.oop.organization.raw.post_user_entitlement",
             return_value=created,
         ) as mock_add:
             result = svc.org.add_user_entitlement(request)
@@ -491,7 +491,7 @@ class TestOrganizationUserEntitlements:
         updated = _user_entitlement(user_id)
         level = _access_level()
         with patch(
-            "pyado.oop.organization.raw.update_user_access_level",
+            "pyado.oop.organization.raw.patch_user_entitlement",
             return_value=updated,
         ) as mock_update:
             result = svc.org.update_user_access_level(user_id, level)
@@ -509,7 +509,7 @@ class TestOrganizationGraphMemberships:
         svc = _make_service()
         membership = _graph_membership()
         with patch(
-            "pyado.oop.organization.raw.add_graph_membership",
+            "pyado.oop.organization.raw.put_graph_membership",
             return_value=membership,
         ) as mock_add:
             result = svc.org.add_graph_membership("vssgp.member", "vssgp.container")
@@ -520,7 +520,7 @@ class TestOrganizationGraphMemberships:
         svc = _make_service()
         membership = _graph_membership()
         with patch(
-            "pyado.oop.organization.raw.add_graph_membership",
+            "pyado.oop.organization.raw.put_graph_membership",
             return_value=membership,
         ) as mock_add:
             svc.org.add_graph_membership("vssgp.member", "vssgp.container")
@@ -529,13 +529,13 @@ class TestOrganizationGraphMemberships:
 
     def test_remove_graph_membership_calls_raw(self) -> None:
         svc = _make_service()
-        with patch("pyado.oop.organization.raw.remove_graph_membership") as mock_remove:
+        with patch("pyado.oop.organization.raw.delete_graph_membership") as mock_remove:
             svc.org.remove_graph_membership("vssgp.member", "vssgp.container")
         mock_remove.assert_called_once()
 
     def test_remove_graph_membership_uses_vssps_url(self) -> None:
         svc = _make_service()
-        with patch("pyado.oop.organization.raw.remove_graph_membership") as mock_remove:
+        with patch("pyado.oop.organization.raw.delete_graph_membership") as mock_remove:
             svc.org.remove_graph_membership("vssgp.member", "vssgp.container")
         passed_api_call = mock_remove.call_args[0][0]
         assert f"vssps.dev.azure.com/{ORG_NAME}" in str(passed_api_call.url)

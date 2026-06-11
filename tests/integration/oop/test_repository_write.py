@@ -305,16 +305,16 @@ def test_write_repo_extras(repo: Repository | None) -> None:
     # A7 — commit_file_upsert (add then edit)
     commit_file_path = f"/oop_smoke_cf_{uuid.uuid4().hex[:10]}.txt"
     repo.commit_file_upsert(
+        branch_name,
         commit_file_path,
         "smoke test\n",
         "oop-smoke: commit_file_upsert add",
-        branch_name,
     )
     repo.commit_file_upsert(
+        branch_name,
         commit_file_path,
         "smoke test edited\n",
         "oop-smoke: commit_file_upsert edit",
-        branch_name,
     )
     # update current_sha to include the commit_file commits
     latest = list(repo.iter_commits(branch=branch_name, top=1))
@@ -338,7 +338,7 @@ def test_write_repo_extras(repo: Repository | None) -> None:
 
     # Tags
     tag_name = f"oop-smoke-tag-{uuid.uuid4().hex[:8]}"
-    repo.create_tag(tag_name, current_sha)
+    repo.create_git_tag(tag_name, current_sha)
     repo.delete_git_tag(tag_name, current_sha)
     annotated_tag_name = f"oop-smoke-atag-{uuid.uuid4().hex[:8]}"
     repo.create_annotated_tag(

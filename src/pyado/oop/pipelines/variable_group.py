@@ -180,7 +180,9 @@ class VariableGroup:
             name if name is not None else self.info.name,
             variables,
             self._project_refs(),
-            description=description,
+            description=description
+            if description is not None
+            else self.info.description,
             var_group_type=var_group_type,
             provider_data=provider_data,
         )

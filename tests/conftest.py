@@ -35,6 +35,8 @@ def _make_mock_response(json_data: Any = None) -> MagicMock:
     """
     mock = MagicMock(spec=requests.Response)
     mock.raise_for_status.return_value = None
+    mock.url = "https://dev.azure.com/org/"
+    mock.headers = {"Content-Type": "application/json"}
     if json_data is not None:
         mock.json.return_value = json_data
         mock.content = json.dumps(json_data).encode()

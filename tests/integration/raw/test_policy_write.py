@@ -22,9 +22,9 @@ def test_policy_write(project_api_call: raw.ApiCall) -> None:
     else:
         return
 
-    created = raw.create_policy_configuration(project_api_call, request)
+    created = raw.post_policy_configuration(project_api_call, request)
     pc_api_call = raw.get_policy_configuration_api_call(project_api_call, created.id)
 
     raw.get_policy_configuration(pc_api_call)
-    raw.update_policy_configuration(pc_api_call, request)
+    raw.put_policy_configuration(pc_api_call, request)
     raw.delete_policy_configuration(pc_api_call)

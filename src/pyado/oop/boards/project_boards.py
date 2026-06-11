@@ -136,6 +136,32 @@ class ProjectBoards:
         info = raw.get_work_item(wi_api_call, expand=expand)
         return WorkItem(self._project, wi_api_call, info, expand)
 
+    def iter_work_items_by_ids(
+        self,
+        ids: list[WorkItemId],
+        *,
+        expand: WorkItemExpand | None = WorkItemExpand.RELATIONS,
+    ) -> Iterator[WorkItem]:
+        """Iterate over multiple work items by ID using a single API call.
+
+        Prefer this over repeated :meth:`get_work_item` calls when you
+        already have a list of IDs.
+
+        Args:
+            ids: List of numeric work item IDs to fetch.
+            expand: Expand mode controlling which extra data ADO includes
+                (default: ``WorkItemExpand.RELATIONS``).  Pass ``None`` to
+                fetch fields only.
+
+        Yields:
+            WorkItem for each ID, in the same order as *ids*.
+        """
+        for info in raw.post_work_items_batch(
+            self._project.api_call, WorkItemBatchRequest(ids=ids, expand=expand)
+        ):
+            wi_api_call = raw.get_work_item_api_call(self._project.api_call, info.id)
+            yield WorkItem(self._project, wi_api_call, info, expand)
+
     def list_work_items_by_ids(
         self,
         ids: list[WorkItemId],
@@ -157,14 +183,7 @@ class ProjectBoards:
         Returns:
             List of WorkItem objects, in the same order as *ids*.
         """
-        infos = raw.post_work_items_batch(
-            self._project.api_call, WorkItemBatchRequest(ids=ids, expand=expand)
-        )
-        result: list[WorkItem] = []
-        for info in infos:
-            wi_api_call = raw.get_work_item_api_call(self._project.api_call, info.id)
-            result.append(WorkItem(self._project, wi_api_call, info, expand))
-        return result
+        return list(self.iter_work_items_by_ids(ids, expand=expand))
 
     def list_work_items(self, query: str) -> list[WorkItem]:
         """Return all work items matching a WIQL query as a list."""
@@ -334,7 +353,7 @@ class ProjectBoards:
             team_name: Name of the team within this project.
             iteration_id: UUID of the iteration classification node to assign.
         """
-        raw.add_team_iteration(
+        raw.post_team_iteration(
             self._project._service.oop_api.make_team_api_call(  # noqa: SLF001
                 self._project.name, team_name
             ),

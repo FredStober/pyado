@@ -333,39 +333,70 @@ pyado.RenameFile(old_path, new_path)  # rename without changing content
 .get_distributed_task_session(*, hub_name, plan_id, timeline_id, job_id, task_instance_id) -> DistributedTaskSession
 ```
 
-**BuildStage / BuildJob / BuildTask** (from `build.iter_stages()`):
-
-```python
-stage.name, stage.state, stage.result, stage.log
-stage.iter_jobs()    -> Iterator[BuildJob]
-
-job.name, job.state, job.result, job.log
-job.iter_tasks()     -> Iterator[BuildTask]
-job.iter_phases()    -> Iterator[BuildPhase]
-
-task.name, task.state, task.result, task.log
-```
-
 ### DistributedTaskSession
 
-Obtained from `build.get_distributed_task_session(...)`. Inherits all read
-properties from `BuildTask` (loaded lazily on first access).
+An external system (e.g. an AWS Lambda) acting as an ADO agentless pipeline
+task.  ADO injects the following pipeline variables at step startup; map them
+to the constructor parameters:
+
+| Pipeline variable | Constructor parameter | Notes |
+|---|---|---|
+| `SYSTEM_ACCESSTOKEN` | `bearer_token` | not a PAT |
+| `SYSTEM_TEAMFOUNDATIONCOLLECTIONURI` | `collection_uri` | org root URL |
+| `SYSTEM_TEAMPROJECTID` | `team_project_id` | project UUID — **not** `SYSTEM_COLLECTIONID` |
+| `BUILD_BUILDID` | `build_id` | numeric |
+| `SYSTEM_HOSTTYPE` | `hub_name` | always `"build"` for YAML pipelines |
+| `SYSTEM_PLANID` | `plan_id` | equals `timeline_id` in standard YAML builds |
+| `SYSTEM_TIMELINEID` | `timeline_id` | equals `plan_id` in standard YAML builds |
+| `SYSTEM_JOBID` | `job_id` | |
+| `AGENT_TASKINSTANCEID` | `task_instance_id` | |
+
+```python
+session = DistributedTaskSession(
+    bearer_token=os.environ["SYSTEM_ACCESSTOKEN"],
+    collection_uri=os.environ["SYSTEM_TEAMFOUNDATIONCOLLECTIONURI"],
+    team_project_id=UUID(os.environ["SYSTEM_TEAMPROJECTID"]),
+    build_id=int(os.environ["BUILD_BUILDID"]),
+    hub_name="build",
+    plan_id=UUID(os.environ["SYSTEM_PLANID"]),
+    timeline_id=UUID(os.environ["SYSTEM_TIMELINEID"]),
+    job_id=UUID(os.environ["SYSTEM_JOBID"]),
+    task_instance_id=UUID(os.environ["AGENT_TASKINSTANCEID"]),
+)
+```
+
+Inherits all read properties from `BuildTask` (loaded lazily on first access).
 
 ```text
-.build     -> Build         # zero-cost
-.project   -> Project       # zero-cost
-.org       -> Organization  # zero-cost
+.build     -> Build         # zero-cost; only if obtained via Build.get_distributed_task_session
+.project   -> Project       # zero-cost (same caveat)
+.org       -> Organization  # zero-cost (same caveat)
 
 .refresh()                  # discard cached record and log ID
 .get_record()  -> BuildRecordInfo   # always-fresh timeline record for this task
-.get_job()     -> BuildJob          # parent job (one API call via iter_stages)
+```
 
-# Write operations
-.send_feed(messages: list[str])    -> None   # live feed messages (preview API)
-.send_log(message: str)            -> None   # persistent task log (preview API)
-.send_message(messages: list[str]) -> None   # send to both feed and log
-.add_issues(issues: list[BuildIssue]) -> None  # append issues to timeline record
-.complete(*, succeeded: bool)      -> None   # signal task completion
+**Log-attachment sequence for dynamic records** (required to write output to
+records created via `add_task` / `add_job` / `add_subtask`):
+
+```python
+# 1. Create the log entry
+log_info = raw.post_plan_logs(session._make_plan_api_call())
+
+# 2. Attach the log to the timeline record
+child_task.info = child_task.info.model_copy(update={"log": log_info})
+child_task.push_changes(session)
+
+# 3. Append content
+raw.post_job_logs(
+    raw.get_log_api_call(
+        session._project_api_call,
+        session._hub_name,
+        session._plan_id,
+        log_info.id,
+    ),
+    "my log message\n",
+)
 ```
 
 ---
@@ -1228,3 +1259,36 @@ Pydantic validation errors (`ValidationError`) are raised on construction of
     `last_merge_source_commit={"commitId": "<sha>"}` in the
     `PullRequestUpdateRequest` — without the commit SHA, ADO rejects the
     completion request.
+
+11. **`issues` setter is replace-in-full.** The ADO PATCH API replaces the
+    entire `issues` list when the field is present.  Omitting the field
+    preserves existing issues; sending `issues=[]` clears them.  To add a
+    single issue without losing others, read `.issues`, build a new list,
+    assign, then call `.push_changes(session)`.
+
+12. **`hub_name` is a plain string `"build"`** for YAML pipelines —
+    **lowercase**.  Use the value of `SYSTEM_HOSTTYPE` directly, or
+    hard-code `"build"`.  Release Management pipelines use `"rm"`.
+
+13. **`plan_id` equals `timeline_id`** in standard YAML pipelines — they
+    share the same UUID.  Pass the value of `SYSTEM_PLANID` (or equivalently
+    `SYSTEM_TIMELINEID`) for both constructor parameters.
+
+14. **`SYSTEM_COLLECTIONID` ≠ `SYSTEM_TEAMPROJECTID`.** The distributed-task
+    URL must be scoped to the project UUID (`SYSTEM_TEAMPROJECTID`).  Using
+    `SYSTEM_COLLECTIONID` (the organisation UUID) silently targets the wrong
+    resource and returns HTTP 400 or 404.
+
+15. **Dynamic records have no log attached.** Records created via
+    `add_task`, `add_job`, or `add_subtask` are created without a log
+    reference.  To write output for them, follow the three-step sequence:
+    POST `plans/{plan_id}/logs` to create a log entry, PATCH the timeline
+    record to attach it, then POST to `plans/{plan_id}/logs/{log_id}` to
+    append content.  `send_feed`, `send_log`, and `send_message` write to
+    the **session task's** log only.
+
+16. **`complete()` does not finish child records.** Calling `session.complete()`
+    sends the `TaskCompleted` event that unblocks the pipeline, but it does
+    not automatically transition any dynamically-created child task or job
+    records.  Call `task.finish(session, succeeded=...)` on each child before
+    calling `complete()` to avoid leaving records stuck in `inProgress`.

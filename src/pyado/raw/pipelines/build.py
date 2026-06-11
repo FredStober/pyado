@@ -129,6 +129,7 @@ class BuildRecordType(StrEnum):
     CHECKPOINT_APPROVAL = "Checkpoint.Approval"
     CHECKPOINT_AUTHORIZATION = "Checkpoint.Authorization"
     CHECKPOINT_EXTENDS_CHECK = "Checkpoint.ExtendsCheck"
+    CHECKPOINT_TASK_CHECK = "Checkpoint.TaskCheck"
     PHASE = "Phase"
     STAGE = "Stage"
     JOB = "Job"

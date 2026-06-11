@@ -663,7 +663,7 @@ class WorkItem:
         returns.  :meth:`refresh` is called automatically so subsequent
         accesses to :attr:`info` reflect the restored state.
         """
-        raw.restore_work_item(self._project.api_call, self.id)
+        raw.patch_recycle_bin_work_item(self._project.api_call, self.id)
         self.refresh()
 
     def update_comment(self, comment_id: int, text: str) -> WorkItemComment:

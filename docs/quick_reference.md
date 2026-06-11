@@ -385,21 +385,6 @@ Obtained via `Project.iter_variable_groups`, `Project.get_variable_group`.
 
 ---
 
-### `BuildStage` / `BuildPhase` / `BuildJob` / `BuildTask`
-
-Obtained via `Build.iter_stages()`.
-
-```
-BuildStage.iter_phases() -> Iterator[BuildPhase]
-BuildPhase.iter_jobs()   -> Iterator[BuildJob]
-BuildJob.iter_tasks()    -> Iterator[BuildTask]
-```
-
-Each level exposes `.record` (`BuildRecordInfo`), `.name`, `.status`, `.result`,
-`.log` (`BuildLogInfo | None`), `.start_time`, `.finish_time`.
-
----
-
 ### `Team`
 
 Obtained via `Project.iter_teams`, `Project.get_team`.

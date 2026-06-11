@@ -149,9 +149,7 @@ class TestPolicyConfigurationUpdate:
             patch(
                 "pyado.oop.repos.policy.raw.get_policy_configuration_api_call"
             ) as mock_ac,
-            patch(
-                "pyado.oop.repos.policy.raw.update_policy_configuration"
-            ) as mock_update,
+            patch("pyado.oop.repos.policy.raw.put_policy_configuration") as mock_update,
         ):
             mock_ac.return_value = _api_call()
             mock_update.return_value = updated
@@ -222,7 +220,7 @@ class TestProjectSettingsPolicyConfigurations:
         raw_config = _policy_config(99)
         request = _policy_config_request()
         with patch(
-            "pyado.oop.settings.project_settings.raw.create_policy_configuration"
+            "pyado.oop.settings.project_settings.raw.post_policy_configuration"
         ) as mock_create:
             mock_create.return_value = raw_config
             result = proj.settings.create_policy_configuration(request)

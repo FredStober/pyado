@@ -2,6 +2,7 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
+import time
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
@@ -9,6 +10,7 @@ from pyado import raw
 from pyado.exceptions import AzureDevOpsNotFoundError
 from pyado.oop.repos import _git, _pull_request
 from pyado.oop.repos._git import _full_ref as _make_full_ref
+from pyado.oop.repos.branch import Branch
 from pyado.oop.repos.commit import Commit
 from pyado.oop.repos.file_change import AddFile, DeleteFile, EditFile, RenameFile
 from pyado.oop.repos.pull_request import PullRequest
@@ -22,15 +24,22 @@ from pyado.raw import (
     BranchName,
     BranchStatistics,
     CommitId,
+    GitCherryPickRequest,
+    GitCherryPickResponse,
     GitCommitChange,
     GitCommitSearchCriteria,
     GitItem,
+    GitMergeRequest,
+    GitMergeResponse,
+    GitMergeStatus,
     GitPushCommit,
     GitPushRefUpdate,
     GitPushResult,
     GitRef,
     GitRefFilter,
     GitRefName,
+    GitRevertRequest,
+    GitRevertResponse,
     PullRequestCompletionOptions,
     PullRequestId,
     PullRequestSearchCriteria,
@@ -345,7 +354,7 @@ class Repository:
             GitRefFilter(name_filter=name_filter, name_contains=name_contains),
         )
 
-    def iter_branches(self) -> Iterator[GitRef]:
+    def iter_branches(self) -> "Iterator[Branch]":
         """Iterate over all branches (``refs/heads/…``) in the repository.
 
         Convenience wrapper over :meth:`iter_refs` that pre-applies the
@@ -353,9 +362,10 @@ class Repository:
         filter format.
 
         Yields:
-            :class:`~pyado.raw.GitRef` for each branch.
+            :class:`~pyado.oop.repos.branch.Branch` for each branch.
         """
-        yield from self.iter_refs(name_filter="heads/")
+        for ref in self.iter_refs(name_filter="heads/"):
+            yield Branch(self, ref)
 
     def create_branch(self, name: BranchName, from_commit: CommitId) -> None:
         """Create a new branch pointing at an existing commit.
@@ -435,7 +445,7 @@ class Repository:
         for ref in raw.iter_tags(self._api_call):
             yield Tag(self, ref)
 
-    def create_tag(self, name: str, commit_id: CommitId) -> None:
+    def create_git_tag(self, name: str, commit_id: CommitId) -> None:
         """Create a lightweight tag pointing at an existing commit.
 
         Args:
@@ -443,7 +453,7 @@ class Repository:
                 is added automatically if absent.
             commit_id: Commit SHA the tag should point at.
         """
-        raw.post_tag(self._api_call, name, commit_id)
+        raw.post_git_tag(self._api_call, name, commit_id)
 
     def delete_git_tag(self, name: str, commit_id: CommitId) -> None:
         """Delete a git tag from the repository.
@@ -466,7 +476,7 @@ class Repository:
 
         An annotated tag is a full git object (not just a lightweight ref
         pointer) and carries a message and tagger identity.  Use
-        :meth:`create_tag` for lightweight tags.
+        :meth:`create_git_tag` for lightweight tags.
 
         Args:
             name: Tag name without ``refs/tags/`` prefix (e.g. ``"v1.0"``).
@@ -1083,10 +1093,10 @@ class Repository:
 
     def commit_file_upsert(
         self,
+        branch: BranchName | None,
         path: str,
         content: str,
         message: str,
-        branch: BranchName | None = None,
         current_commit: CommitId | None = None,
     ) -> GitPushResult:
         """Create or update a single file on a branch in one commit.
@@ -1108,10 +1118,10 @@ class Repository:
         HEAD automatically.
 
         Args:
+            branch: Target branch name.  ``None`` → repository default branch.
             path: Absolute file path within the repository.
             content: New UTF-8 text content for the file.
             message: Commit message.
-            branch: Target branch name.  ``None`` → repository default branch.
             current_commit: Current HEAD SHA for optimistic-concurrency.
                 ``None`` → fetched automatically.
 
@@ -1212,7 +1222,7 @@ class Repository:
             self.iter_refs(name_filter=name_filter, name_contains=name_contains)
         )
 
-    def list_branches(self) -> list[GitRef]:
+    def list_branches(self) -> "list[Branch]":
         """Return all branches in this repository as a list."""
         return list(self.iter_branches())
 
@@ -1322,3 +1332,180 @@ class Repository:
     ) -> list[Commit]:
         """Return commits reachable from a tagged version as a list."""
         return list(self.iter_commits_by_tag(tag, item_path=item_path, top=top))
+
+    # ------------------------------------------------------------------
+    # Merge
+    # ------------------------------------------------------------------
+
+    def start_merge(
+        self,
+        source: CommitId,
+        target: CommitId,
+        *,
+        comment: str | None = None,
+    ) -> GitMergeResponse:
+        """Queue a merge of two commits and return immediately.
+
+        ADO processes merges asynchronously.  The response status is typically
+        ``GitMergeStatus.QUEUED`` on return.  Poll with :meth:`get_merge_status`
+        or use :meth:`check_merge_feasible` to wait for the result.
+
+        Args:
+            source: Commit SHA of the source (feature) branch tip.
+            target: Commit SHA of the target (base) branch tip.
+            comment: Optional merge commit message.
+
+        Returns:
+            GitMergeResponse with the initial operation status.
+        """
+        return raw.post_git_merge(
+            self._api_call,
+            GitMergeRequest(comment=comment, parents=[source, target]),
+        )
+
+    def get_merge_status(self, merge_operation_id: int) -> GitMergeResponse:
+        """Return the current status of a queued merge operation.
+
+        Args:
+            merge_operation_id: The operation ID from :meth:`start_merge`.
+
+        Returns:
+            GitMergeResponse with the current status.
+        """
+        return raw.get_git_merge(self._api_call, merge_operation_id)
+
+    def check_merge_feasible(
+        self,
+        source: CommitId,
+        target: CommitId,
+        *,
+        timeout: float = 10.0,
+        poll_interval: float = 0.5,
+    ) -> bool:
+        """Return True if *source* can be merged into *target* without conflicts.
+
+        Queues a merge via ADO and polls until the operation reaches a terminal
+        status or *timeout* seconds elapse.  Returns ``True`` for
+        ``COMPLETED``, ``False`` for ``CONFLICTS`` or ``FAILURE``.
+
+        Args:
+            source: Commit SHA of the source branch tip.
+            target: Commit SHA of the target branch tip.
+            timeout: Maximum number of seconds to wait for ADO to complete the
+                merge check.  Defaults to 10 s.
+            poll_interval: Seconds between poll attempts.  Defaults to 0.5 s.
+
+        Returns:
+            True if the merge can be applied cleanly, False if it cannot.
+
+        Raises:
+            AzureDevOpsNotFoundError: If either commit SHA is not found by ADO
+                (``INVALID_REFS`` status).
+            TimeoutError: If the operation is still ``QUEUED`` after *timeout*
+                seconds.
+        """
+        response = self.start_merge(source, target)
+        operation_id = response.merge_operation_id
+        deadline = time.monotonic() + timeout
+        while response.status == GitMergeStatus.QUEUED:
+            if time.monotonic() >= deadline:
+                msg = f"Merge operation {operation_id} still queued after {timeout}s."
+                raise TimeoutError(msg)
+            time.sleep(poll_interval)
+            if operation_id is not None:
+                response = self.get_merge_status(operation_id)
+        if response.status == GitMergeStatus.INVALID_REFS:
+            raise AzureDevOpsNotFoundError(
+                404,
+                f"Merge check failed: one or both commit SHAs not found "
+                f"(source={source!r}, target={target!r}).",
+            )
+        return response.status == GitMergeStatus.COMPLETED
+
+    # ------------------------------------------------------------------
+    # Cherry-pick
+    # ------------------------------------------------------------------
+
+    def start_cherry_pick(
+        self,
+        onto: str,
+        cherry_pick_ref: str,
+    ) -> GitCherryPickResponse:
+        """Queue a cherry-pick and return immediately.
+
+        ADO cherry-picks asynchronously.  The response status is typically
+        ``GitCherryPickStatus.QUEUED`` on return.  Poll with
+        :meth:`get_cherry_pick_status` to check for completion.
+
+        Args:
+            onto: Target branch name (e.g. ``"main"`` or
+                ``"refs/heads/main"``).  The ``refs/heads/`` prefix is added
+                automatically when absent.
+            cherry_pick_ref: Name of the new branch ADO will create containing
+                the cherry-picked commit (short name or full ref).
+
+        Returns:
+            GitCherryPickResponse with the initial operation status.
+        """
+        return raw.post_git_cherry_pick(
+            self._api_call,
+            GitCherryPickRequest(
+                onto=_make_full_ref(onto),
+                cherry_pick_ref=_make_full_ref(cherry_pick_ref),
+            ),
+        )
+
+    def get_cherry_pick_status(self, cherry_pick_id: int) -> GitCherryPickResponse:
+        """Return the current status of a queued cherry-pick operation.
+
+        Args:
+            cherry_pick_id: The operation ID from :meth:`start_cherry_pick`.
+
+        Returns:
+            GitCherryPickResponse with the current status.
+        """
+        return raw.get_git_cherry_pick(self._api_call, cherry_pick_id)
+
+    # ------------------------------------------------------------------
+    # Revert
+    # ------------------------------------------------------------------
+
+    def start_revert(
+        self,
+        onto: str,
+        revert_ref: str,
+    ) -> GitRevertResponse:
+        """Queue a revert and return immediately.
+
+        ADO reverts asynchronously.  The response status is typically
+        ``GitRevertStatus.QUEUED`` on return.  Poll with
+        :meth:`get_revert_status` to check for completion.
+
+        Args:
+            onto: Target branch name (e.g. ``"main"`` or
+                ``"refs/heads/main"``).  The ``refs/heads/`` prefix is added
+                automatically when absent.
+            revert_ref: Name of the new branch ADO will create containing the
+                revert commit (short name or full ref).
+
+        Returns:
+            GitRevertResponse with the initial operation status.
+        """
+        return raw.post_git_revert(
+            self._api_call,
+            GitRevertRequest(
+                onto=_make_full_ref(onto),
+                revert_ref=_make_full_ref(revert_ref),
+            ),
+        )
+
+    def get_revert_status(self, revert_id: int) -> GitRevertResponse:
+        """Return the current status of a queued revert operation.
+
+        Args:
+            revert_id: The operation ID from :meth:`start_revert`.
+
+        Returns:
+            GitRevertResponse with the current status.
+        """
+        return raw.get_git_revert(self._api_call, revert_id)

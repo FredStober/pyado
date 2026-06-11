@@ -66,6 +66,12 @@ class EnvironmentInfo(AdoBaseModel):
     project: _EnvironmentProjectRef | None = None
 
 
+class _DeploymentRecordOwner(AdoBaseModel):
+    """Build/run reference embedded in an environment deployment record."""
+
+    name: str = ""
+
+
 class EnvironmentDeploymentRecord(AdoBaseModel):
     """A single deployment record for a pipeline environment."""
 
@@ -74,7 +80,7 @@ class EnvironmentDeploymentRecord(AdoBaseModel):
     start_time: datetime | None = None
     finish_time: datetime | None = None
     result: str | None = None
-    owner: str | None = None
+    owner: _DeploymentRecordOwner | None = None
 
 
 def get_environment_api_call(

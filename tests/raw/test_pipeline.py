@@ -32,6 +32,7 @@ from pyado.raw import (
     list_pipelines,
     patch_pipeline_permission,
     post_job_logs,
+    post_new_log,
     post_pipeline_run,
 )
 from tests.conftest import _make_mock_response
@@ -88,6 +89,41 @@ class TestGetLogApiCall:
         result = get_log_api_call(api_call, HUB_NAME, PLAN_ID, LOG_ID)
         url_str = result.url.unicode_string()
         assert "logs" in url_str
+
+
+class TestCreateLog:
+    """Tests for post_new_log."""
+
+    @staticmethod
+    def test_posts_to_logs_endpoint(api_call: ApiCall) -> None:
+        """post_new_log POSTs to the plan's logs sub-path."""
+        plan_call = get_plan_api_call(api_call, HUB_NAME, PLAN_ID)
+        mock_response = _make_mock_response({"id": 42, "type": "Container"})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            result = post_new_log(plan_call, f"logs\\{uuid4()}")
+        mock_req.assert_called_once()
+        assert mock_req.call_args.args[0] == "POST"
+        assert result.id == 42
+
+    @staticmethod
+    def test_returns_build_log_info_with_correct_id(api_call: ApiCall) -> None:
+        """Returned BuildLogInfo carries the ID assigned by ADO."""
+        plan_call = get_plan_api_call(api_call, HUB_NAME, PLAN_ID)
+        mock_response = _make_mock_response({"id": 99, "type": "Container"})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = post_new_log(plan_call, f"logs\\{uuid4()}")
+        assert result.id == 99
+
+    @staticmethod
+    def test_returned_url_contains_log_id(api_call: ApiCall) -> None:
+        """The URL in BuildLogInfo points at the log/{id} resource."""
+        plan_call = get_plan_api_call(api_call, HUB_NAME, PLAN_ID)
+        mock_response = _make_mock_response({"id": 7, "type": "Container"})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = post_new_log(plan_call, f"logs\\{uuid4()}")
+        assert "7" in str(result.url)
 
 
 class TestSendJobLogs:

@@ -61,7 +61,6 @@ __all__ = [
     "WorkItemTypeIcon",
     "WorkItemTypeInfo",
     "WorkItemTypeName",
-    "add_team_iteration",
     "delete_classification_node",
     "delete_team_iteration",
     "delete_work_item",
@@ -88,15 +87,16 @@ __all__ = [
     "list_work_item_type_states",
     "list_work_item_types",
     "patch_classification_node",
+    "patch_recycle_bin_work_item",
     "patch_work_item",
     "patch_work_item_comment",
     "post_classification_node",
+    "post_team_iteration",
     "post_wiql",
     "post_work_item",
     "post_work_item_attachment_upload",
     "post_work_item_comment",
     "post_work_items_batch",
-    "restore_work_item",
 ]
 
 SprintIterationId: TypeAlias = UUID
@@ -1036,7 +1036,7 @@ def delete_team_iteration(
     )
 
 
-def add_team_iteration(
+def post_team_iteration(
     team_api_call: ApiCall,
     iteration_id: SprintIterationId,
 ) -> None:
@@ -1202,7 +1202,7 @@ def delete_work_item(work_item_api_call: ApiCall) -> None:
     work_item_api_call.delete(version="7.1")
 
 
-def restore_work_item(
+def patch_recycle_bin_work_item(
     project_api_call: ApiCall,
     work_item_id: WorkItemId,
 ) -> None:

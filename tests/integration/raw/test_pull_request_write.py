@@ -6,6 +6,7 @@ import random
 import time
 
 from pyado import raw
+from pyado.exceptions import AzureDevOpsBadRequestError
 from pyado.raw import (
     GitChangeType,
     PullRequestMergeStrategy,
@@ -795,5 +796,104 @@ def test_pull_request_write(
                     ],
                 )
                 console.print(f"  (cleaned up branch {branch_name})")
+        except Exception as cleanup_ex:
+            console.print(f"  \033[93mWARN\033[0m  branch cleanup failed: {cleanup_ex}")
+
+
+def _exercise_cherry_pick_and_revert(
+    repo_api_call: raw.ApiCall,
+    smoke_branch: str,
+    rng: random.Random,
+) -> None:
+    """Call post/get cherry-pick and post/get revert on the given branch."""
+    cp_target = f"refs/heads/pyado-smoke-cp-{rng.randint(100000, 999999)}"
+    try:
+        cp_resp = raw.post_git_cherry_pick(
+            repo_api_call,
+            raw.GitCherryPickRequest(onto=smoke_branch, cherry_pick_ref=cp_target),
+        )
+        if cp_resp.cherry_pick_id is not None:
+            raw.get_git_cherry_pick(repo_api_call, cp_resp.cherry_pick_id)
+    except AzureDevOpsBadRequestError as exc:
+        console.print(f"  cherry-pick skipped: {exc}")
+
+    rv_target = f"refs/heads/pyado-smoke-rv-{rng.randint(100000, 999999)}"
+    try:
+        rv_resp = raw.post_git_revert(
+            repo_api_call,
+            raw.GitRevertRequest(onto=smoke_branch, revert_ref=rv_target),
+        )
+        if rv_resp.revert_id is not None:
+            raw.get_git_revert(repo_api_call, rv_resp.revert_id)
+    except AzureDevOpsBadRequestError as exc:
+        console.print(f"  revert skipped: {exc}")
+
+
+def test_git_merge_cherry_pick_revert(
+    project_api_call: raw.ApiCall,
+    git_read: tuple[
+        raw.RepositoryInfo | None, raw.ApiCall | None, list[raw.GitCommitRef]
+    ],
+    rng: random.Random,
+    run_ts: str,
+) -> None:
+    """Smoke-test post/get_git_merge, post/get_git_cherry_pick, post/get_git_revert."""
+    del project_api_call
+    repo, repo_api_call, commits = git_read
+    if repo is None or repo_api_call is None or len(commits) < 2:
+        return
+    console.print("\n=== GIT MERGE / CHERRY-PICK / REVERT (write) ===")
+
+    merge_resp = raw.post_git_merge(
+        repo_api_call,
+        raw.GitMergeRequest(
+            comment=f"pyado-smoke merge {run_ts}",
+            parents=[commits[1].commit_id, commits[0].commit_id],
+        ),
+    )
+    if merge_resp.merge_operation_id is not None:
+        raw.get_git_merge(repo_api_call, merge_resp.merge_operation_id)
+
+    default_branch = repo.default_branch or "refs/heads/main"
+    main_refs = list(
+        raw.iter_refs(
+            repo_api_call,
+            raw.GitRefFilter(name_filter=default_branch.removeprefix("refs/")),
+        )
+    )
+    if not main_refs:
+        return
+    smoke_branch = f"refs/heads/pyado-smoke-gop-{rng.randint(100000, 999999)}"
+    raw.post_repository_refs(
+        repo_api_call,
+        [
+            raw.GitRefUpdate(
+                name=smoke_branch,
+                new_object_id=main_refs[0].object_id,
+                old_object_id=raw.ZERO_SHA,
+            )
+        ],
+    )
+    try:
+        _exercise_cherry_pick_and_revert(repo_api_call, smoke_branch, rng)
+    finally:
+        try:
+            smoke_refs = list(
+                raw.iter_refs(
+                    repo_api_call,
+                    raw.GitRefFilter(name_filter=smoke_branch.removeprefix("refs/")),
+                )
+            )
+            if smoke_refs:
+                raw.post_repository_refs(
+                    repo_api_call,
+                    [
+                        raw.GitRefUpdate(
+                            name=smoke_branch,
+                            new_object_id=raw.ZERO_SHA,
+                            old_object_id=smoke_refs[0].object_id,
+                        )
+                    ],
+                )
         except Exception as cleanup_ex:
             console.print(f"  \033[93mWARN\033[0m  branch cleanup failed: {cleanup_ex}")

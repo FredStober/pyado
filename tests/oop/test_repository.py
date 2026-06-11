@@ -19,12 +19,19 @@ from pyado.oop import (
     Repository,
     Tag,
 )
+from pyado.oop.repos.branch import Branch
 from pyado.raw import (
     AccessControlList,
     AnnotatedTagInfo,
     BranchStatistics,
+    GitCherryPickResponse,
+    GitCherryPickStatus,
     GitItem,
+    GitMergeResponse,
+    GitMergeStatus,
     GitRef,
+    GitRevertResponse,
+    GitRevertStatus,
     PullRequestSearchCriteria,
     PullRequestStatus,
     RecursionLevel,
@@ -527,13 +534,14 @@ class TestRepositoryIterBranches:
         ref_filter = mock_iter.call_args.args[1]
         assert ref_filter.name_filter == "heads/"
 
-    def test_yields_git_refs(self) -> None:
+    def test_yields_branch_wrappers(self) -> None:
         ref = GitRef.model_validate({"name": "refs/heads/main", "objectId": "abc123"})
         with patch("pyado.oop.repos.repository.raw.iter_refs") as mock_iter:
             mock_iter.return_value = iter([ref])
             result = list(_make_repo().iter_branches())
         assert len(result) == 1
-        assert result[0] is ref
+        assert isinstance(result[0], Branch)
+        assert result[0].ref is ref
 
 
 class TestRepositoryGetPrForCommit:
@@ -570,9 +578,9 @@ class TestRepositoryTags:
         assert result[0].name == "v1.0"
         mock_iter.assert_called_once_with(repo._api_call)
 
-    def test_create_tag_delegates_to_raw(self) -> None:
-        with patch("pyado.oop.repos.repository.raw.post_tag") as mock_create:
-            _make_repo().create_tag("v1.0", "abc123")
+    def test_create_git_tag_delegates_to_raw(self) -> None:
+        with patch("pyado.oop.repos.repository.raw.post_git_tag") as mock_create:
+            _make_repo().create_git_tag("v1.0", "abc123")
         mock_create.assert_called_once()
         assert mock_create.call_args.args[1] == "v1.0"
         assert mock_create.call_args.args[2] == "abc123"
@@ -996,7 +1004,7 @@ class TestRepositoryCommitFileUpsert:
             patch.object(repo, "commit", return_value=push_result) as mock_commit,
         ):
             result = repo.commit_file_upsert(
-                "/f.py", "new content", "Update file", "main"
+                "main", "/f.py", "new content", "Update file"
             )
         assert result is push_result
         _branch, _msg, changes = mock_commit.call_args.args
@@ -1010,7 +1018,7 @@ class TestRepositoryCommitFileUpsert:
             patch.object(repo, "check_file_exists_by_branch", return_value=False),
             patch.object(repo, "commit", return_value=push_result) as mock_commit,
         ):
-            result = repo.commit_file_upsert("/new.py", "content", "Add file", "main")
+            result = repo.commit_file_upsert("main", "/new.py", "content", "Add file")
         assert result is push_result
         _branch, _msg, changes = mock_commit.call_args.args
         assert isinstance(changes[0], AddFile)
@@ -1021,7 +1029,7 @@ class TestRepositoryCommitFileUpsert:
             patch.object(repo, "check_file_exists_by_branch", return_value=True),
             patch.object(repo, "commit", return_value=MagicMock()) as mock_commit,
         ):
-            repo.commit_file_upsert("/f.py", "content", "My msg", "feature/x")
+            repo.commit_file_upsert("feature/x", "/f.py", "content", "My msg")
         branch, msg, _ = mock_commit.call_args.args
         assert branch == "feature/x"
         assert msg == "My msg"
@@ -1033,7 +1041,7 @@ class TestRepositoryCommitFileUpsert:
             patch.object(repo, "commit", return_value=MagicMock()) as mock_commit,
         ):
             repo.commit_file_upsert(
-                "/f.py", "content", "msg", "main", current_commit="sha123"
+                "main", "/f.py", "content", "msg", current_commit="sha123"
             )
         assert mock_commit.call_args.kwargs.get("current_commit") == "sha123"
 
@@ -1045,7 +1053,7 @@ class TestRepositoryCommitFileUpsert:
             ) as mock_check,
             patch.object(repo, "commit", return_value=MagicMock()),
         ):
-            repo.commit_file_upsert("/new.py", "content", "Add")
+            repo.commit_file_upsert(None, "/new.py", "content", "Add")
         # branch=None is passed through to check_file_exists_by_branch
         mock_check.assert_called_once_with("/new.py", None)
 
@@ -1151,3 +1159,288 @@ class TestCreateAnnotatedTag:
             repo.create_annotated_tag("v0.1", "Initial", "sha1")
         call_args = mock_post.call_args
         assert call_args.args[0] is repo.api_call
+
+
+_SHA_A = "aaaaaaaabbbbbbbbccccccccddddddddeeeeeeee"  # pragma: allowlist secret
+_SHA_B = "1111111122222222333333334444444455555555"  # pragma: allowlist secret
+_SHA_MERGE = "ffffffffffffffffffffffffffffffffffffffff"  # pragma: allowlist secret
+
+
+def _merge_response(status: GitMergeStatus, op_id: int = 1) -> GitMergeResponse:
+    return GitMergeResponse.model_validate(
+        {
+            "mergeOperationId": op_id,
+            "status": status.value,
+            **(
+                {"mergeCommitId": _SHA_MERGE}
+                if status == GitMergeStatus.COMPLETED
+                else {}
+            ),
+        }
+    )
+
+
+def _cherry_pick_response(
+    status: GitCherryPickStatus, cp_id: int = 10
+) -> GitCherryPickResponse:
+    return GitCherryPickResponse.model_validate(
+        {
+            "cherryPickId": cp_id,
+            "status": status.value,
+            "onto": "refs/heads/main",
+            "cherryPickRef": "refs/heads/cherry-pick-branch",
+        }
+    )
+
+
+def _revert_response(status: GitRevertStatus, revert_id: int = 20) -> GitRevertResponse:
+    return GitRevertResponse.model_validate(
+        {
+            "revertId": revert_id,
+            "status": status.value,
+            "onto": "refs/heads/main",
+            "revertRef": "refs/heads/revert-branch",
+        }
+    )
+
+
+class TestRepositoryMerge:
+    """Tests for start_merge, get_merge_status, check_merge_feasible."""
+
+    def test_start_merge_returns_response(self) -> None:
+        repo = _make_repo()
+        response = _merge_response(GitMergeStatus.QUEUED)
+        with patch(
+            "pyado.oop.repos.repository.raw.post_git_merge",
+            return_value=response,
+        ) as mock_post:
+            result = repo.start_merge(_SHA_A, _SHA_B)
+        assert isinstance(result, GitMergeResponse)
+        assert result.status == GitMergeStatus.QUEUED
+        request = mock_post.call_args.args[1]
+        assert request.parents == [_SHA_A, _SHA_B]
+
+    def test_start_merge_passes_comment(self) -> None:
+        repo = _make_repo()
+        with patch(
+            "pyado.oop.repos.repository.raw.post_git_merge",
+            return_value=_merge_response(GitMergeStatus.QUEUED),
+        ) as mock_post:
+            repo.start_merge(_SHA_A, _SHA_B, comment="My merge")
+        assert mock_post.call_args.args[1].comment == "My merge"
+
+    def test_start_merge_uses_repository_api_call(self) -> None:
+        repo = _make_repo()
+        with patch(
+            "pyado.oop.repos.repository.raw.post_git_merge",
+            return_value=_merge_response(GitMergeStatus.QUEUED),
+        ) as mock_post:
+            repo.start_merge(_SHA_A, _SHA_B)
+        assert mock_post.call_args.args[0] is repo.api_call
+
+    def test_get_merge_status_returns_response(self) -> None:
+        repo = _make_repo()
+        response = _merge_response(GitMergeStatus.COMPLETED)
+        with patch(
+            "pyado.oop.repos.repository.raw.get_git_merge",
+            return_value=response,
+        ) as mock_get:
+            result = repo.get_merge_status(1)
+        assert result.status == GitMergeStatus.COMPLETED
+        mock_get.assert_called_once_with(repo.api_call, 1)
+
+    def test_check_merge_feasible_returns_true_when_completed(self) -> None:
+        repo = _make_repo()
+        with patch(
+            "pyado.oop.repos.repository.raw.post_git_merge",
+            return_value=_merge_response(GitMergeStatus.COMPLETED),
+        ):
+            assert repo.check_merge_feasible(_SHA_A, _SHA_B) is True
+
+    def test_check_merge_feasible_returns_false_when_conflicts(self) -> None:
+        repo = _make_repo()
+        with patch(
+            "pyado.oop.repos.repository.raw.post_git_merge",
+            return_value=_merge_response(GitMergeStatus.CONFLICTS),
+        ):
+            assert repo.check_merge_feasible(_SHA_A, _SHA_B) is False
+
+    def test_check_merge_feasible_returns_false_when_failure(self) -> None:
+        repo = _make_repo()
+        with patch(
+            "pyado.oop.repos.repository.raw.post_git_merge",
+            return_value=_merge_response(GitMergeStatus.FAILURE),
+        ):
+            assert repo.check_merge_feasible(_SHA_A, _SHA_B) is False
+
+    def test_check_merge_feasible_polls_until_terminal(self) -> None:
+        repo = _make_repo()
+        queued = _merge_response(GitMergeStatus.QUEUED, op_id=5)
+        completed = _merge_response(GitMergeStatus.COMPLETED, op_id=5)
+        with (
+            patch(
+                "pyado.oop.repos.repository.raw.post_git_merge",
+                return_value=queued,
+            ),
+            patch(
+                "pyado.oop.repos.repository.raw.get_git_merge",
+                return_value=completed,
+            ) as mock_get,
+            patch("pyado.oop.repos.repository.time.sleep"),
+        ):
+            result = repo.check_merge_feasible(_SHA_A, _SHA_B)
+        assert result is True
+        mock_get.assert_called_once_with(repo.api_call, 5)
+
+    def test_check_merge_feasible_raises_for_invalid_refs(self) -> None:
+        repo = _make_repo()
+        with (
+            patch(
+                "pyado.oop.repos.repository.raw.post_git_merge",
+                return_value=_merge_response(GitMergeStatus.INVALID_REFS),
+            ),
+            pytest.raises(AzureDevOpsNotFoundError),
+        ):
+            repo.check_merge_feasible(_SHA_A, _SHA_B)
+
+    def test_check_merge_feasible_raises_timeout_when_always_queued(self) -> None:
+        repo = _make_repo()
+        queued = _merge_response(GitMergeStatus.QUEUED, op_id=7)
+        with (
+            patch(
+                "pyado.oop.repos.repository.raw.post_git_merge",
+                return_value=queued,
+            ),
+            patch(
+                "pyado.oop.repos.repository.raw.get_git_merge",
+                return_value=queued,
+            ),
+            patch(
+                "pyado.oop.repos.repository.time.monotonic",
+                side_effect=[0.0, 0.0, 99.0],
+            ),
+            patch("pyado.oop.repos.repository.time.sleep"),
+            pytest.raises(TimeoutError),
+        ):
+            repo.check_merge_feasible(_SHA_A, _SHA_B, timeout=10.0)
+
+    def test_check_merge_feasible_skips_poll_when_operation_id_is_none(self) -> None:
+        # When operation_id is None, get_git_merge is not called even inside the loop.
+        # The loop runs once (not yet timed out), skips the poll, then times out.
+        repo = _make_repo()
+        queued_no_id = GitMergeResponse.model_validate({"status": "queued"})
+        with (
+            patch(
+                "pyado.oop.repos.repository.raw.post_git_merge",
+                return_value=queued_no_id,
+            ),
+            patch(
+                "pyado.oop.repos.repository.time.monotonic",
+                side_effect=[0.0, 0.0, 99.0],
+            ),
+            patch("pyado.oop.repos.repository.time.sleep"),
+            patch(
+                "pyado.oop.repos.repository.raw.get_git_merge",
+            ) as mock_get,
+            pytest.raises(TimeoutError),
+        ):
+            repo.check_merge_feasible(_SHA_A, _SHA_B, timeout=10.0)
+        mock_get.assert_not_called()
+
+
+class TestRepositoryCherryPick:
+    """Tests for start_cherry_pick and get_cherry_pick_status."""
+
+    def test_start_cherry_pick_returns_response(self) -> None:
+        repo = _make_repo()
+        response = _cherry_pick_response(GitCherryPickStatus.QUEUED)
+        with patch(
+            "pyado.oop.repos.repository.raw.post_git_cherry_pick",
+            return_value=response,
+        ) as mock_post:
+            result = repo.start_cherry_pick("main", "cherry-pick-branch")
+        assert isinstance(result, GitCherryPickResponse)
+        assert result.status == GitCherryPickStatus.QUEUED
+        request = mock_post.call_args.args[1]
+        assert request.onto == "refs/heads/main"
+        assert request.cherry_pick_ref == "refs/heads/cherry-pick-branch"
+
+    def test_start_cherry_pick_normalises_full_refs(self) -> None:
+        repo = _make_repo()
+        with patch(
+            "pyado.oop.repos.repository.raw.post_git_cherry_pick",
+            return_value=_cherry_pick_response(GitCherryPickStatus.QUEUED),
+        ) as mock_post:
+            repo.start_cherry_pick("refs/heads/main", "refs/heads/cherry-pick-branch")
+        request = mock_post.call_args.args[1]
+        assert request.onto == "refs/heads/main"
+        assert request.cherry_pick_ref == "refs/heads/cherry-pick-branch"
+
+    def test_start_cherry_pick_uses_repository_api_call(self) -> None:
+        repo = _make_repo()
+        with patch(
+            "pyado.oop.repos.repository.raw.post_git_cherry_pick",
+            return_value=_cherry_pick_response(GitCherryPickStatus.QUEUED),
+        ) as mock_post:
+            repo.start_cherry_pick("main", "cherry-pick-branch")
+        assert mock_post.call_args.args[0] is repo.api_call
+
+    def test_get_cherry_pick_status_returns_response(self) -> None:
+        repo = _make_repo()
+        response = _cherry_pick_response(GitCherryPickStatus.COMPLETED)
+        with patch(
+            "pyado.oop.repos.repository.raw.get_git_cherry_pick",
+            return_value=response,
+        ) as mock_get:
+            result = repo.get_cherry_pick_status(10)
+        assert result.status == GitCherryPickStatus.COMPLETED
+        mock_get.assert_called_once_with(repo.api_call, 10)
+
+
+class TestRepositoryRevert:
+    """Tests for start_revert and get_revert_status."""
+
+    def test_start_revert_returns_response(self) -> None:
+        repo = _make_repo()
+        response = _revert_response(GitRevertStatus.QUEUED)
+        with patch(
+            "pyado.oop.repos.repository.raw.post_git_revert",
+            return_value=response,
+        ) as mock_post:
+            result = repo.start_revert("main", "revert-branch")
+        assert isinstance(result, GitRevertResponse)
+        assert result.status == GitRevertStatus.QUEUED
+        request = mock_post.call_args.args[1]
+        assert request.onto == "refs/heads/main"
+        assert request.revert_ref == "refs/heads/revert-branch"
+
+    def test_start_revert_normalises_full_refs(self) -> None:
+        repo = _make_repo()
+        with patch(
+            "pyado.oop.repos.repository.raw.post_git_revert",
+            return_value=_revert_response(GitRevertStatus.QUEUED),
+        ) as mock_post:
+            repo.start_revert("refs/heads/main", "refs/heads/revert-branch")
+        request = mock_post.call_args.args[1]
+        assert request.onto == "refs/heads/main"
+        assert request.revert_ref == "refs/heads/revert-branch"
+
+    def test_start_revert_uses_repository_api_call(self) -> None:
+        repo = _make_repo()
+        with patch(
+            "pyado.oop.repos.repository.raw.post_git_revert",
+            return_value=_revert_response(GitRevertStatus.QUEUED),
+        ) as mock_post:
+            repo.start_revert("main", "revert-branch")
+        assert mock_post.call_args.args[0] is repo.api_call
+
+    def test_get_revert_status_returns_response(self) -> None:
+        repo = _make_repo()
+        response = _revert_response(GitRevertStatus.COMPLETED)
+        with patch(
+            "pyado.oop.repos.repository.raw.get_git_revert",
+            return_value=response,
+        ) as mock_get:
+            result = repo.get_revert_status(20)
+        assert result.status == GitRevertStatus.COMPLETED
+        mock_get.assert_called_once_with(repo.api_call, 20)

@@ -103,6 +103,6 @@ def test_work_item_write(
     _soft_delete()
     if not delete_failed:
         # restore_work_item — bring the item back from the Recycle Bin
-        raw.restore_work_item(project_api_call, wi.id)
+        raw.patch_recycle_bin_work_item(project_api_call, wi.id)
         # Final permanent delete
         raw.delete_work_item(wi_api_call)

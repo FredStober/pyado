@@ -12,6 +12,15 @@ from pydantic.networks import AnyUrl
 from pyado.raw import (
     ApiCall,
     GitChangeFlag,
+    GitCherryPickRequest,
+    GitCherryPickResponse,
+    GitCherryPickStatus,
+    GitMergeRequest,
+    GitMergeResponse,
+    GitMergeStatus,
+    GitRevertRequest,
+    GitRevertResponse,
+    GitRevertStatus,
     PullRequestCompletionOptions,
     PullRequestCreateRequest,
     PullRequestIterationChange,
@@ -33,6 +42,9 @@ from pyado.raw import (
     PullRequestUpdateRequest,
     delete_pull_request_label,
     delete_pull_request_reviewer,
+    get_git_cherry_pick,
+    get_git_merge,
+    get_git_revert,
     get_pull_request_api_call,
     get_pull_request_details,
     get_pull_request_iteration_changes,
@@ -51,6 +63,9 @@ from pyado.raw import (
     list_pull_requests,
     patch_pull_request,
     patch_pull_request_thread,
+    post_git_cherry_pick,
+    post_git_merge,
+    post_git_revert,
     post_pull_request,
     post_pull_request_label,
     post_pull_request_new_thread,
@@ -1071,3 +1086,417 @@ class TestListPullRequestStatuses:
             result = list_pull_request_statuses(api_call)
         assert result == []
         m.assert_called_once_with(api_call)
+
+
+_COMMIT_A = "aaaaaaaabbbbbbbbccccccccddddddddeeeeeeee"  # pragma: allowlist secret
+_COMMIT_B = "1111111122222222333333334444444455555555"  # pragma: allowlist secret
+_COMMIT_MERGE_RESULT = (
+    "ffffffffffffffffffffffffffffffffffffffff"  # pragma: allowlist secret
+)
+
+_GIT_MERGE_QUEUED_RESPONSE = {
+    "mergeOperationId": 1,
+    "status": "queued",
+}
+
+_GIT_MERGE_COMPLETED_RESPONSE = {
+    "mergeOperationId": 2,
+    "status": "completed",
+    "mergeCommitId": _COMMIT_MERGE_RESULT,
+}
+
+_GIT_MERGE_CONFLICTS_RESPONSE = {
+    "mergeOperationId": 3,
+    "status": "conflicts",
+}
+
+
+class TestPostGitMerge:
+    """Tests for post_git_merge."""
+
+    @staticmethod
+    def test_returns_git_merge_response(api_call: ApiCall) -> None:
+        """Returns a GitMergeResponse parsed from the API response."""
+        mock_response = _make_mock_response(_GIT_MERGE_QUEUED_RESPONSE)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = post_git_merge(
+                api_call,
+                GitMergeRequest(parents=[_COMMIT_A, _COMMIT_B]),
+            )
+        assert isinstance(result, GitMergeResponse)
+        assert result.status == GitMergeStatus.QUEUED
+        assert result.merge_operation_id == 1
+
+    @staticmethod
+    def test_sends_post_to_merges_endpoint(api_call: ApiCall) -> None:
+        """Sends a POST request to the merges endpoint."""
+        mock_response = _make_mock_response(_GIT_MERGE_QUEUED_RESPONSE)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            post_git_merge(
+                api_call,
+                GitMergeRequest(parents=[_COMMIT_A, _COMMIT_B]),
+            )
+        assert mock_req.call_args.args[0] == "POST"
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "merges" in url
+
+    @staticmethod
+    def test_payload_contains_parents(api_call: ApiCall) -> None:
+        """Request body contains the two parent commit SHAs."""
+        mock_response = _make_mock_response(_GIT_MERGE_QUEUED_RESPONSE)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            post_git_merge(
+                api_call,
+                GitMergeRequest(parents=[_COMMIT_A, _COMMIT_B]),
+            )
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json["parents"] == [_COMMIT_A, _COMMIT_B]
+
+    @staticmethod
+    def test_optional_comment_included_when_provided(api_call: ApiCall) -> None:
+        """Comment field is included in the payload when provided."""
+        mock_response = _make_mock_response(_GIT_MERGE_QUEUED_RESPONSE)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            post_git_merge(
+                api_call,
+                GitMergeRequest(comment="Test merge", parents=[_COMMIT_A, _COMMIT_B]),
+            )
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json["comment"] == "Test merge"
+
+    @staticmethod
+    def test_comment_omitted_when_none(api_call: ApiCall) -> None:
+        """Comment field is omitted from the payload when not provided."""
+        mock_response = _make_mock_response(_GIT_MERGE_QUEUED_RESPONSE)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            post_git_merge(
+                api_call,
+                GitMergeRequest(parents=[_COMMIT_A, _COMMIT_B]),
+            )
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert "comment" not in sent_json
+
+    @staticmethod
+    def test_completed_status_with_merge_commit_id(api_call: ApiCall) -> None:
+        """Completed response includes the merge commit ID."""
+        mock_response = _make_mock_response(_GIT_MERGE_COMPLETED_RESPONSE)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = post_git_merge(
+                api_call,
+                GitMergeRequest(parents=[_COMMIT_A, _COMMIT_B]),
+            )
+        assert result.status == GitMergeStatus.COMPLETED
+        assert result.merge_commit_id == _COMMIT_MERGE_RESULT
+
+    @staticmethod
+    def test_conflicts_status_no_merge_commit_id(api_call: ApiCall) -> None:
+        """Conflicts response has no merge commit ID."""
+        mock_response = _make_mock_response(_GIT_MERGE_CONFLICTS_RESPONSE)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = post_git_merge(
+                api_call,
+                GitMergeRequest(parents=[_COMMIT_A, _COMMIT_B]),
+            )
+        assert result.status == GitMergeStatus.CONFLICTS
+        assert result.merge_commit_id is None
+
+
+class TestGetGitMerge:
+    """Tests for get_git_merge."""
+
+    @staticmethod
+    def test_returns_git_merge_response(api_call: ApiCall) -> None:
+        """Returns a GitMergeResponse from the API response."""
+        mock_response = _make_mock_response(_GIT_MERGE_COMPLETED_RESPONSE)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_git_merge(api_call, 2)
+        assert isinstance(result, GitMergeResponse)
+        assert result.status == GitMergeStatus.COMPLETED
+        assert result.merge_commit_id == _COMMIT_MERGE_RESULT
+
+    @staticmethod
+    def test_sends_get_to_merges_endpoint(api_call: ApiCall) -> None:
+        """Sends a GET request to the merges/{id} endpoint."""
+        mock_response = _make_mock_response(_GIT_MERGE_COMPLETED_RESPONSE)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_git_merge(api_call, 2)
+        assert mock_req.call_args.args[0] == "GET"
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "merges" in url
+        assert "2" in url
+
+
+_GIT_CHERRY_PICK_QUEUED_RESPONSE = {
+    "cherryPickId": 10,
+    "status": "queued",
+    "onto": "refs/heads/main",
+    "cherryPickRef": "refs/heads/cherry-pick-branch",
+}
+
+_GIT_CHERRY_PICK_COMPLETED_RESPONSE = {
+    "cherryPickId": 11,
+    "status": "completed",
+    "onto": "refs/heads/main",
+    "cherryPickRef": "refs/heads/cherry-pick-branch",
+}
+
+_GIT_CHERRY_PICK_CONFLICTS_RESPONSE = {
+    "cherryPickId": 12,
+    "status": "conflicts",
+    "onto": "refs/heads/main",
+    "cherryPickRef": "refs/heads/cherry-pick-branch",
+}
+
+
+class TestPostGitCherryPick:
+    """Tests for post_git_cherry_pick."""
+
+    @staticmethod
+    def test_returns_git_cherry_pick_response(api_call: ApiCall) -> None:
+        """Returns a GitCherryPickResponse parsed from the API response."""
+        mock_response = _make_mock_response(_GIT_CHERRY_PICK_QUEUED_RESPONSE)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = post_git_cherry_pick(
+                api_call,
+                GitCherryPickRequest(
+                    onto="refs/heads/main",
+                    cherry_pick_ref="refs/heads/cherry-pick-branch",
+                ),
+            )
+        assert isinstance(result, GitCherryPickResponse)
+        assert result.status == GitCherryPickStatus.QUEUED
+        assert result.cherry_pick_id == 10
+
+    @staticmethod
+    def test_sends_post_to_cherry_picks_endpoint(api_call: ApiCall) -> None:
+        """Sends a POST request to the cherryPicks endpoint."""
+        mock_response = _make_mock_response(_GIT_CHERRY_PICK_QUEUED_RESPONSE)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            post_git_cherry_pick(
+                api_call,
+                GitCherryPickRequest(
+                    onto="refs/heads/main",
+                    cherry_pick_ref="refs/heads/cherry-pick-branch",
+                ),
+            )
+        assert mock_req.call_args.args[0] == "POST"
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "cherryPicks" in url
+
+    @staticmethod
+    def test_payload_contains_onto_and_cherry_pick_ref(api_call: ApiCall) -> None:
+        """Request body contains the onto branch and cherryPickRef fields."""
+        mock_response = _make_mock_response(_GIT_CHERRY_PICK_QUEUED_RESPONSE)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            post_git_cherry_pick(
+                api_call,
+                GitCherryPickRequest(
+                    onto="refs/heads/main",
+                    cherry_pick_ref="refs/heads/cherry-pick-branch",
+                ),
+            )
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json["onto"] == "refs/heads/main"
+        assert sent_json["cherryPickRef"] == "refs/heads/cherry-pick-branch"
+
+    @staticmethod
+    def test_completed_response_parsed(api_call: ApiCall) -> None:
+        """Completed response is parsed without error."""
+        mock_response = _make_mock_response(_GIT_CHERRY_PICK_COMPLETED_RESPONSE)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = post_git_cherry_pick(
+                api_call,
+                GitCherryPickRequest(
+                    onto="refs/heads/main",
+                    cherry_pick_ref="refs/heads/cherry-pick-branch",
+                ),
+            )
+        assert result.status == GitCherryPickStatus.COMPLETED
+
+    @staticmethod
+    def test_conflicts_response_parsed(api_call: ApiCall) -> None:
+        """Conflicts response is parsed without error."""
+        mock_response = _make_mock_response(_GIT_CHERRY_PICK_CONFLICTS_RESPONSE)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = post_git_cherry_pick(
+                api_call,
+                GitCherryPickRequest(
+                    onto="refs/heads/main",
+                    cherry_pick_ref="refs/heads/cherry-pick-branch",
+                ),
+            )
+        assert result.status == GitCherryPickStatus.CONFLICTS
+
+
+class TestGetGitCherryPick:
+    """Tests for get_git_cherry_pick."""
+
+    @staticmethod
+    def test_returns_git_cherry_pick_response(api_call: ApiCall) -> None:
+        """Returns a GitCherryPickResponse from the API response."""
+        mock_response = _make_mock_response(_GIT_CHERRY_PICK_COMPLETED_RESPONSE)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_git_cherry_pick(api_call, 11)
+        assert isinstance(result, GitCherryPickResponse)
+        assert result.status == GitCherryPickStatus.COMPLETED
+        assert result.cherry_pick_id == 11
+
+    @staticmethod
+    def test_sends_get_to_cherry_picks_endpoint(api_call: ApiCall) -> None:
+        """Sends a GET request to the cherryPicks/{id} endpoint."""
+        mock_response = _make_mock_response(_GIT_CHERRY_PICK_COMPLETED_RESPONSE)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_git_cherry_pick(api_call, 11)
+        assert mock_req.call_args.args[0] == "GET"
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "cherryPicks" in url
+        assert "11" in url
+
+
+_GIT_REVERT_QUEUED_RESPONSE = {
+    "revertId": 20,
+    "status": "queued",
+    "onto": "refs/heads/main",
+    "revertRef": "refs/heads/revert-branch",
+}
+
+_GIT_REVERT_COMPLETED_RESPONSE = {
+    "revertId": 21,
+    "status": "completed",
+    "onto": "refs/heads/main",
+    "revertRef": "refs/heads/revert-branch",
+}
+
+_GIT_REVERT_CONFLICTS_RESPONSE = {
+    "revertId": 22,
+    "status": "conflicts",
+    "onto": "refs/heads/main",
+    "revertRef": "refs/heads/revert-branch",
+}
+
+
+class TestPostGitRevert:
+    """Tests for post_git_revert."""
+
+    @staticmethod
+    def test_returns_git_revert_response(api_call: ApiCall) -> None:
+        """Returns a GitRevertResponse parsed from the API response."""
+        mock_response = _make_mock_response(_GIT_REVERT_QUEUED_RESPONSE)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = post_git_revert(
+                api_call,
+                GitRevertRequest(
+                    onto="refs/heads/main",
+                    revert_ref="refs/heads/revert-branch",
+                ),
+            )
+        assert isinstance(result, GitRevertResponse)
+        assert result.status == GitRevertStatus.QUEUED
+        assert result.revert_id == 20
+
+    @staticmethod
+    def test_sends_post_to_reverts_endpoint(api_call: ApiCall) -> None:
+        """Sends a POST request to the reverts endpoint."""
+        mock_response = _make_mock_response(_GIT_REVERT_QUEUED_RESPONSE)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            post_git_revert(
+                api_call,
+                GitRevertRequest(
+                    onto="refs/heads/main",
+                    revert_ref="refs/heads/revert-branch",
+                ),
+            )
+        assert mock_req.call_args.args[0] == "POST"
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "reverts" in url
+
+    @staticmethod
+    def test_payload_contains_onto_and_revert_ref(api_call: ApiCall) -> None:
+        """Request body contains the onto branch and revertRef fields."""
+        mock_response = _make_mock_response(_GIT_REVERT_QUEUED_RESPONSE)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            post_git_revert(
+                api_call,
+                GitRevertRequest(
+                    onto="refs/heads/main",
+                    revert_ref="refs/heads/revert-branch",
+                ),
+            )
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json["onto"] == "refs/heads/main"
+        assert sent_json["revertRef"] == "refs/heads/revert-branch"
+
+    @staticmethod
+    def test_completed_response_parsed(api_call: ApiCall) -> None:
+        """Completed response is parsed without error."""
+        mock_response = _make_mock_response(_GIT_REVERT_COMPLETED_RESPONSE)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = post_git_revert(
+                api_call,
+                GitRevertRequest(
+                    onto="refs/heads/main",
+                    revert_ref="refs/heads/revert-branch",
+                ),
+            )
+        assert result.status == GitRevertStatus.COMPLETED
+
+    @staticmethod
+    def test_conflicts_response_parsed(api_call: ApiCall) -> None:
+        """Conflicts response is parsed without error."""
+        mock_response = _make_mock_response(_GIT_REVERT_CONFLICTS_RESPONSE)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = post_git_revert(
+                api_call,
+                GitRevertRequest(
+                    onto="refs/heads/main",
+                    revert_ref="refs/heads/revert-branch",
+                ),
+            )
+        assert result.status == GitRevertStatus.CONFLICTS
+
+
+class TestGetGitRevert:
+    """Tests for get_git_revert."""
+
+    @staticmethod
+    def test_returns_git_revert_response(api_call: ApiCall) -> None:
+        """Returns a GitRevertResponse from the API response."""
+        mock_response = _make_mock_response(_GIT_REVERT_COMPLETED_RESPONSE)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_git_revert(api_call, 21)
+        assert isinstance(result, GitRevertResponse)
+        assert result.status == GitRevertStatus.COMPLETED
+        assert result.revert_id == 21
+
+    @staticmethod
+    def test_sends_get_to_reverts_endpoint(api_call: ApiCall) -> None:
+        """Sends a GET request to the reverts/{id} endpoint."""
+        mock_response = _make_mock_response(_GIT_REVERT_COMPLETED_RESPONSE)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_git_revert(api_call, 21)
+        assert mock_req.call_args.args[0] == "GET"
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "reverts" in url
+        assert "21" in url

@@ -2,69 +2,12 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-import uuid
-
 from pyado.oop import (
     Build,
-    BuildJob,
-    BuildPhase,
-    BuildStage,
-    BuildTask,
-    DistributedTaskSession,
     Project,
 )
 from pyado.raw import BuildArtifact, BuildExpand
 from tests.integration.raw._support import _take, console
-
-
-def _exercise_task(build: Build, task: BuildTask) -> None:
-    _ = task.name
-    _ = task.state
-    _ = task.result
-    _ = task.job
-    _ = task.error_count
-    _ = task.warning_count
-    _ = task.issues
-    if task.log is not None:
-        build.get_log_text(task.log.id)
-
-
-def _exercise_job(build: Build, job: BuildJob) -> None:
-    _ = job.name
-    _ = job.state
-    _ = job.result
-    _ = job.stage
-    _ = job.error_count
-    _ = job.warning_count
-    _ = job.issues
-    _ = job.phase
-    _ = job.worker_name
-    _take(job.iter_tasks(), 5)
-    job.list_tasks()
-    tasks = list(job.iter_tasks())
-    if tasks:
-        _exercise_task(build, tasks[0])
-
-
-def _exercise_stage(build: Build, stage: BuildStage) -> None:
-    _ = stage.name
-    _ = stage.state
-    _ = stage.result
-    _ = stage.build
-    _ = stage.error_count
-    _ = stage.warning_count
-    _ = stage.issues
-    phases = list(stage.iter_phases())
-    _take(stage.iter_phases(), 3)
-    stage.list_phases()
-    if phases:
-        phase: BuildPhase = phases[0]
-        _ = phase.warning_count
-    _take(stage.iter_jobs(), 3)
-    stage.list_jobs()
-    jobs = list(stage.iter_jobs())
-    if jobs:
-        _exercise_job(build, jobs[0])
 
 
 def _exercise_build_artifacts_and_approvals(
@@ -114,12 +57,6 @@ def test_build_read(proj: Project) -> None:
     build.list_tags()
     _take(build.iter_timeline_records(), 5)
     build.list_timeline_records()
-    _take(build.iter_stages(), 3)
-    build.list_stages()
-
-    stages = list(build.iter_stages())
-    if stages:
-        _exercise_stage(build, stages[0])
 
     _take(build.iter_work_item_ids(), 5)
     build.list_work_item_ids()
@@ -148,21 +85,3 @@ def test_build_pipeline_run(build: Build | None) -> None:
         return
     console.print("\n=== Build.pipeline_run ===")
     _ = build.pipeline_run
-
-
-def test_distributed_task_session(build: Build | None) -> None:
-    """Exercise DistributedTaskSession construction and zero-cost navigation."""
-    if build is None:
-        return
-    console.print("\n=== DistributedTaskSession ===")
-    session: DistributedTaskSession = build.get_distributed_task_session(
-        hub_name="Build",
-        plan_id=uuid.uuid4(),
-        timeline_id=uuid.uuid4(),
-        job_id=uuid.uuid4(),
-        task_instance_id=uuid.uuid4(),
-    )
-    _ = session.build
-    _ = session.project
-    _ = session.org
-    session.refresh()

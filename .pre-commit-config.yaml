@@ -24,15 +24,32 @@ repos:
   - id: detect-secrets
     args: [--baseline, .secrets.baseline]
 
-- repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: 0671d8ab202c4ac093b78433ae5baf74f3fc7246  # frozen: v0.15.15
-  hooks:
-  - id: ruff-format
-  - id: ruff-check
-    args: [--fix]
-
 - repo: local
   hooks:
+  - id: ruff-format
+    name: ruff format
+    entry: uv
+    language: system
+    pass_filenames: false
+    always_run: true
+    args: [run, ruff, format, --force-exclude]
+
+  - id: ruff-check
+    name: ruff check
+    entry: uv
+    language: system
+    pass_filenames: false
+    always_run: true
+    args: [run, ruff, check, --fix]
+
+  - id: pip-audit
+    name: pip-audit
+    entry: uv
+    language: system
+    pass_filenames: false
+    always_run: true
+    args: [run, pip-audit]
+
   - id: mypy
     name: mypy
     entry: uv

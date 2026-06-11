@@ -32,6 +32,7 @@ from pyado.raw import (
     ServiceEndpointId,
     TaskGroupCreateRequest,
     TaskGroupId,
+    VariableGroupId,
     VariableInfo,
 )
 
@@ -57,11 +58,14 @@ class ProjectPipelines:
             project: The Project this section belongs to.
         """
         self._project = project
+        self._library: PipelineLibrary | None = None
 
     @property
     def library(self) -> PipelineLibrary:
         """The Pipeline Library sub-section (variable groups, secure files)."""
-        return PipelineLibrary(self._project)
+        if self._library is None:
+            self._library = PipelineLibrary(self._project)
+        return self._library
 
     # ------------------------------------------------------------------
     # Pipelines
@@ -649,6 +653,52 @@ class ProjectPipelines:
     # ------------------------------------------------------------------
     # Variable groups (forwarded to library for backwards compatibility)
     # ------------------------------------------------------------------
+
+    def iter_variable_groups(self) -> "Iterator[VariableGroup]":
+        """Iterate over all variable groups in the project.
+
+        Delegates to :meth:`PipelineLibrary.iter_variable_groups`.
+
+        Yields:
+            VariableGroup for each variable group in the project.
+        """
+        yield from self.library.iter_variable_groups()
+
+    def list_variable_groups(self) -> "list[VariableGroup]":
+        """Return all variable groups in the project as a list.
+
+        Returns:
+            List of VariableGroup objects.
+        """
+        return list(self.iter_variable_groups())
+
+    def get_variable_group(self, name: str) -> "VariableGroup":
+        """Return a variable group by name.
+
+        Delegates to :meth:`PipelineLibrary.get_variable_group`.
+
+        Args:
+            name: Variable group name (case-sensitive).
+
+        Returns:
+            VariableGroup wrapping the requested variable group.
+        """
+        return self.library.get_variable_group(name)
+
+    def get_variable_group_by_id(
+        self, variable_group_id: VariableGroupId
+    ) -> "VariableGroup":
+        """Return a variable group by numeric ID.
+
+        Delegates to :meth:`PipelineLibrary.get_variable_group_by_id`.
+
+        Args:
+            variable_group_id: Numeric variable group ID.
+
+        Returns:
+            VariableGroup wrapping the requested variable group.
+        """
+        return self.library.get_variable_group_by_id(variable_group_id)
 
     def create_variable_group(
         self,

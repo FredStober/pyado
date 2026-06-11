@@ -40,6 +40,8 @@ def make_mock_response(
         A MagicMock configured to behave as a requests.Response.
     """
     mock = MagicMock(spec=requests.Response)
+    mock.url = "https://dev.azure.com/org/"
+    mock.headers = {}
     if raise_for_status_exc:
         mock.raise_for_status.side_effect = raise_for_status_exc
     else:

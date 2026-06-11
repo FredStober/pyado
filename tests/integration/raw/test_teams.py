@@ -37,11 +37,11 @@ def test_teams_read(
     # add_team_iteration: assign an existing iteration to the team (idempotent)
     existing_iterations = raw.list_sprint_iterations(team_api_call)
     if existing_iterations:
-        raw.add_team_iteration(team_api_call, existing_iterations[0].id)
+        raw.post_team_iteration(team_api_call, existing_iterations[0].id)
         # delete_team_iteration — remove then immediately re-add so the team
         # backlog is restored to its original state.
         raw.delete_team_iteration(team_api_call, existing_iterations[0].id)
-        raw.add_team_iteration(team_api_call, existing_iterations[0].id)
+        raw.post_team_iteration(team_api_call, existing_iterations[0].id)
     else:
         # Fall back to the classification node tree to find an iteration identifier
         iter_tree = raw.get_classification_node(
@@ -55,7 +55,7 @@ def test_teams_read(
         )
         if node_with_id and node_with_id.identifier:
             iter_uuid = UUID(node_with_id.identifier)
-            raw.add_team_iteration(team_api_call, iter_uuid)
+            raw.post_team_iteration(team_api_call, iter_uuid)
 
     dashboards = list(raw.iter_dashboards(team_api_call))
     assert dashboards == raw.list_dashboards(team_api_call)

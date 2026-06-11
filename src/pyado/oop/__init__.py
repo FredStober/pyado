@@ -71,17 +71,12 @@ __all__ = [
     "BasePolicyModel",
     "Branch",
     "Build",
-    "BuildJob",
-    "BuildPhase",
     "BuildPolicy",
-    "BuildStage",
-    "BuildTask",
     "CommentRequirementsPolicy",
     "Commit",
     "CommitAuthorEmailPolicy",
     "Dashboard",
     "DeleteFile",
-    "DistributedTaskSession",
     "EditFile",
     "Environment",
     "FileNamePolicy",
@@ -138,15 +133,6 @@ from pyado.oop.overview.wiki import Wiki
 from pyado.oop.pipelines import PipelineLibrary, ProjectPipelines
 from pyado.oop.pipelines.agent import Agent, AgentPool, AgentQueue
 from pyado.oop.pipelines.build import Build
-from pyado.oop.pipelines.build_timeline import (
-    BuildJob,
-    BuildPhase,
-    BuildStage,
-    BuildTask,
-)
-from pyado.oop.pipelines.distributed_task_session import (
-    DistributedTaskSession,
-)
 from pyado.oop.pipelines.environment import Environment
 from pyado.oop.pipelines.pipeline import Pipeline, PipelineRun
 from pyado.oop.pipelines.secure_file import SecureFile

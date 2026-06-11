@@ -91,7 +91,7 @@ class ProjectSettings:
         Returns:
             PolicyConfiguration wrapping the newly created configuration.
         """
-        info = raw.create_policy_configuration(self._project.api_call, request)
+        info = raw.post_policy_configuration(self._project.api_call, request)
         return PolicyConfiguration(self._project, info)
 
     def iter_policy_types(self) -> Iterator[PolicyType]:

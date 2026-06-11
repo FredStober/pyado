@@ -84,7 +84,7 @@ class TestTeam:
     def test_add_iteration_delegates(self) -> None:
         iteration_id = uuid4()
         team = self._make_team()
-        with patch("pyado.oop.boards.team.raw.add_team_iteration") as mock_add:
+        with patch("pyado.oop.boards.team.raw.post_team_iteration") as mock_add:
             team.add_iteration(iteration_id)
         mock_add.assert_called_once_with(team.api_call, iteration_id)
 

@@ -99,7 +99,7 @@ def test_graph_membership_and_entitlement_write(
             f"  (current: {existing_level.account_license_type})"
         )
         try:
-            updated = raw.update_user_access_level(vssps_call, first.id, existing_level)
+            updated = raw.patch_user_entitlement(vssps_call, first.id, existing_level)
             new_license = (
                 updated.access_level.account_license_type
                 if updated.access_level
@@ -127,14 +127,14 @@ def test_graph_membership_and_entitlement_write(
     container = groups[0]
     console.print(f"  add {subject.descriptor!r} to {container.descriptor!r}")
     try:
-        membership = raw.add_graph_membership(
+        membership = raw.put_graph_membership(
             vssps_call, subject.descriptor, container.descriptor
         )
         console.print(
             f"  added: member={membership.member_descriptor!r}"
             f"  container={membership.container_descriptor!r}"
         )
-        raw.remove_graph_membership(
+        raw.delete_graph_membership(
             vssps_call, subject.descriptor, container.descriptor
         )
         console.print("  removed membership")
@@ -143,7 +143,7 @@ def test_graph_membership_and_entitlement_write(
 
     # --- add_user_entitlement (attempt; skip gracefully on any API error) ---
     try:
-        new_entitlement = raw.add_user_entitlement(
+        new_entitlement = raw.post_user_entitlement(
             vssps_call,
             raw.UserEntitlementCreateRequest(
                 user=raw.GraphUser(

@@ -11,3 +11,6 @@
 __pycache__/
 ado_smoke_seed*.json
 test.json
+experiments
+results
+next.md

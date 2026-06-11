@@ -8,13 +8,6 @@ from typing import TYPE_CHECKING
 
 from pyado import raw
 from pyado.oop.pipelines import _build
-from pyado.oop.pipelines.build_timeline import (
-    BuildJob,
-    BuildPhase,
-    BuildStage,
-    BuildTask,
-)
-from pyado.oop.pipelines.distributed_task_session import DistributedTaskSession
 from pyado.oop.pipelines.pipeline import Pipeline, PipelineRun
 from pyado.raw import (
     ApiCall,
@@ -24,16 +17,11 @@ from pyado.raw import (
     BuildLogId,
     BuildLogInfo,
     BuildRecordInfo,
-    BuildRecordType,
     BuildResult,
     BuildStatus,
-    JobId,
     PipelineApproval,
     PipelineApprovalStatus,
     PipelineRunInfo,
-    PlanId,
-    TaskId,
-    TimelineId,
     WorkItemId,
 )
 
@@ -45,10 +33,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Build",
-    "BuildJob",
-    "BuildPhase",
-    "BuildStage",
-    "BuildTask",
 ]
 
 
@@ -73,12 +57,9 @@ class Build:
 
     **Why it exists:** the raw ``build/builds`` endpoint returns a
     :class:`~pyado.raw.BuildDetails` dict of scalars.  ``Build`` adds:
-    lazy-loaded caching (one HTTP call per refresh), timeline tree navigation
-    (:meth:`iter_stages` → :meth:`~BuildStage.iter_jobs` → tasks, zero extra
-    API calls), and the distributed-task session factory
-    (:meth:`get_distributed_task_session`) that lets external systems write
-    back into a running pipeline.  It also carries the back-reference to
-    :attr:`project` and :attr:`pipeline` so navigation is always zero-cost.
+    lazy-loaded caching (one HTTP call per refresh),
+    It also carries the back-reference to :attr:`project` and :attr:`pipeline`
+    so navigation is always zero-cost.
 
     Unlike projects and pipelines, builds are not cached — each factory call
     returns a fresh instance with the current API state.
@@ -420,22 +401,6 @@ class Build:
                 return record
         return None
 
-    def iter_stages(self) -> Iterator[BuildStage]:
-        """Iterate over the stages of the build.
-
-        Fetches all timeline records in a single API call, then yields a
-        :class:`BuildStage` for each ``Stage``-type record.  Navigate into
-        jobs and tasks via :meth:`BuildStage.iter_jobs` and
-        :meth:`BuildJob.iter_tasks` — no additional API calls are made.
-
-        Yields:
-            BuildStage for each stage in the build timeline.
-        """
-        all_records = list(raw.iter_timeline_records(self._api_call))
-        for record in all_records:
-            if record.type_name == BuildRecordType.STAGE:
-                yield BuildStage(record, all_records, build=self)
-
     # ------------------------------------------------------------------
     # Logs
     # ------------------------------------------------------------------
@@ -565,57 +530,6 @@ class Build:
         ):
             yield ref.id
 
-    # ------------------------------------------------------------------
-    # Distributed-task session (serverless / external task pattern)
-    # ------------------------------------------------------------------
-
-    def get_distributed_task_session(
-        self,
-        *,
-        bearer_token: str = "",
-        hub_name: str,
-        plan_id: PlanId,
-        timeline_id: TimelineId,
-        job_id: JobId,
-        task_instance_id: TaskId,
-    ) -> DistributedTaskSession:
-        """Return a DistributedTaskSession for a running pipeline task.
-
-        This factory is intended for external systems acting as a serverless
-        ADO task (e.g. an AWS Lambda polling ADO for work).  Pass the
-        distributed-task runtime variables that ADO injects as pipeline
-        environment variables, plus the pipeline's own bearer token.
-
-        Args:
-            bearer_token: Pipeline bearer token (``System.AccessToken``).
-                Required for write operations because the distributed-task
-                endpoints only accept the pipeline's own bearer token, not a
-                PAT.  Defaults to ``""`` for read-only or navigation use.
-            hub_name: Distributed-task hub name (e.g. ``"Build"``).
-            plan_id: Value of ``$(system.planId)`` / ``SYSTEM_PLANID``.
-            timeline_id: Value of ``$(system.timelineId)`` /
-                ``SYSTEM_TIMELINEID``.
-            job_id: Value of ``$(system.jobId)`` / ``SYSTEM_JOBID``.
-            task_instance_id: Value of the task instance UUID
-                (``AGENT_TASKINSTANCEID``).
-
-        Returns:
-            DistributedTaskSession bound to this build and the given task.
-        """
-        collection_uri = str(self._service.oop_api.org_base_api_call.url)
-        return DistributedTaskSession(
-            bearer_token,
-            collection_uri=collection_uri,
-            team_project_id=self._project.id,
-            build_id=self.id,
-            hub_name=hub_name,
-            plan_id=plan_id,
-            timeline_id=timeline_id,
-            job_id=job_id,
-            task_instance_id=task_instance_id,
-            oop_build=self,
-        )
-
     def retry(self) -> "Build":
         """Queue a new build run using the same definition and source branch.
 
@@ -641,10 +555,6 @@ class Build:
     def list_timeline_records(self) -> list[BuildRecordInfo]:
         """Return all timeline records for this build as a list."""
         return list(self.iter_timeline_records())
-
-    def list_stages(self) -> list[BuildStage]:
-        """Return all stages for this build as a list."""
-        return list(self.iter_stages())
 
     def list_logs(self) -> list[BuildLogInfo]:
         """Return all log entries for this build as a list."""

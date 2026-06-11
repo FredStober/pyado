@@ -16,7 +16,6 @@ from pyado.raw import (
     PolicyScopeMatchKind,
     PolicyType,
     PolicyTypeIdRef,
-    create_policy_configuration,
     delete_policy_configuration,
     get_policy_configuration,
     get_policy_configuration_api_call,
@@ -25,7 +24,8 @@ from pyado.raw import (
     iter_policy_types,
     list_policy_configurations,
     list_policy_types,
-    update_policy_configuration,
+    post_policy_configuration,
+    put_policy_configuration,
 )
 from tests.conftest import _make_mock_response
 
@@ -177,7 +177,7 @@ class TestCreatePolicyConfiguration:
             settings={"minimumApproverCount": 2},
         )
         with patch.object(requests.Session, "request", return_value=mock_resp):
-            result = create_policy_configuration(api_call, request)
+            result = post_policy_configuration(api_call, request)
         assert isinstance(result, PolicyConfigurationInfo)
         assert result.id == 42
 
@@ -193,7 +193,7 @@ class TestCreatePolicyConfiguration:
         with patch.object(
             requests.Session, "request", return_value=mock_resp
         ) as mock_request:
-            create_policy_configuration(api_call, request)
+            post_policy_configuration(api_call, request)
         call_kwargs = mock_request.call_args
         sent_json = call_kwargs.kwargs.get("json") or call_kwargs.args[2]
         assert sent_json["type"]["id"] == _TYPE_ID
@@ -213,7 +213,7 @@ class TestUpdatePolicyConfiguration:
         )
         with patch.object(requests.Session, "request", return_value=mock_resp):
             config_api = get_policy_configuration_api_call(api_call, _CONFIG_ID)
-            result = update_policy_configuration(config_api, request)
+            result = put_policy_configuration(config_api, request)
         assert isinstance(result, PolicyConfigurationInfo)
         assert result.revision == 2
 

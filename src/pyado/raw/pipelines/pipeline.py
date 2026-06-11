@@ -19,6 +19,7 @@ from pydantic.networks import AnyUrl
 from pyado.raw._core import AdoBaseModel, ApiCall, _IdentityRef
 from pyado.raw.pipelines.build import (
     BuildLogId,
+    BuildLogInfo,
     BuildRecordInfo,
     PlanId,
     TaskId,
@@ -66,6 +67,7 @@ __all__ = [
     "post_job_event",
     "post_job_feed",
     "post_job_logs",
+    "post_new_log",
     "post_pipeline_run",
 ]
 
@@ -459,6 +461,37 @@ def get_log_api_call(
     """
     api_call = get_plan_api_call(project_api_call, hub_name, plan_id)
     return api_call.build_call("logs", log_id)
+
+
+def post_new_log(plan_api_call: ApiCall, path: str) -> BuildLogInfo:
+    r"""Create a new log entry in a distributed-task plan.
+
+    Step 1 of the three-step per-record log sequence: POST to the plan's
+    logs endpoint to obtain a new numeric log ID.  Call
+    :func:`patch_timeline_records` (step 2) to associate the log with a
+    timeline record, then :func:`post_job_logs` (step 3) to append content.
+
+    Args:
+        plan_api_call: Plan-level ADO API call (from get_plan_api_call).
+        path: Path for the log container, conventionally
+            ``"logs\\\\<record-uuid>"``.
+
+    Returns:
+        BuildLogInfo with the newly assigned numeric log ID and canonical URL.
+
+    Reference:
+        POST .../distributedtask/hubs/{hub}/plans/{plan_id}/logs
+    """
+    response = plan_api_call.post(
+        "logs",
+        version="7.1-preview.1",
+        json={"id": 0, "type": "Container", "path": path},
+    )
+    log_id = int(response["id"])
+    log_call = plan_api_call.build_call("logs", log_id)
+    return BuildLogInfo.model_validate(
+        {"id": log_id, "type": "Container", "url": str(log_call.url)}
+    )
 
 
 # ---------------------------------------------------------------------------

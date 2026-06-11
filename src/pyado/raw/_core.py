@@ -44,6 +44,27 @@ __all__ = [
 # `OAuth` scope for Azure DevOps
 _ADO_GRAPH_SCOPE = "499b84ac-1321-427f-aa17-267ca6975798/.default"
 
+# ADO redirects expired/invalid tokens to the login page (HTTP 200 after redirect).
+# All three conditions must hold to avoid false positives.
+_ADO_LOGIN_URL_MARKER = "microsoftonline.com"
+_ADO_LOGIN_CONTENT_MARKERS = (b"Sign In", b"signin", b"login", b"<!DOCTYPE html")
+
+
+def _is_login_redirect(response: requests.Response) -> bool:
+    """Return True when the response is an ADO sign-in redirect.
+
+    Args:
+        response: The completed HTTP response.
+
+    Returns:
+        True if the URL, content-type, and body all indicate the ADO login page.
+    """
+    if _ADO_LOGIN_URL_MARKER not in response.url:
+        return False
+    if "text/html" not in response.headers.get("Content-Type", ""):
+        return False
+    return any(marker in response.content for marker in _ADO_LOGIN_CONTENT_MARKERS)
+
 
 def to_camel(s: str) -> str:
     parts = s.split("_")
@@ -92,11 +113,11 @@ class HtmlTextFilter(HTMLParser):
 
 AccessToken: TypeAlias = str
 
-#: Validated HTTPS URL accepted by ADO API calls (max 256 characters).
+#: Validated HTTPS URL accepted by ADO API calls (max 2048 characters).
 AdoUrl: TypeAlias = Annotated[
     HttpUrl,
     UrlConstraints(
-        max_length=256,
+        max_length=2048,
         allowed_schemes=[
             "https",
         ],
@@ -281,6 +302,7 @@ class ApiCall(BaseModel):
             The parsed JSON response, raw bytes if raw is True, or None if empty.
 
         Raises:
+            AzureDevOpsAuthError: If the response indicates an authentication failure.
             ValueError: If the response body cannot be parsed as JSON.
         """
         try:
@@ -295,6 +317,9 @@ class ApiCall(BaseModel):
             return response.content
         if not response.content:  # Handle b'' return values
             return None
+        if _is_login_redirect(response):
+            error_message = ApiCall._get_error_message(response)
+            raise AzureDevOpsAuthError(response.status_code, error_message)
         try:
             return response.json()
         except Exception as ex:
