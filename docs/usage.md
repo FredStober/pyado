@@ -43,6 +43,12 @@ showing the code.
 [Wikis](#wikis) ·
 [Dashboards](#dashboards) ·
 [Notifications](#notification-subscriptions) ·
+[Security namespaces and ACLs](#security-namespaces-and-acls) ·
+[Group membership](#group-membership-vssps-graph) ·
+[Classification nodes](#classification-nodes-areas-and-iterations--raw-api) ·
+[Board configuration](#board-configuration--raw-api) ·
+[Team settings](#team-settings--raw-api) ·
+[Policy configuration](#policy-configuration--raw-api) ·
 [Process info](#process-info) ·
 [Process templates](#process-templates)
 
@@ -2537,11 +2543,45 @@ dashboard = get_dashboard(dashboard_api)
 ## Notification subscriptions
 
 ```python
-from pyado.raw import iter_notification_subscriptions
+from pyado.raw import (
+    iter_notification_subscriptions,
+    get_notification_subscription,
+    post_notification_subscription,
+    patch_notification_subscription,
+    delete_notification_subscription,
+)
 
+# List all subscriptions
 for sub in iter_notification_subscriptions(org_api):
     print(sub.id, sub.description, sub.status)
+
+# Fetch a single subscription by ID
+sub = get_notification_subscription(org_api, sub_id)
+print(sub.id, sub.description)
+
+# Create a subscription
+body = {
+    "description": "My subscription",
+    "filter": {
+        "eventType": "ms.vss-work.workitem-changed",
+        "criteria": {},
+        "type": "Expression",
+    },
+    "channel": {"type": "EmailHtml"},
+    "subscriber": {"id": "<team-or-user-guid>"},
+}
+new_sub = post_notification_subscription(org_api, body)
+print(new_sub.id)
+
+# Update a subscription (partial update)
+updated = patch_notification_subscription(org_api, new_sub.id, {"description": "Updated"})
+
+# Delete a subscription
+delete_notification_subscription(org_api, new_sub.id)
 ```
+
+> **Note:** Notification subscriptions are org-scoped. Pass an org-level
+> `ApiCall` (`https://dev.azure.com/{org}/_apis`) — not a project-level one.
 
 ---
 
@@ -2698,6 +2738,339 @@ process.update_behavior(
 )
 
 process.delete_behavior(behavior.reference_name)
+```
+
+---
+
+## Security namespaces and ACLs
+
+ADO's security model is built on *security namespaces* (e.g. "Git Repositories",
+"Build", "Environment"). Each namespace defines a set of named permission bits and
+holds access control lists (ACLs) keyed by a *security token* string.
+
+> **Scope:** These functions require an **org-root** `ApiCall`
+> (`https://dev.azure.com/{org}`) — not a project-level or `/_apis`-suffixed one.
+
+```python
+from pyado.raw.core.security import (
+    get_namespace_names,
+    get_namespace_actions,
+    get_namespace_acl,
+    post_namespace_acl,
+    delete_namespace_acl,
+    get_identities_by_descriptor,
+    get_identities_by_subject_descriptor,
+    AceEntry,
+)
+
+# List all namespace names → GUID mapping (lowercased name → GUID)
+names = get_namespace_names(org_root_api)
+# {"git repositories": "<guid>", "build": "<guid>", ...}
+
+# Get the permission-bit map for a namespace
+actions = get_namespace_actions(org_root_api, namespace_id)
+# {"GenericRead": 1, "GenericContribute": 2, "ForcePush": 8, ...}
+
+# Read the ACL for a (namespace, token) pair
+aces = get_namespace_acl(org_root_api, namespace_id, token)
+for ace in aces:
+    print(ace.descriptor, ace.allow, ace.deny)
+
+# Write (replace) the ACL — merge=False overwrites the whole token
+post_namespace_acl(
+    org_root_api,
+    namespace_id,
+    token,
+    [
+        AceEntry(descriptor="<storage-key>", allow=3, deny=0),
+    ],
+    inherit_permissions=True,
+)
+
+# Delete the entire ACL for a token
+delete_namespace_acl(org_root_api, namespace_id, token)
+```
+
+### Security token formats
+
+Common token patterns for the "Git Repositories" namespace (`repoV2`):
+
+| Scope | Token |
+|---|---|
+| All repos in project | `repoV2/{project_id}` |
+| Single repository | `repoV2/{project_id}/{repo_id}` |
+
+For the "CSS" / area namespace, tokens use classification-node GUIDs:
+`vstfs:///Classification/Node/{node_guid}`.
+
+### Identity lookups
+
+ADO's ACL entries use *storage-key descriptors*. To work with human-readable
+*subject descriptors* (e.g. `vssgp.Uy0x…`), resolve between the two forms:
+
+```python
+# Resolve subject descriptors → storage keys (for POST)
+resolved = get_identities_by_subject_descriptor(org_root_api, ["vssgp.Uy0x..."])
+# {"vssgp.Uy0x...": "<storage-key>"}
+
+# Resolve storage keys → subject descriptors (for reading back)
+resolved = get_identities_by_descriptor(org_root_api, ["<storage-key>"])
+# {"<storage-key>": "vssgp.Uy0x..."}
+```
+
+---
+
+## Group membership (VSSPS graph)
+
+ADO group memberships live on the VSSPS host (`vssps.dev.azure.com`). Use
+`get_vssps_api_call` to derive the correct `ApiCall`:
+
+```python
+from pyado.raw.core.identity import (
+    get_vssps_api_call,
+    list_graph_memberships,
+    put_graph_membership,
+    delete_graph_membership,
+)
+from pyado.raw import get_session
+
+session = get_session(pat="<your-pat>")
+vssps_api = get_vssps_api_call(session, org_name="myorg")
+
+# List all members of a group
+members = list_graph_memberships(vssps_api, group_descriptor="vssgp.Uy0x...")
+for descriptor in members:
+    print(descriptor)
+
+# Add a member to a group
+put_graph_membership(vssps_api, member_descriptor="aad.abc123", group_descriptor="vssgp.Uy0x...")
+
+# Remove a member from a group
+delete_graph_membership(vssps_api, member_descriptor="aad.abc123", group_descriptor="vssgp.Uy0x...")
+```
+
+> `group_descriptor` is the subject descriptor of the target group (starts with
+> `vssgp.`).  Member descriptors for AAD users start with `aad.`.
+
+---
+
+## Classification nodes (areas and iterations) — raw API
+
+The raw `pyado.raw.boards.work_item` module exposes direct CRUD for
+classification nodes (the tree nodes that back area paths and iteration paths).
+The OOP layer (`proj.boards.create_area`, `proj.boards.create_iteration`, …)
+uses these internally; use the raw functions when you need finer control or
+operate outside the OOP layer.
+
+```python
+from pyado.raw.boards.work_item import (
+    ClassificationNodeUrlType,
+    ClassificationNodeRequest,
+    ClassificationNodePatchRequest,
+    ClassificationNodeAttributes,
+    get_classification_node,
+    post_classification_node,
+    patch_classification_node,
+    delete_classification_node,
+)
+
+AREAS      = ClassificationNodeUrlType.AREAS
+ITERATIONS = ClassificationNodeUrlType.ITERATIONS
+
+# Read a node by its relative path (empty string = project root)
+node = get_classification_node(project_api, "Platform/DevOps", node_type=AREAS, depth=0)
+print(node.id, node.name, node.identifier)  # identifier is the GUID
+
+# Create a child node
+node = post_classification_node(
+    project_api,
+    ClassificationNodeRequest(name="Sprint 42"),
+    parent_path="Release 2025",
+    node_type=ITERATIONS,
+)
+
+# Rename or change dates
+node = patch_classification_node(
+    project_api,
+    "Release 2025/Sprint 42",
+    ClassificationNodePatchRequest(
+        name="Sprint 43",
+        attributes=ClassificationNodeAttributes(
+            start_date="2025-01-01",
+            finish_date="2025-01-14",
+        ),
+    ),
+    node_type=ITERATIONS,
+)
+
+# Delete (root nodes cannot be deleted — ADO rejects the request)
+delete_classification_node(project_api, "Release 2025/Sprint 43", node_type=ITERATIONS)
+```
+
+---
+
+## Board configuration — raw API
+
+Board columns, swimlanes, and card settings are managed through
+`pyado.raw.boards.board`. All functions require a **team-scoped** `ApiCall`
+(`…/{project_id}/{team_id}/_apis`).
+
+```python
+from pyado.raw.boards.board import (
+    get_boards,
+    get_board_columns,
+    put_board_columns,
+    get_board_rows,
+    put_board_rows,
+    get_card_settings,
+    put_card_settings,
+)
+
+# team_api = ApiCall scoped to {org}/{project_id}/{team_id}/_apis
+
+# List available boards for the team (returns name + id dicts)
+boards = get_boards(team_api)
+board_id = next(b["id"] for b in boards if b["name"] == "Stories")
+
+# Read columns
+columns = get_board_columns(team_api, board_id)
+for col in columns:
+    print(col["name"], col["columnType"], col["itemLimit"])
+
+# Write columns (pass the full column list back; preserve existing ids)
+put_board_columns(team_api, board_id, columns)
+
+# Read swimlanes
+rows = get_board_rows(team_api, board_id)
+
+# Write swimlanes
+put_board_rows(team_api, board_id, rows)
+
+# Read card settings (returns a raw dict)
+settings = get_card_settings(team_api, board_id)
+
+# Write card settings
+put_card_settings(team_api, board_id, settings)
+```
+
+> **OOP shortcut:** `python_ado_board` in the Terraform provider manages all of
+> this as a single resource.
+
+---
+
+## Team settings — raw API
+
+Team work settings (backlog iteration, bugs behaviour, working days, backlog
+visibility, iteration subscriptions, area assignments) are managed through
+`pyado.raw.boards.team_settings`. All functions require a **team-scoped**
+`ApiCall` (`…/{project_id}/{team_id}/_apis`).
+
+```python
+from pyado.raw.boards.team_settings import (
+    get_team_settings,
+    patch_team_settings,
+    get_team_field_values,
+    patch_team_field_values,
+    get_team_iterations,
+    add_team_iteration,
+    remove_team_iteration,
+)
+
+# Read current settings (dict with backlogIteration, bugsBehavior, workingDays, etc.)
+settings = get_team_settings(team_api)
+print(settings["bugsBehavior"], settings["workingDays"])
+
+# Update settings (partial patch — only include keys you want to change)
+patch_team_settings(team_api, {
+    "bugsBehavior": "asTasks",
+    "workingDays": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+    "backlogVisibilities": {
+        "Microsoft.EpicCategory": True,
+        "Microsoft.FeatureCategory": True,
+        "Microsoft.RequirementCategory": True,
+    },
+})
+
+# Read area path assignments
+field_values = get_team_field_values(team_api)
+print(field_values["defaultValue"])   # default area path
+for entry in field_values["values"]:
+    print(entry["value"], entry["includeChildren"])
+
+# Write area path assignments
+patch_team_field_values(team_api, {
+    "defaultValue": "MyProject\\Team A",
+    "values": [
+        {"value": "MyProject\\Team A", "includeChildren": True},
+    ],
+})
+
+# Read iteration subscriptions
+iterations = get_team_iterations(team_api)
+for it in iterations:
+    print(it["id"], it["name"])
+
+# Subscribe/unsubscribe the team to an iteration node
+add_team_iteration(team_api, iteration_id="<classification-node-guid>")
+remove_team_iteration(team_api, iteration_id="<classification-node-guid>")
+```
+
+---
+
+## Policy configuration — raw API
+
+The typed policy model helpers (see [Branch and repository policies](#branch-and-repository-policies))
+are the recommended way to create policies. The raw functions below are useful
+when you need to manage policies programmatically without a typed model, or to
+read/update/delete an existing policy by its numeric ID.
+
+```python
+from pyado.raw.repos.policy import (
+    get_policy_configuration_api_call,
+    get_policy_configuration,
+    post_policy_configuration,
+    put_policy_configuration,
+    delete_policy_configuration,
+    PolicyConfigurationRequest,
+    PolicyTypeIdRef,
+    PolicyScope,
+    PolicyScopeMatchKind,
+)
+
+# Derive a policy-scoped ApiCall (appends …/policy/configurations/{id})
+policy_api = get_policy_configuration_api_call(project_api, policy_id=42)
+
+# Read a single policy configuration
+info = get_policy_configuration(policy_api)
+print(info.id, info.is_enabled, info.is_blocking, info.settings)
+
+# Create a new policy configuration
+info = post_policy_configuration(
+    project_api,
+    PolicyConfigurationRequest(
+        is_enabled=True,
+        is_blocking=True,
+        type=PolicyTypeIdRef(id="<policy-type-uuid>"),
+        settings={
+            "scope": [
+                {
+                    "repositoryId": "<repo-guid>",
+                    "refName": "refs/heads/main",
+                    "matchKind": "Exact",
+                }
+            ],
+            # ... policy-type-specific settings
+        },
+    ),
+)
+print(info.id)
+
+# Replace an existing policy configuration (full PUT)
+policy_api = get_policy_configuration_api_call(project_api, info.id)
+updated = put_policy_configuration(policy_api, request)
+
+# Delete a policy configuration
+delete_policy_configuration(policy_api)
 ```
 
 ---

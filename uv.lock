@@ -938,7 +938,7 @@ dependencies = [
 ]
 name = "pyado"
 source = {editable = "."}
-version = "0.8.0"
+version = "0.8.1"
 
 [package.dev-dependencies]
 dev = [

@@ -194,16 +194,49 @@ class TestPutVariableGroup:
             put_variable_group(api_call, self._make_update_request())
         assert mock_req.call_args.args[0] == "PUT"
 
-    def test_excludes_none_fields_from_payload(self, api_call: ApiCall) -> None:
-        """None optional fields (description, providerData) are omitted from PUT."""
+    def test_excludes_none_optional_fields_from_payload(
+        self, api_call: ApiCall
+    ) -> None:
+        """None optional fields (providerData) are omitted from PUT."""
         mock_response = _make_mock_response(make_variable_group_dict())
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
             put_variable_group(api_call, self._make_update_request())
         sent_json = mock_req.call_args.kwargs.get("json") or {}
-        assert "description" not in sent_json
         assert "providerData" not in sent_json
+
+    def test_description_always_sent_when_none(self, api_call: ApiCall) -> None:
+        """``description`` is always present in the PUT body even when None.
+
+        ADO's variable-group PUT is a full replace: omitting the field causes
+        ADO to clear any existing description.  The raw layer must always
+        include ``description`` so that callers can preserve a null/empty value
+        without silently wiping a non-null one.
+        """
+        mock_response = _make_mock_response(make_variable_group_dict())
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            put_variable_group(api_call, self._make_update_request())
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert "description" in sent_json
+        assert sent_json["description"] is None
+
+    def test_description_sent_when_provided(self, api_call: ApiCall) -> None:
+        """``description`` value is included verbatim in the PUT body."""
+        mock_response = _make_mock_response(make_variable_group_dict())
+        request = VariableGroupUpdateRequest(
+            name="UpdatedGroup",
+            variables={},
+            description="My description",
+        )
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            put_variable_group(api_call, request)
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json["description"] == "My description"
 
 
 class TestDeleteVariableGroup:

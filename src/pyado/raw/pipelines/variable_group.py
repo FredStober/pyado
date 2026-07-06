@@ -177,10 +177,14 @@ def put_variable_group(
     Returns:
         Updated VariableGroupInfo parsed from the API response.
     """
-    response = variable_group_api_call.put(
-        version="7.1",
-        json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
-    )
+    body = request.model_dump(mode="json", by_alias=True, exclude_none=True)
+    # ADO's variable-group PUT is a full replace: omitting ``description``
+    # causes ADO to clear it.  Always include the field so that a ``None``
+    # (or empty-string) value is sent explicitly and the existing description
+    # is not silently wiped.
+    if "description" not in body:
+        body["description"] = request.description
+    response = variable_group_api_call.put(version="7.1", json=body)
     return VariableGroupInfo.model_validate(response)
 
 
