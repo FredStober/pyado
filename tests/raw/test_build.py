@@ -238,6 +238,25 @@ class TestGetBuildDetails:
         assert result.status == "inProgress"
 
     @staticmethod
+    def test_returns_build_details_with_repository_missing_name(
+        api_call: ApiCall,
+    ) -> None:
+        """Returns BuildDetails when a scoped job token is involved.
+
+        In that case the repository object is without name/url (only id and type).
+        """
+        response_data = make_build_details_dict(
+            repository={"id": "repo-id", "type": "TfsGit"}
+        )
+        mock_response = _make_mock_response(response_data)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_build_details(api_call)
+        assert result.repository is not None
+        assert result.repository.id == "repo-id"
+        assert result.repository.name is None
+        assert result.repository.url is None
+
+    @staticmethod
     def test_expand_param_forwarded_as_dollar_expand(api_call: ApiCall) -> None:
         """When expand is provided, $expand query parameter is included."""
         mock_response = _make_mock_response(make_build_details_dict())

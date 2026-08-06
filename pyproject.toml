@@ -48,7 +48,7 @@ license = "MIT"
 name = "pyado"
 readme = "README.md"
 requires-python = ">=3.11"
-version = "0.8.1"
+version = "0.8.2"
 
 [project.optional-dependencies]
 azure = ["azure-core>=1.41.0"]

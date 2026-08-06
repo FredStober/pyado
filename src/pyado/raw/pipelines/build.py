@@ -336,10 +336,15 @@ class _BuildRecordInfoResults(AdoBaseModel):
 
 
 class _BuildRepository(AdoBaseModel):
-    """Repository associated with a build run."""
+    """Repository associated with a build run.
+
+    ``name`` and ``url`` are absent when the caller's token lacks
+    repository read scope (e.g. a job's ``System.AccessToken``), even
+    though ``id`` and ``type`` are always returned.
+    """
 
     id: str
-    name: str
+    name: str | None = None
     type: str
     url: str | None = None
 
