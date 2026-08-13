@@ -18,6 +18,7 @@ from pydantic.networks import AnyUrl
 
 from pyado.raw._core import AdoBaseModel, ApiCall, _IdentityRef
 from pyado.raw.pipelines.build import (
+    BuildId,
     BuildLogId,
     BuildLogInfo,
     BuildRecordInfo,
@@ -35,6 +36,7 @@ __all__ = [
     "JobFeedPayload",
     "JobId",
     "PipelineApproval",
+    "PipelineApprovalExpand",
     "PipelineApprovalStatus",
     "PipelineApprovalStep",
     "PipelineApprovalUpdateRequest",
@@ -123,6 +125,14 @@ class PipelineApprovalStatus(StrEnum):
     UNDEFINED = "undefined"
 
 
+class PipelineApprovalExpand(StrEnum):
+    """Additional details to include when querying pipeline approvals."""
+
+    NONE = "none"
+    STEPS = "steps"
+    PERMISSIONS = "permissions"
+
+
 class PipelineInfo(AdoBaseModel):
     """A pipeline definition returned by the Pipelines REST API."""
 
@@ -202,6 +212,25 @@ class PipelineApprovalStep(AdoBaseModel):
     comment: str | None = None
 
 
+class _PipelineApprovalPipelineOwner(AdoBaseModel):
+    """Internal: the ``pipeline.owner`` object on a pipeline approval.
+
+    Despite the generic name, this identifies the pipeline *run*
+    (build) the approval blocks, not the pipeline definition.
+    """
+
+    id: BuildId
+    name: str
+
+
+class _PipelineApprovalPipeline(AdoBaseModel):
+    """Internal: the ``pipeline`` object on a pipeline approval."""
+
+    id: PipelineId
+    name: str
+    owner: _PipelineApprovalPipelineOwner
+
+
 class PipelineApproval(AdoBaseModel):
     """A pipeline environment approval request."""
 
@@ -212,6 +241,16 @@ class PipelineApproval(AdoBaseModel):
     blocked_approvers: list[_IdentityRef] = Field(default_factory=list)
     min_required_approvers: int = 1
     created_on: datetime | None = None
+    pipeline: _PipelineApprovalPipeline | None = None
+
+    @property
+    def build_id(self) -> BuildId | None:
+        """Id of the build (pipeline run) this approval blocks.
+
+        ``None`` if the API response did not include pipeline
+        ownership info.
+        """
+        return self.pipeline.owner.id if self.pipeline is not None else None
 
 
 class _PipelineApprovalResults(AdoBaseModel):
@@ -221,22 +260,27 @@ class _PipelineApprovalResults(AdoBaseModel):
 
 
 class _ApprovalsQuery(AdoBaseModel):
-    """Internal: query parameters for the approvals list endpoint."""
+    """Internal: query parameters for the approvals query endpoint."""
 
-    state: PipelineApprovalStatus | None = None
-    pipeline_run_ids: list[int] | None = Field(
-        default=None, serialization_alias="pipelineIds"
+    approval_ids: list[ApprovalId] | None = Field(
+        default=None, serialization_alias="approvalIds"
     )
+    expand: PipelineApprovalExpand | None = Field(
+        default=None, serialization_alias="$expand"
+    )
+    user_ids: list[str] | None = Field(default=None, serialization_alias="userIds")
+    state: PipelineApprovalStatus | None = None
+    top: int | None = None
 
-    @field_serializer("pipeline_run_ids")
+    @field_serializer("approval_ids", "user_ids")
     @staticmethod
-    def _serialise_run_ids(value: list[int] | None) -> str | None:
-        """Serialise run IDs to a comma-separated string.
+    def _serialise_id_list(value: list[str] | None) -> str | None:
+        """Serialise an ID list to a comma-separated string.
 
         Returns:
-            Comma-separated string of run IDs, or ``None`` if the list is ``None``.
+            Comma-separated string of IDs, or ``None`` if the list is ``None``.
         """
-        return ",".join(str(rid) for rid in value) if value is not None else None
+        return ",".join(value) if value is not None else None
 
 
 class PipelineApprovalUpdateRequest(AdoBaseModel):
@@ -560,21 +604,44 @@ def patch_timeline_records(
 def iter_approvals(
     project_api_call: ApiCall,
     state: PipelineApprovalStatus | None = None,
-    pipeline_run_ids: list[int] | None = None,
+    *,
+    approval_ids: list[ApprovalId] | None = None,
+    expand: PipelineApprovalExpand | None = None,
+    user_ids: list[str] | None = None,
+    top: int | None = None,
 ) -> Iterator[PipelineApproval]:
     """Iterate over pipeline approvals in the project.
 
+    The underlying endpoint returns at most 250 approvals and does not
+    expose a continuation token, so an unfiltered call silently
+    truncates once the project has more than 250 approvals of any
+    status. ``state`` is applied server-side before that cap, so pass
+    it whenever possible to get a complete result — e.g.
+    ``state=PipelineApprovalStatus.PENDING`` to reliably enumerate
+    every pending approval.
+
     Args:
         project_api_call: Project-level ADO API call.
-        state: Optional status filter. If None, all approvals are returned.
-        pipeline_run_ids: Optional list of pipeline run IDs (identical to
-            build IDs for Pipelines v2 runs) to restrict results to approvals
-            belonging to those runs.
+        state: Optional status filter, applied server-side. If None,
+            all approvals are returned (subject to the 250-row cap
+            above).
+        approval_ids: Optional list of approval UUIDs to fetch.
+        expand: Optional additional details to include in the returned
+            approvals (steps and/or permissions).
+        user_ids: Optional list of user IDs or descriptors the
+            approvals are assigned to.
+        top: Optional maximum number of approvals to return.
 
     Yields:
         PipelineApproval for each matching approval.
     """
-    query = _ApprovalsQuery(state=state, pipeline_run_ids=pipeline_run_ids)
+    query = _ApprovalsQuery(
+        approval_ids=approval_ids,
+        expand=expand,
+        user_ids=user_ids,
+        state=state,
+        top=top,
+    )
     parameters = query.model_dump(mode="json", by_alias=True, exclude_none=True)
     response = project_api_call.get(
         "pipelines",

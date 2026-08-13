@@ -24,6 +24,7 @@ from pyado.raw import (
     BuildStatus,
     JobEventName,
     JobEventResult,
+    PipelineApproval,
     PipelineApprovalStatus,
     PipelineResourcePermissions,
     PipelineResourceType,
@@ -131,17 +132,6 @@ class TestIterPendingApprovals:
             list(iter_pending_approvals(api_call))
         params = mock_req.call_args.kwargs.get("params") or {}
         assert params.get("state") == "pending"
-
-    @staticmethod
-    def test_forwards_pipeline_run_ids(api_call: ApiCall) -> None:
-        """Forwards pipeline_run_ids as pipelineIds query parameter."""
-        mock_response = _make_mock_response({"value": []})
-        with patch.object(
-            requests.Session, "request", return_value=mock_response
-        ) as mock_req:
-            list(iter_pending_approvals(api_call, pipeline_run_ids=[7]))
-        params = mock_req.call_args.kwargs.get("params") or {}
-        assert params.get("pipelineIds") == "7"
 
 
 class TestApprovePipeline:
@@ -474,18 +464,35 @@ class TestPipelineRunProperties:
         assert mock_get.call_args.args[1] == 7
         assert mock_get.call_args.args[2] == 55
 
-    def test_iter_approvals_scopes_to_run_id(self) -> None:
-        """Passes the run ID as pipeline_run_ids to raw.iter_approvals."""
+    def test_iter_approvals_filters_to_run_id_locally(self) -> None:
+        """Filters the project-wide approvals to this run's id.
+
+        The endpoint has no run-scoping filter, so PipelineRun.iter_approvals
+        must filter the unscoped raw.iter_approvals results itself.
+        """
         run = PipelineRun(_make_pipeline(), _pipeline_run_info(run_id=55))
+        approvals = [
+            PipelineApproval(
+                id="a",
+                status="pending",
+                pipeline={"id": 1, "name": "p", "owner": {"id": 55, "name": "b"}},
+            ),
+            PipelineApproval(
+                id="b",
+                status="pending",
+                pipeline={"id": 1, "name": "p", "owner": {"id": 99, "name": "b"}},
+            ),
+        ]
         with patch(
-            "pyado.oop.pipelines.pipeline.raw.iter_approvals", return_value=iter([])
+            "pyado.oop.pipelines.pipeline.raw.iter_approvals",
+            return_value=iter(approvals),
         ) as mock_iter:
-            list(run.iter_approvals())
+            result = list(run.iter_approvals())
         mock_iter.assert_called_once_with(
             run.api_call,
             state=None,
-            pipeline_run_ids=[55],
         )
+        assert [approval.id for approval in result] == ["a"]
 
     def test_iter_approvals_passes_state_filter(self) -> None:
         """Forwards the state argument to raw.iter_approvals."""
@@ -497,7 +504,6 @@ class TestPipelineRunProperties:
         mock_iter.assert_called_once_with(
             run.api_call,
             state=PipelineApprovalStatus.PENDING,
-            pipeline_run_ids=[10],
         )
 
     def test_list_approvals_delegates_to_iter(self) -> None:

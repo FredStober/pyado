@@ -12,6 +12,7 @@ from pyado.raw import (
     ApiCall,
     JobEventPayload,
     PipelineApproval,
+    PipelineApprovalExpand,
     PipelineApprovalStatus,
     PipelineInfo,
     PipelineResourcePermissions,
@@ -237,26 +238,120 @@ class TestIterApprovals:
         assert "state" not in params
 
     @staticmethod
-    def test_passes_pipeline_run_ids_as_comma_separated(api_call: ApiCall) -> None:
-        """Serialises run IDs to a comma-separated pipelineIds query param."""
+    def test_passes_approval_ids_as_comma_separated(api_call: ApiCall) -> None:
+        """Serialises approval IDs to a comma-separated approvalIds param."""
         mock_response = _make_mock_response({"value": []})
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            list(iter_approvals(api_call, pipeline_run_ids=[42, 99]))
+            list(iter_approvals(api_call, approval_ids=["a", "b"]))
         params = mock_req.call_args.kwargs.get("params") or {}
-        assert params.get("pipelineIds") == "42,99"
+        assert params.get("approvalIds") == "a,b"
 
     @staticmethod
-    def test_omits_pipeline_run_ids_when_none(api_call: ApiCall) -> None:
-        """Omits pipelineIds query parameter when pipeline_run_ids is None."""
+    def test_omits_approval_ids_when_none(api_call: ApiCall) -> None:
+        """Omits approvalIds query parameter when approval_ids is None."""
         mock_response = _make_mock_response({"value": []})
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
             list(iter_approvals(api_call))
         params = mock_req.call_args.kwargs.get("params") or {}
-        assert "pipelineIds" not in params
+        assert "approvalIds" not in params
+
+    @staticmethod
+    def test_passes_user_ids_as_comma_separated(api_call: ApiCall) -> None:
+        """Serialises user IDs to a comma-separated userIds param."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(iter_approvals(api_call, user_ids=["user-1", "user-2"]))
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params.get("userIds") == "user-1,user-2"
+
+    @staticmethod
+    def test_omits_user_ids_when_none(api_call: ApiCall) -> None:
+        """Omits userIds query parameter when user_ids is None."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(iter_approvals(api_call))
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert "userIds" not in params
+
+    @staticmethod
+    def test_passes_expand_parameter(api_call: ApiCall) -> None:
+        """Passes $expand as a query parameter when provided."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(
+                iter_approvals(
+                    api_call,
+                    expand=cast("PipelineApprovalExpand", "steps"),
+                )
+            )
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params.get("$expand") == "steps"
+
+    @staticmethod
+    def test_omits_expand_when_none(api_call: ApiCall) -> None:
+        """Omits $expand query parameter when expand is None."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(iter_approvals(api_call))
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert "$expand" not in params
+
+    @staticmethod
+    def test_passes_top_parameter(api_call: ApiCall) -> None:
+        """Passes top as a query parameter when provided."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(iter_approvals(api_call, top=10))
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params.get("top") == 10
+
+    @staticmethod
+    def test_omits_top_when_none(api_call: ApiCall) -> None:
+        """Omits top query parameter when top is None."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            list(iter_approvals(api_call))
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert "top" not in params
+
+    @staticmethod
+    def test_build_id_reads_pipeline_owner_id(api_call: ApiCall) -> None:
+        """build_id resolves to the pipeline.owner.id field."""
+        approval_dict = _make_approval_dict(
+            pipeline={
+                "id": 82,
+                "name": "ics-test-pr-checks",
+                "owner": {"id": 29269, "name": "20260813.28"},
+            }
+        )
+        mock_response = _make_mock_response({"value": [approval_dict]})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = list(iter_approvals(api_call))
+        assert result[0].build_id == 29269
+
+    @staticmethod
+    def test_build_id_is_none_without_pipeline_info(api_call: ApiCall) -> None:
+        """build_id is None when the response omits pipeline ownership."""
+        mock_response = _make_mock_response({"value": [_make_approval_dict()]})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = list(iter_approvals(api_call))
+        assert result[0].build_id is None
 
 
 def _make_pipeline_dict(**overrides: Any) -> dict[str, Any]:
