@@ -30,6 +30,7 @@ from pyado.raw import (
     BuildRecordInfo,
     BuildResult,
     BuildStatus,
+    PipelineApproval,
     PipelineApprovalStatus,
     PipelineRunInfo,
     WorkItemRef,
@@ -818,21 +819,40 @@ class TestBuildDownloadArtifact:
         assert result is None
 
 
+def _make_approval(approval_id: str, build_id: int | None) -> PipelineApproval:
+    """Build a PipelineApproval owned by *build_id* (or with no pipeline info)."""
+    pipeline = (
+        {"id": 1, "name": "p", "owner": {"id": build_id, "name": "b"}}
+        if build_id is not None
+        else None
+    )
+    return PipelineApproval(id=approval_id, status="pending", pipeline=pipeline)
+
+
 class TestBuildIterApprovals:
     """Tests for Build.iter_approvals and Build.list_approvals."""
 
-    def test_iter_approvals_scopes_to_build_run_id(self) -> None:
-        """Passes the build ID as pipeline_run_ids to raw.iter_approvals."""
+    def test_iter_approvals_filters_to_build_run_id_locally(self) -> None:
+        """Filters the project-wide approvals to this build's id.
+
+        The endpoint has no run-scoping filter, so Build.iter_approvals must
+        filter the unscoped raw.iter_approvals results itself.
+        """
         build = _make_build(build_id=42)
+        approvals = [
+            _make_approval("a", build_id=42),
+            _make_approval("b", build_id=99),
+        ]
         with patch(
-            "pyado.oop.pipelines.build.raw.iter_approvals", return_value=iter([])
+            "pyado.oop.pipelines.build.raw.iter_approvals",
+            return_value=iter(approvals),
         ) as mock_iter:
-            list(build.iter_approvals())
+            result = list(build.iter_approvals())
         mock_iter.assert_called_once_with(
             build._project.api_call,
             state=None,
-            pipeline_run_ids=[42],
         )
+        assert [approval.id for approval in result] == ["a"]
 
     def test_iter_approvals_passes_state_filter(self) -> None:
         """Forwards the state argument to raw.iter_approvals."""
@@ -844,7 +864,6 @@ class TestBuildIterApprovals:
         mock_iter.assert_called_once_with(
             build._project.api_call,
             state=PipelineApprovalStatus.PENDING,
-            pipeline_run_ids=[7],
         )
 
     def test_list_approvals_delegates_to_iter(self) -> None:

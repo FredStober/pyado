@@ -232,14 +232,14 @@ def reject_pipeline(
 
 def iter_pending_approvals(
     project_api_call: ApiCall,
-    pipeline_run_ids: list[int] | None = None,
 ) -> Iterator[PipelineApproval]:
     """Iterate over pending pipeline approvals in the project.
 
+    To scope to specific runs, filter the yielded approvals by
+    :attr:`PipelineApproval.build_id` instead.
+
     Args:
         project_api_call: Project-level ADO API call.
-        pipeline_run_ids: Optional list of pipeline run IDs to restrict
-            results to approvals belonging to those runs.
 
     Yields:
         PipelineApproval for each pending approval.
@@ -247,5 +247,4 @@ def iter_pending_approvals(
     yield from iter_approvals(
         project_api_call,
         state=PipelineApprovalStatus.PENDING,
-        pipeline_run_ids=pipeline_run_ids,
     )

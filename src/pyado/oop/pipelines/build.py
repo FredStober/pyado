@@ -291,22 +291,28 @@ class Build:
     ) -> Iterator[PipelineApproval]:
         """Iterate over environment approvals for this build.
 
-        Scoped to this build's run ID, so only approvals that belong to
-        this specific run are returned.
+        The underlying endpoint has no filter for the pipeline run
+        (build) an approval belongs to, so this fetches approvals
+        across the whole project (scoped by *state*, to stay under
+        that endpoint's 250-row cap) and filters to this build's id
+        locally.
 
         Args:
             state: Optional status filter (e.g.
                 ``PipelineApprovalStatus.PENDING``).  When ``None``, approvals
-                in all states are returned.
+                in all states are returned — subject to the endpoint's
+                250-row cap across the whole project, so pass a *state*
+                whenever the caller only cares about one status.
 
         Yields:
             PipelineApproval for each matching approval on this build.
         """
-        yield from raw.iter_approvals(
+        for approval in raw.iter_approvals(
             self._project.api_call,
             state=state,
-            pipeline_run_ids=[self.id],
-        )
+        ):
+            if approval.build_id == self.id:
+                yield approval
 
     def list_approvals(
         self,
