@@ -34,6 +34,7 @@ __all__ = [
     "AzureDevOpsHttpError",
     "AzureDevOpsNotFoundError",
     "AzureDevOpsService",
+    "AzureDevOpsThrottledError",
     "BasePolicyModel",
     "Branch",
     "BranchName",
@@ -380,6 +381,7 @@ from pyado.exceptions import (
     AzureDevOpsError,
     AzureDevOpsHttpError,
     AzureDevOpsNotFoundError,
+    AzureDevOpsThrottledError,
 )
 from pyado.oop import (
     AddFile,

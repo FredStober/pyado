@@ -8,7 +8,7 @@ import pytest
 import requests
 import requests.auth
 
-from pyado.exceptions import AzureDevOpsAuthError
+from pyado.exceptions import AzureDevOpsAuthError, AzureDevOpsThrottledError
 from pyado.raw._core import ApiCall, _BearerAuth, _is_login_redirect, _setup_session
 
 _BEARER_TOKEN = "my-token"
@@ -107,3 +107,28 @@ class TestParseResponse:
 
         with pytest.raises(AzureDevOpsAuthError):
             ApiCall._parse_response(response)
+
+    def _make_throttled_response(self, retry_after: str | None) -> MagicMock:
+        response = MagicMock(spec=requests.Response)
+        response.status_code = 429
+        response.headers = (
+            {"Retry-After": retry_after} if retry_after is not None else {}
+        )
+        response.json.return_value = {"message": "Rate limit exceeded"}
+        response.raise_for_status.side_effect = requests.HTTPError(response=response)
+        return response
+
+    def test_throttled_response_carries_retry_after_seconds(self) -> None:
+        response = self._make_throttled_response(retry_after="30")
+
+        with pytest.raises(AzureDevOpsThrottledError) as exc_info:
+            ApiCall._parse_response(response)
+        assert exc_info.value.retry_after_seconds == pytest.approx(30.0)
+        assert exc_info.value.status_code == 429
+
+    def test_throttled_response_without_retry_after_header(self) -> None:
+        response = self._make_throttled_response(retry_after=None)
+
+        with pytest.raises(AzureDevOpsThrottledError) as exc_info:
+            ApiCall._parse_response(response)
+        assert exc_info.value.retry_after_seconds is None

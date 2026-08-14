@@ -9,6 +9,7 @@ __all__ = [
     "AzureDevOpsError",
     "AzureDevOpsHttpError",
     "AzureDevOpsNotFoundError",
+    "AzureDevOpsThrottledError",
 ]
 
 
@@ -50,3 +51,30 @@ class AzureDevOpsConflictError(AzureDevOpsHttpError):
 
 class AzureDevOpsBadRequestError(AzureDevOpsHttpError):
     """HTTP 400 from the Azure DevOps API (malformed or invalid request)."""
+
+
+class AzureDevOpsThrottledError(AzureDevOpsHttpError):
+    """HTTP 429 from the Azure DevOps API (rate limited).
+
+    Attributes:
+        retry_after_seconds: Value of the response's ``Retry-After``
+            header, in seconds, or None if the server did not send
+            one. Callers should wait at least this long before
+            retrying.
+    """
+
+    def __init__(
+        self,
+        status_code: int,
+        message: str,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        """Construct the error.
+
+        Args:
+            status_code: HTTP status code (429).
+            message: Human-readable error message from the API.
+            retry_after_seconds: Server-provided cooldown, if any.
+        """
+        super().__init__(status_code, message)
+        self.retry_after_seconds = retry_after_seconds

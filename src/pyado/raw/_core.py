@@ -23,6 +23,7 @@ from pyado.exceptions import (
     AzureDevOpsError,
     AzureDevOpsHttpError,
     AzureDevOpsNotFoundError,
+    AzureDevOpsThrottledError,
 )
 
 __all__ = [
@@ -35,6 +36,7 @@ __all__ = [
     "AzureDevOpsError",
     "AzureDevOpsHttpError",
     "AzureDevOpsNotFoundError",
+    "AzureDevOpsThrottledError",
     "HtmlTextFilter",
     "JsonPatchAdd",
     "JsonPatchRemove",
@@ -132,6 +134,7 @@ _HTTP_EXCEPTION_MAP: dict[int, type[AzureDevOpsHttpError]] = {
     403: AzureDevOpsAuthError,
     404: AzureDevOpsNotFoundError,
     409: AzureDevOpsConflictError,
+    429: AzureDevOpsThrottledError,
 }
 
 
@@ -303,6 +306,7 @@ class ApiCall(BaseModel):
 
         Raises:
             AzureDevOpsAuthError: If the response indicates an authentication failure.
+            AzureDevOpsThrottledError: If the response is HTTP 429.
             ValueError: If the response body cannot be parsed as JSON.
         """
         try:
@@ -312,6 +316,15 @@ class ApiCall(BaseModel):
             exc_class = _HTTP_EXCEPTION_MAP.get(
                 response.status_code, AzureDevOpsHttpError
             )
+            if exc_class is AzureDevOpsThrottledError:
+                retry_after_seconds = None
+                with suppress(ValueError, TypeError):
+                    retry_after_seconds = float(response.headers.get("Retry-After", ""))
+                raise AzureDevOpsThrottledError(
+                    response.status_code,
+                    error_message,
+                    retry_after_seconds=retry_after_seconds,
+                ) from ex
             raise exc_class(response.status_code, error_message) from ex
         if raw:
             return response.content
