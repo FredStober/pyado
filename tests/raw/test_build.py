@@ -1155,7 +1155,7 @@ class TestListBuildWorkItemIds:
         ) as m:
             result = list_build_work_item_ids(api_call)
         assert result == []
-        m.assert_called_once_with(api_call)
+        m.assert_called_once_with(api_call, top=10000)
 
 
 class TestListBuilds:

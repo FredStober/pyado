@@ -80,17 +80,20 @@ def cancel_pipeline_run(
     return get_pipeline_run(project_api_call, pipeline_id, run_id)
 
 
-def iter_build_work_item_ids(build_api_call: ApiCall) -> Iterator[WorkItemId]:
+def iter_build_work_item_ids(
+    build_api_call: ApiCall, *, top: int = 10000
+) -> Iterator[WorkItemId]:
     """Iterate over work item IDs linked to a build.
 
     Args:
         build_api_call: Build-level ADO API call (from
             raw.get_build_api_call).
+        top: Maximum number of work item ids to return.
 
     Yields:
         Integer work item IDs associated with the build.
     """
-    for ref in _iter_build_work_item_ids(build_api_call):
+    for ref in _iter_build_work_item_ids(build_api_call, top=top):
         yield ref.id
 
 

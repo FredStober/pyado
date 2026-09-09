@@ -1040,28 +1040,34 @@ def iter_pull_request_commits(pr_api_call: ApiCall) -> Iterator[GitCommitRef]:
     yield from _GitCommitRefResults.model_validate(response).value
 
 
-def iter_pull_request_work_item_ids(pr_api_call: ApiCall) -> Iterator[WorkItemRef]:
+def iter_pull_request_work_item_ids(
+    pr_api_call: ApiCall, *, top: int = 10000
+) -> Iterator[WorkItemRef]:
     """Iterate over work items linked to a pull request.
+
+    The ``pullRequests/{pullRequestId}/workitems`` endpoint does not
+    document (or appear to honor) ``$skip`` — passing it is silently
+    ignored by the API, so a loop that increments ``$skip`` and stops
+    once a page comes back short of ``page_size`` never terminates,
+    since every "page" it fetches is identical to the first. A single
+    call is the correct way to fetch everything this endpoint has to
+    offer; ``top`` is passed through for forward-compatibility but the
+    endpoint does not currently document honoring it either.
 
     Args:
         pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
+        top: Maximum number of work item ids to return.
 
     Yields:
         WorkItemRef for each work item associated with the pull request.
     """
-    page_size = 100
-    skip = 0
-    while True:
-        response = pr_api_call.get(
-            "workitems",
-            parameters={"$top": page_size, "$skip": skip},
-            version="7.1",
-        )
-        results = _WorkItemRefResults.model_validate(response)
-        yield from results.value
-        if len(results.value) < page_size:
-            break
-        skip += len(results.value)
+    response = pr_api_call.get(
+        "workitems",
+        parameters={"$top": top},
+        version="7.1",
+    )
+    results = _WorkItemRefResults.model_validate(response)
+    yield from results.value
 
 
 def get_pull_request_labels_details(pr_api_call: ApiCall) -> list[PullRequestLabel]:
@@ -1369,9 +1375,11 @@ def list_pull_request_commits(pr_api_call: ApiCall) -> list[GitCommitRef]:
     return list(iter_pull_request_commits(pr_api_call))
 
 
-def list_pull_request_work_item_ids(pr_api_call: ApiCall) -> list[WorkItemRef]:
+def list_pull_request_work_item_ids(
+    pr_api_call: ApiCall, *, top: int = 10000
+) -> list[WorkItemRef]:
     """Return all work item IDs linked to a pull request as a list."""
-    return list(iter_pull_request_work_item_ids(pr_api_call))
+    return list(iter_pull_request_work_item_ids(pr_api_call, top=top))
 
 
 def list_pull_request_statuses(pr_api_call: ApiCall) -> list[PullRequestStatusInfo]:

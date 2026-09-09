@@ -101,19 +101,33 @@ class TestIterBuildWorkItemIds:
         assert result == []
 
     @staticmethod
-    def test_paginates_when_first_page_is_full(api_call: ApiCall) -> None:
-        """Fetches a second page when the first response has exactly 100 items."""
+    def test_makes_a_single_request_even_with_a_full_page(api_call: ApiCall) -> None:
+        """Does not paginate.
+
+        The endpoint ignores $skip, so one request returning exactly
+        100 items must not trigger a second fetch.
+        """
         first_page = {"value": [{"id": str(idx)} for idx in range(100)]}
-        second_page = {"value": [{"id": "100"}]}
         mock_first = _make_mock_response(first_page)
-        mock_second = _make_mock_response(second_page)
         with patch.object(
-            requests.Session, "request", side_effect=[mock_first, mock_second]
-        ):
+            requests.Session, "request", return_value=mock_first
+        ) as mock_request:
             result = list(iter_build_work_item_ids(api_call))
-        assert len(result) == 101
+        assert len(result) == 100
         assert result[0] == 0
-        assert result[-1] == 100
+        assert result[-1] == 99
+        mock_request.assert_called_once()
+
+    @staticmethod
+    def test_passes_top_through(api_call: ApiCall) -> None:
+        """The top argument is forwarded as the $top query parameter."""
+        mock_response = _make_mock_response({"value": []})
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_request:
+            list(iter_build_work_item_ids(api_call, top=5))
+        _, kwargs = mock_request.call_args
+        assert kwargs["params"]["$top"] == 5
 
 
 class TestQueueBuild:

@@ -548,13 +548,18 @@ class PullRequest:
         for ref in raw.iter_pull_request_commits(self._api_call):
             yield Commit(self._repo, ref)
 
-    def iter_work_item_ids(self) -> Iterator[WorkItemId]:
+    def iter_work_item_ids(self, *, top: int = 10000) -> Iterator[WorkItemId]:
         """Iterate over work item IDs linked to the pull request.
+
+        Args:
+            top: Maximum number of work item ids to return.
 
         Yields:
             Integer work item IDs associated with the PR.
         """
-        yield from _pull_request.iter_pull_request_work_item_ids(self._api_call)
+        yield from _pull_request.iter_pull_request_work_item_ids(
+            self._api_call, top=top
+        )
 
     def iter_work_items(self) -> "Iterator[WorkItem]":
         """Iterate over work items linked to the pull request.
@@ -713,9 +718,9 @@ class PullRequest:
         """Return all commits in this pull request as a list."""
         return list(self.iter_commits())
 
-    def list_work_item_ids(self) -> list[WorkItemId]:
+    def list_work_item_ids(self, *, top: int = 10000) -> list[WorkItemId]:
         """Return all linked work item IDs as a list."""
-        return list(self.iter_work_item_ids())
+        return list(self.iter_work_item_ids(top=top))
 
     def list_work_items(self) -> "list[WorkItem]":
         """Return all linked work items as a list."""

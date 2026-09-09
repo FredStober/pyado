@@ -491,28 +491,34 @@ class _BuildStatusRequest(AdoBaseModel):
 # ---------------------------------------------------------------------------
 
 
-def iter_build_work_item_ids(build_api_call: ApiCall) -> Iterator[WorkItemRef]:
+def iter_build_work_item_ids(
+    build_api_call: ApiCall, *, top: int = 10000
+) -> Iterator[WorkItemRef]:
     """Iterate over work items linked to a build.
+
+    The ``builds/{buildId}/workitems`` endpoint only supports ``$top``
+    (a cap on the single response); it has no ``$skip`` or
+    continuation-token support. Passing ``$skip`` is silently ignored
+    by the API, so a loop that increments ``$skip`` and stops once a
+    page comes back short of ``page_size`` never terminates, since
+    every "page" it fetches is identical to the first. A single call
+    with a generously high ``$top`` is the correct and only way to
+    fetch everything this endpoint has to offer.
 
     Args:
         build_api_call: Build-level ADO API call (from get_build_api_call).
+        top: Maximum number of work item ids to return.
 
     Yields:
         WorkItemRef for each work item associated with the build.
     """
-    page_size = 100
-    skip = 0
-    while True:
-        response = build_api_call.get(
-            "workitems",
-            parameters={"$top": page_size, "$skip": skip},
-            version="7.0",
-        )
-        results = _WorkItemRefResults.model_validate(response)
-        yield from results.value
-        if len(results.value) < page_size:
-            break
-        skip += len(results.value)
+    response = build_api_call.get(
+        "workitems",
+        parameters={"$top": top},
+        version="7.0",
+    )
+    results = _WorkItemRefResults.model_validate(response)
+    yield from results.value
 
 
 def iter_work_items_between_builds(
@@ -841,9 +847,11 @@ def iter_pipeline_definitions(
     yield from _PipelineDefinitionResults.model_validate(response).value
 
 
-def list_build_work_item_ids(build_api_call: ApiCall) -> list[WorkItemRef]:
+def list_build_work_item_ids(
+    build_api_call: ApiCall, *, top: int = 10000
+) -> list[WorkItemRef]:
     """Return all work item IDs for a build as a list."""
-    return list(iter_build_work_item_ids(build_api_call))
+    return list(iter_build_work_item_ids(build_api_call, top=top))
 
 
 def list_work_items_between_builds(

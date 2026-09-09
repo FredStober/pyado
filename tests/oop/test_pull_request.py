@@ -111,21 +111,24 @@ class TestIterPrWorkItemIds:
 
 
 class TestIterPrWorkItemIdsPagination:
-    """Tests for iter_pull_request_work_item_ids pagination."""
+    """Tests for iter_pull_request_work_item_ids."""
 
     @staticmethod
-    def test_paginates_when_first_page_is_full(api_call: ApiCall) -> None:
-        """Fetches a second page when the first response has exactly 100 items."""
+    def test_makes_a_single_request_even_with_a_full_page(api_call: ApiCall) -> None:
+        """Does not paginate.
+
+        The endpoint ignores $skip, so one request returning exactly
+        100 items must not trigger a second fetch.
+        """
         first_page = {"value": [{"id": str(idx)} for idx in range(100)]}
-        second_page = {"value": [{"id": "100"}]}
         mock_first = _make_mock_response(first_page)
-        mock_second = _make_mock_response(second_page)
         with patch.object(
-            requests.Session, "request", side_effect=[mock_first, mock_second]
-        ):
+            requests.Session, "request", return_value=mock_first
+        ) as mock_request:
             result = list(iter_pull_request_work_item_ids(api_call))
-        assert len(result) == 101
-        assert result[-1] == 100
+        assert len(result) == 100
+        assert result[-1] == 99
+        mock_request.assert_called_once()
 
 
 class TestGetPrTags:
@@ -1147,7 +1150,7 @@ class TestPullRequestIterWorkItems:
             mock_api.side_effect = lambda _call, _id: _api_call()
             result = list(pr.iter_work_items())
         assert len(result) == 2
-        mock_ids.assert_called_once_with(pr.api_call)
+        mock_ids.assert_called_once_with(pr.api_call, top=10000)
 
     def test_yields_nothing_when_no_linked_items(self) -> None:
         pr = _make_pr()

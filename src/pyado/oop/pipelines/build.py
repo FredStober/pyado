@@ -454,13 +454,16 @@ class Build:
     # Work items
     # ------------------------------------------------------------------
 
-    def iter_work_item_ids(self) -> Iterator[WorkItemId]:
+    def iter_work_item_ids(self, *, top: int = 10000) -> Iterator[WorkItemId]:
         """Iterate over work item IDs associated with the build.
+
+        Args:
+            top: Maximum number of work item ids to return.
 
         Yields:
             Integer work item IDs linked to this build.
         """
-        yield from _build.iter_build_work_item_ids(self._api_call)
+        yield from _build.iter_build_work_item_ids(self._api_call, top=top)
 
     def iter_work_items(self) -> "Iterator[WorkItem]":
         """Iterate over work items associated with the build.
@@ -566,9 +569,9 @@ class Build:
         """Return all log entries for this build as a list."""
         return list(self.iter_logs())
 
-    def list_work_item_ids(self) -> list[WorkItemId]:
+    def list_work_item_ids(self, *, top: int = 10000) -> list[WorkItemId]:
         """Return all work item IDs for this build as a list."""
-        return list(self.iter_work_item_ids())
+        return list(self.iter_work_item_ids(top=top))
 
     def list_work_items(self) -> "list[WorkItem]":
         """Return all work items for this build as a list."""

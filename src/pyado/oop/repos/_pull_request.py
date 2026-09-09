@@ -59,16 +59,19 @@ def get_pull_request_tags(pr_api_call: ApiCall) -> list[str]:
     return [label.name for label in get_pull_request_labels_details(pr_api_call)]
 
 
-def iter_pull_request_work_item_ids(pr_api_call: ApiCall) -> Iterator[WorkItemId]:
+def iter_pull_request_work_item_ids(
+    pr_api_call: ApiCall, *, top: int = 10000
+) -> Iterator[WorkItemId]:
     """Iterate over work item IDs linked to a pull request.
 
     Args:
         pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
+        top: Maximum number of work item ids to return.
 
     Yields:
         Integer work item IDs associated with the pull request.
     """
-    for ref in _iter_pr_work_item_ids(pr_api_call):
+    for ref in _iter_pr_work_item_ids(pr_api_call, top=top):
         yield ref.id
 
 
