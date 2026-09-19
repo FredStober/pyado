@@ -52,7 +52,7 @@ class ProjectRepos:
         Yields:
             Repository for each repository in the project.
         """
-        service = self._project._service  # noqa: SLF001
+        service = self._project._service  # ruff: ignore[private-member-access]
         for info in raw.iter_repository_details(self._project.api_call):
             repo_api_call = raw.get_repository_api_call(self._project.api_call, info.id)
             cache_key = str(repo_api_call.url)
@@ -129,7 +129,7 @@ class ProjectRepos:
         Yields:
             PullRequest for each matching PR, in API-returned order.
         """
-        service = self._project._service  # noqa: SLF001
+        service = self._project._service  # ruff: ignore[private-member-access]
         effective_criteria = criteria or PullRequestSearchCriteria(status=status)
         for item in raw.iter_pull_requests(
             self._project.api_call,
@@ -189,7 +189,7 @@ class ProjectRepos:
         Raises:
             KeyError: If no PR with *pr_id* exists in this project.
         """
-        service = self._project._service  # noqa: SLF001
+        service = self._project._service  # ruff: ignore[private-member-access]
         if repo_id is not None:
             repo_api_call = raw.get_repository_api_call(self._project.api_call, repo_id)
             cache_key = str(repo_api_call.url)

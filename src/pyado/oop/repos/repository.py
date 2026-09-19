@@ -399,6 +399,37 @@ class Repository:
             raise AzureDevOpsNotFoundError(404, f"Branch not found: {name!r}")
         return ref.object_id
 
+    def is_ancestor(
+        self, ancestor_commit: CommitId, descendant_commit: CommitId
+    ) -> bool:
+        """Report whether one commit is a (non-strict) git ancestor of another.
+
+        Uses the commits search endpoint's ``compareVersion`` filter, which
+        returns commits reachable from ``itemVersion`` but not from
+        ``compareVersion`` — equivalent to
+        ``git log compareVersion..itemVersion``. Setting ``itemVersion`` to
+        *ancestor_commit* and ``compareVersion`` to *descendant_commit* and
+        checking for an empty result means every commit reachable from
+        *ancestor_commit* is already reachable from *descendant_commit*, i.e.
+        *descendant_commit* is a descendant of (or equal to) *ancestor_commit*.
+
+        Args:
+            ancestor_commit: Commit SHA to test as the potential ancestor.
+            descendant_commit: Commit SHA to test as the potential descendant.
+
+        Returns:
+            True if *ancestor_commit* is reachable from *descendant_commit*
+            (including the case where the two commits are equal).
+        """
+        criteria = GitCommitSearchCriteria(
+            item_version=ancestor_commit,
+            item_version_type=VersionDescriptorType.COMMIT,
+            compare_version=descendant_commit,
+            compare_version_type=VersionDescriptorType.COMMIT,
+            top=1,
+        )
+        return not raw.get_repository_commits(self._api_call, criteria)
+
     def check_branch_exists(self, name: BranchName) -> bool:
         """Return True if the branch exists in this repository.
 

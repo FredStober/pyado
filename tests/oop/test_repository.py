@@ -720,6 +720,37 @@ class TestRepositoryBranchHead:
         assert ref_filter.name_filter == "heads/main"
 
 
+class TestRepositoryIsAncestor:
+    def test_returns_true_when_no_commits_found(self) -> None:
+        with patch(
+            "pyado.oop.repos.repository.raw.get_repository_commits"
+        ) as mock_commits:
+            mock_commits.return_value = []
+            result = _make_repo().is_ancestor("ancestor_sha", "descendant_sha")
+        assert result is True
+
+    def test_returns_false_when_commits_found(self) -> None:
+        with patch(
+            "pyado.oop.repos.repository.raw.get_repository_commits"
+        ) as mock_commits:
+            mock_commits.return_value = [_git_commit_ref("some_sha")]
+            result = _make_repo().is_ancestor("ancestor_sha", "descendant_sha")
+        assert result is False
+
+    def test_builds_criteria_with_commit_version_types(self) -> None:
+        with patch(
+            "pyado.oop.repos.repository.raw.get_repository_commits"
+        ) as mock_commits:
+            mock_commits.return_value = []
+            _make_repo().is_ancestor("ancestor_sha", "descendant_sha")
+        criteria = mock_commits.call_args.args[1]
+        assert criteria.item_version == "ancestor_sha"
+        assert criteria.item_version_type == VersionDescriptorType.COMMIT
+        assert criteria.compare_version == "descendant_sha"
+        assert criteria.compare_version_type == VersionDescriptorType.COMMIT
+        assert criteria.top == 1
+
+
 # ---------------------------------------------------------------------------
 # A4 — optional current_commit on delete_branch and commit
 # ---------------------------------------------------------------------------

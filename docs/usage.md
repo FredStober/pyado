@@ -73,7 +73,7 @@ $ export AZURE_DEVOPS_EXT_PAT=<your-pat>
 ```python
 import pyado
 
-svc  = pyado.AzureDevOpsService()              # reads env vars
+svc = pyado.AzureDevOpsService()  # reads env vars
 proj = svc.org.get_project("MyProject")
 
 # 1. Read a work item
@@ -165,13 +165,14 @@ svc = pyado.AzureDevOpsService()
 
 # Azure identity / managed identity (any azure-identity TokenCredential)
 from azure.identity import DefaultAzureCredential
+
 svc = pyado.AzureDevOpsService(
     org="https://dev.azure.com/myorg",
     credential=DefaultAzureCredential(),
 )
 
 # Navigate to a project
-org  = svc.org
+org = svc.org
 proj = org.get_project("MyProject")
 ```
 
@@ -201,9 +202,9 @@ for pool in org.iter_agent_pools():
     print(pool.name, pool.is_hosted)
     for agent in pool.iter_agents():
         print(f"  {agent.name}  {agent.status}")
-    pool.list_agents()   # list variant
+    pool.list_agents()  # list variant
 
-pools = org.list_agent_pools()   # list variant
+pools = org.list_agent_pools()  # list variant
 pool = org.get_agent_pool("Default")
 
 # Org-wide search
@@ -212,7 +213,9 @@ from pyado.raw import CodeSearchRequest, SearchRequest
 for result in org.search.search_code(CodeSearchRequest(search_text="ApiCall", top=10)):
     print(result.file_name, result.path)
 
-for result in org.search.search_work_items(SearchRequest(search_text="memory leak", top=5)):
+for result in org.search.search_work_items(
+    SearchRequest(search_text="memory leak", top=5)
+):
     print(result.id, result.fields.get("System.Title"))
 
 # Notification subscriptions
@@ -245,11 +248,11 @@ proj.refresh()
 assert proj.org is org
 
 # Section objects — the main entry points for all sub-resources
-proj.repos       # ProjectRepos   — repositories, pull requests, branches, tags
-proj.boards      # ProjectBoards  — work items, iterations, areas, teams
-proj.pipelines   # ProjectPipelines — builds, runs, approvals, environments, library
-proj.search      # ProjectSearch  — code, work item, wiki, package search
-proj.settings    # ProjectSettings — policies, process info
+proj.repos  # ProjectRepos   — repositories, pull requests, branches, tags
+proj.boards  # ProjectBoards  — work items, iterations, areas, teams
+proj.pipelines  # ProjectPipelines — builds, runs, approvals, environments, library
+proj.search  # ProjectSearch  — code, work item, wiki, package search
+proj.settings  # ProjectSettings — policies, process info
 proj.pipelines.library  # PipelineLibrary — variable groups, secure files
 
 # Teams (convenience — delegates to proj.boards)
@@ -263,9 +266,9 @@ for wiki in proj.iter_wikis():
     pages = wiki.get_pages(recursion_level=2)
 
 # Dashboards
-for dashboard in proj.iter_dashboards():        # all teams
+for dashboard in proj.iter_dashboards():  # all teams
     print(dashboard.name, dashboard.team.name)
-for dashboard in proj.iter_dashboards(team):    # one team
+for dashboard in proj.iter_dashboards(team):  # one team
     print(dashboard.name)
 dashboard = proj.get_dashboard(dashboard_id)
 ```
@@ -273,8 +276,8 @@ dashboard = proj.get_dashboard(dashboard_id)
 ### Repository
 
 ```python
-repo = proj.repos.get_repository("myrepo")       # by name
-repo = proj.repos.get_repository_by_id(repo_uuid) # by UUID
+repo = proj.repos.get_repository("myrepo")  # by name
+repo = proj.repos.get_repository_by_id(repo_uuid)  # by UUID
 print(repo.name, repo.default_branch, repo.web_url)
 
 # List all repos
@@ -311,6 +314,10 @@ commit = repo.get_commit("abc123")
 for change in repo.iter_commit_diff("abc123", "def456"):
     print(change.change_type, change.item.path)
 
+# Ancestry check — is "abc123" reachable from "def456"?
+if repo.is_ancestor("abc123", "def456"):
+    print("def456 descends from abc123")
+
 # ACL
 acl = repo.get_acl()
 ```
@@ -319,25 +326,25 @@ acl = repo.get_acl()
 
 ```python
 # List tags in a repository
-for ref in repo.iter_git_tags():    # yields GitRef
+for ref in repo.iter_git_tags():  # yields GitRef
     print(ref.name, ref.object_id)
 
 # List tags as Tag objects (project-level convenience)
 for tag in proj.repos.iter_git_tags("myrepo"):
     print(tag.name, tag.full_name, tag.commit_id)
-tags = proj.repos.list_git_tags("myrepo")   # list variant
+tags = proj.repos.list_git_tags("myrepo")  # list variant
 
 # Create a lightweight tag
 repo.create_tag("v1.2.3", "abc123")
 
 # Delete a tag
-repo.remove_git_tag("v1.2.3", "abc123")   # requires current commit SHA
+repo.remove_git_tag("v1.2.3", "abc123")  # requires current commit SHA
 
 # Work with Tag objects
 tag = next(proj.repos.iter_git_tags("myrepo"))
-commit = tag.get_commit()            # resolves annotated tags automatically
-info   = tag.get_annotated_info()   # None for lightweight tags
-tag.delete()                         # removes the tag from the repo
+commit = tag.get_commit()  # resolves annotated tags automatically
+info = tag.get_annotated_info()  # None for lightweight tags
+tag.delete()  # removes the tag from the repo
 ```
 
 ### Committing files
@@ -346,16 +353,20 @@ tag.delete()                         # removes the tag from the repo
 from pyado import AddFile, EditFile, DeleteFile, RenameFile
 
 # Push a single commit (fetches current HEAD automatically)
-result = repo.commit("main", "chore: update config", [
-    EditFile("/config.json", '{"key": "value"}'),
-    DeleteFile("/old_config.json"),
-    AddFile("/new_file.txt", "hello"),
-    RenameFile("/a.json", "/b.json"),
-])
+result = repo.commit(
+    "main",
+    "chore: update config",
+    [
+        EditFile("/config.json", '{"key": "value"}'),
+        DeleteFile("/old_config.json"),
+        AddFile("/new_file.txt", "hello"),
+        RenameFile("/a.json", "/b.json"),
+    ],
+)
 print(result.commits[0].commit_id)
 
 # Advanced: build ref updates and commits manually
-ref_update = repo.make_ref_update("main")   # fetches current HEAD
+ref_update = repo.make_ref_update("main")  # fetches current HEAD
 result = repo.push_commits([ref_update], [pyado.make_commit("msg", [...])])
 ```
 
@@ -374,14 +385,14 @@ pr = repo.create_pull_request(
 pr = repo.get_pull_request(42)
 
 # List
-for pr in repo.iter_pull_requests():    # active by default
+for pr in repo.iter_pull_requests():  # active by default
     print(pr.id, pr.title, pr.status)
 
 for pr in proj.repos.iter_active_prs():  # across all repos in the project
     print(pr.repo.name, pr.title)
 
 # Find PR by source branch
-pr = repo.get_pr_for_branch("feature/my-branch")   # None if not found
+pr = repo.get_pr_for_branch("feature/my-branch")  # None if not found
 
 # Properties (no API call)
 print(pr.id, pr.title, pr.status, pr.source_branch, pr.target_branch)
@@ -413,13 +424,13 @@ thread = pr.add_thread(
 )
 pr.reply_to_thread(thread.id, "Fixed in the latest push.")
 pr.update_thread_status(thread.id, PullRequestThreadStatus.FIXED)
-thread = pr.get_thread(thread.id)        # fetch a single thread by ID
+thread = pr.get_thread(thread.id)  # fetch a single thread by ID
 for thread in pr.iter_threads():
     print(thread.status, thread.comments[0].content)
 
 # Work item association
-pr.link_work_item(wi)                         # artifact link on the work item
-pr.set_work_item_refs([wi.id])                # visible in the ADO PR page
+pr.link_work_item(wi)  # artifact link on the work item
+pr.set_work_item_refs([wi.id])  # visible in the ADO PR page
 for wi_id in pr.iter_work_item_ids():
     print(wi_id)
 
@@ -440,7 +451,7 @@ for iteration in pr.iter_iterations():
 
 # Lifecycle
 pr.update(title="New title", is_draft=False)
-pr.enable_auto_complete()                 # uses own identity automatically
+pr.enable_auto_complete()  # uses own identity automatically
 pr.enable_auto_complete("<identity-id>")  # or pass an explicit identity
 pr.disable_auto_complete()
 pr.complete(last_merge_source_commit="<sha>")
@@ -506,7 +517,7 @@ for child in wi.iter_children():
 wi.add_link(other_wi, WorkItemRelationType.CHILD)
 for rel in wi.iter_relations():
     print(rel.rel, rel.url)
-wi.remove_link(rel)   # remove by matching rel + url
+wi.remove_link(rel)  # remove by matching rel + url
 
 # Artifact links
 wi.link_pull_request(pr)
@@ -537,7 +548,7 @@ print(build.requested_by, build.requested_for)
 print(build.pipeline.name)
 
 # Pipeline run back-reference (Pipelines v2)
-run = build.pipeline_run   # PipelineRun or None
+run = build.pipeline_run  # PipelineRun or None
 
 # List builds
 for build in proj.pipelines.iter_builds(status_filter="completed"):
@@ -562,7 +573,7 @@ build.refresh()
 
 # Lifecycle
 build.cancel()
-build.cancel_run()   # cancel via Pipelines v2; returns PipelineRunInfo
+build.cancel_run()  # cancel via Pipelines v2; returns PipelineRunInfo
 
 # Tags
 build.add_tag("release-candidate")
@@ -573,7 +584,7 @@ for tag in build.iter_tags():
 # Artifacts
 for artifact in build.iter_artifacts():
     print(artifact.name, artifact.resource.download_url)
-build.download_artifact(artifact)   # returns bytes
+build.download_artifact(artifact)  # returns bytes
 
 # Pipeline environment approvals linked to this build
 for approval in build.iter_approvals():
@@ -593,13 +604,13 @@ task = build.find_task(lambda t: t.name == "Publish Test Results")
 # Logs
 for log_info in build.iter_logs():
     print(log_info.id)
-all_text = build.get_all_log_text()          # concatenates every log with "\n"
+all_text = build.get_all_log_text()  # concatenates every log with "\n"
 all_text = build.get_all_log_text(separator="\n---\n")
 
 # Work items
 for wi_id in build.iter_work_item_ids():
     print(wi_id)
-for wi in build.list_work_items():           # returns WorkItem objects
+for wi in build.list_work_items():  # returns WorkItem objects
     print(wi.title)
 for wi_id in build.iter_work_item_ids_between(older_build):
     print(wi_id)
@@ -619,8 +630,8 @@ active_task = build.get_distributed_task_session(
 ### Pipeline
 
 ```python
-pipeline = proj.pipelines.get_pipeline("deploy-prod")     # by name
-pipeline = proj.pipelines.get_pipeline_by_id(99)          # by numeric ID
+pipeline = proj.pipelines.get_pipeline("deploy-prod")  # by name
+pipeline = proj.pipelines.get_pipeline_by_id(99)  # by numeric ID
 print(pipeline.id, pipeline.name)
 
 # List
@@ -676,10 +687,12 @@ vg.set_variable("SECRET_VAR", "secret", is_secret=True)
 vg.delete_variable("OLD_VAR")
 
 # Replace the whole variable map
-vg.update({
-    **vg.variables,
-    "MY_VAR": VariableInfo(value="updated"),
-})
+vg.update(
+    {
+        **vg.variables,
+        "MY_VAR": VariableInfo(value="updated"),
+    }
+)
 vg.refresh()
 
 # Create a new variable group
@@ -715,12 +728,12 @@ field_values = team.get_field_values()
 
 # Assign iteration to team (or remove it)
 team.add_iteration(iteration_id)
-team.remove_iteration(iteration_id)   # also available as raw.delete_team_iteration
+team.remove_iteration(iteration_id)  # also available as raw.delete_team_iteration
 
 # Members
 for member in team.iter_members():
     print(member.identity.display_name)
-members = team.get_members()   # returns a list
+members = team.get_members()  # returns a list
 
 # Team dashboards
 for dashboard in team.iter_dashboards():
@@ -891,12 +904,14 @@ endpoint.update(
 )
 
 # Share with additional projects
-endpoint.share([
-    ServiceEndpointProjectReference(
-        project_reference={"id": "<project-id>", "name": "OtherProject"},
-        name=endpoint.name,
-    )
-])
+endpoint.share(
+    [
+        ServiceEndpointProjectReference(
+            project_reference={"id": "<project-id>", "name": "OtherProject"},
+            name=endpoint.name,
+        )
+    ]
+)
 
 # Delete from the current project
 endpoint.delete()
@@ -908,10 +923,10 @@ endpoint.delete()
 # Agent queues are the project-facing view of org-level agent pools
 for queue in proj.pipelines.iter_agent_queues():
     print(queue.id, queue.name, queue.pool_id)
-queues = proj.pipelines.list_agent_queues()   # list variant
+queues = proj.pipelines.list_agent_queues()  # list variant
 
-queue = proj.pipelines.get_agent_queue("Default")    # by name
-queue = proj.pipelines.get_agent_queue_by_id(42)     # by numeric ID
+queue = proj.pipelines.get_agent_queue("Default")  # by name
+queue = proj.pipelines.get_agent_queue_by_id(42)  # by numeric ID
 ```
 
 ---
@@ -965,10 +980,10 @@ from pyado.raw import (
     get_pull_request_api_call,
 )
 
-repo_api  = get_repository_api_call(api, repo_id)              # → …/git/repositories/{id}
-wi_api    = get_work_item_api_call(api, 123)                    # → …/wit/workitems/123
-build_api = get_build_api_call(api, build_id=1234)             # → …/build/builds/1234
-pr_api    = get_pull_request_api_call(api, repo_id, pr_id=42)  # → …/git/pullrequests/42
+repo_api = get_repository_api_call(api, repo_id)  # → …/git/repositories/{id}
+wi_api = get_work_item_api_call(api, 123)  # → …/wit/workitems/123
+build_api = get_build_api_call(api, build_id=1234)  # → …/build/builds/1234
+pr_api = get_pull_request_api_call(api, repo_id, pr_id=42)  # → …/git/pullrequests/42
 ```
 
 You can also call `build_call()` yourself if you need a custom scoped call:
@@ -993,6 +1008,7 @@ session = get_session(bearer_token="<token>")
 
 # Any azure-identity TokenCredential (e.g. DefaultAzureCredential)
 from azure.identity import DefaultAzureCredential
+
 session = get_session(azure_credentials=DefaultAzureCredential())
 ```
 
@@ -1026,7 +1042,12 @@ profile_api = get_profile_api_call(get_session(pat="<your-pat>"))
 IDs per call, the ADO API limit):
 
 ```python
-from pyado.raw import ApiCall, get_work_item_api_call, get_work_item, post_work_items_batch
+from pyado.raw import (
+    ApiCall,
+    get_work_item_api_call,
+    get_work_item,
+    post_work_items_batch,
+)
 
 items = post_work_items_batch(api, ids=[123, 456, 789])
 for item in items:
@@ -1093,7 +1114,7 @@ task = post_work_item(
     },
     relations=[
         WorkItemRelation(
-            rel="System.LinkTypes.Hierarchy-Reverse",   # parent link
+            rel="System.LinkTypes.Hierarchy-Reverse",  # parent link
             url="https://dev.azure.com/org/project/_workitems/edit/100",
         )
     ],
@@ -1146,7 +1167,9 @@ wi_api = get_work_item_api_call(api, 123)
 
 # Read
 item = get_work_item(wi_api)
-current_tags = [t.strip() for t in (item.fields.get("System.Tags") or "").split(";") if t.strip()]
+current_tags = [
+    t.strip() for t in (item.fields.get("System.Tags") or "").split(";") if t.strip()
+]
 
 # Add a tag (case-insensitive dedup)
 if "reviewed" not in [t.lower() for t in current_tags]:
@@ -1162,7 +1185,11 @@ patch_work_item(wi_api, fields={"System.Tags": "; ".join(current_tags)})
 Comments support plain text and markdown:
 
 ```python
-from pyado.raw import get_work_item_api_call, iter_work_item_comments, post_work_item_comment
+from pyado.raw import (
+    get_work_item_api_call,
+    iter_work_item_comments,
+    post_work_item_comment,
+)
 
 wi_api = get_work_item_api_call(api, 123)
 
@@ -1191,7 +1218,12 @@ to the work item via a patch.
 
 ```python
 import pathlib
-from pyado.raw import get_work_item_api_call, post_work_item_attachment_upload, patch_work_item, WorkItemRelation
+from pyado.raw import (
+    get_work_item_api_call,
+    post_work_item_attachment_upload,
+    patch_work_item,
+    WorkItemRelation,
+)
 
 wi_api = get_work_item_api_call(api, 123)
 report = pathlib.Path("report.html").read_bytes()
@@ -1203,7 +1235,11 @@ print(ref.url)  # permanent download URL
 # Step 2 — link to the work item
 patch_work_item(
     wi_api,
-    relations=[WorkItemRelation(rel="AttachedFile", url=ref.url, attributes={"comment": "Test report"})],
+    relations=[
+        WorkItemRelation(
+            rel="AttachedFile", url=ref.url, attributes={"comment": "Test report"}
+        )
+    ],
 )
 ```
 
@@ -1218,14 +1254,17 @@ Add an `ArtifactLink` relation via `patch_work_item`:
 ```python
 from pyado.raw import get_work_item_api_call, patch_work_item, WorkItemRelation
 
-artifact_url = (
-    f"vstfs:///Git/PullRequestId/"
-    f"{project_id}%2F{repo_id}%2F{pr_id}"
-)
+artifact_url = f"vstfs:///Git/PullRequestId/{project_id}%2F{repo_id}%2F{pr_id}"
 wi_api = get_work_item_api_call(api, work_item_id)
 patch_work_item(
     wi_api,
-    relations=[WorkItemRelation(rel="ArtifactLink", url=artifact_url, attributes={"comment": "PR that fixes this"})],
+    relations=[
+        WorkItemRelation(
+            rel="ArtifactLink",
+            url=artifact_url,
+            attributes={"comment": "PR that fixes this"},
+        )
+    ],
 )
 ```
 
@@ -1261,20 +1300,28 @@ from pyado.raw import RepositoryId, get_repository_api_call, get_pull_request_ap
 
 repo_id: RepositoryId = uuid.UUID("<repository-uuid>")
 repo_api = get_repository_api_call(api, repo_id)
-pr_api   = get_pull_request_api_call(api, repo_id, pr_id=42)
+pr_api = get_pull_request_api_call(api, repo_id, pr_id=42)
 ```
 
 ### Listing PRs
 
 ```python
-from pyado.raw import iter_pull_requests, iter_pull_request_commits, PullRequestSearchCriteria
+from pyado.raw import (
+    iter_pull_requests,
+    iter_pull_request_commits,
+    PullRequestSearchCriteria,
+)
 
 # All active PRs (filtered by status)
-for pr in iter_pull_requests(api, search_criteria=PullRequestSearchCriteria(status="active")):
+for pr in iter_pull_requests(
+    api, search_criteria=PullRequestSearchCriteria(status="active")
+):
     print(pr.pr_id, pr.repository.name, pr.title)
 
 # Returns a list instead of an iterator
-prs = list_pull_requests(api, search_criteria=PullRequestSearchCriteria(status="completed"))
+prs = list_pull_requests(
+    api, search_criteria=PullRequestSearchCriteria(status="completed")
+)
 
 # Commits on a PR
 for commit in iter_pull_request_commits(pr_api):
@@ -1288,7 +1335,12 @@ commits = list_pull_request_commits(pr_api)  # list variant
 Branch names must use the full `"refs/heads/..."` format:
 
 ```python
-from pyado.raw import post_pull_request, patch_pull_request, PullRequestCreateRequest, PullRequestUpdateRequest
+from pyado.raw import (
+    post_pull_request,
+    patch_pull_request,
+    PullRequestCreateRequest,
+    PullRequestUpdateRequest,
+)
 
 pr = post_pull_request(
     repo_api,
@@ -1324,10 +1376,14 @@ Labels are free-form strings attached to a PR. They are commonly used to
 signal state (e.g. `"ready-to-merge"`, `"do-not-merge"`, `"needs-review"`):
 
 ```python
-from pyado.raw import get_pull_request_labels_details, post_pull_request_label, delete_pull_request_label
+from pyado.raw import (
+    get_pull_request_labels_details,
+    post_pull_request_label,
+    delete_pull_request_label,
+)
 
 # Read
-labels = get_pull_request_labels_details(pr_api)    # → list[PullRequestLabel]
+labels = get_pull_request_labels_details(pr_api)  # → list[PullRequestLabel]
 
 # Add
 post_pull_request_label(pr_api, "ready-to-merge")
@@ -1379,7 +1435,9 @@ thread = post_pull_request_new_thread(
 thread = post_pull_request_new_thread(
     pr_api,
     PullRequestThreadRequest(
-        comments=[PullRequestThreadCommentRequest(content="Please add a CHANGELOG entry.")],
+        comments=[
+            PullRequestThreadCommentRequest(content="Please add a CHANGELOG entry.")
+        ],
     ),
 )
 
@@ -1387,7 +1445,9 @@ thread = post_pull_request_new_thread(
 thread = get_pull_request_thread(pr_api, thread.id)
 
 # Reply to an existing thread
-post_pull_request_thread_comment(pr_api, thread.id, "Good catch, fixed in the latest push.")
+post_pull_request_thread_comment(
+    pr_api, thread.id, "Good catch, fixed in the latest push."
+)
 ```
 
 ### Iterations
@@ -1445,7 +1505,11 @@ Status checks let external systems (CI, custom tools) post a pass/fail
 indicator to a PR that appears in the PR status section:
 
 ```python
-from pyado.raw import post_pull_request_status, PullRequestStatusRequest, PullRequestStatusContext
+from pyado.raw import (
+    post_pull_request_status,
+    PullRequestStatusRequest,
+    PullRequestStatusContext,
+)
 
 post_pull_request_status(
     pr_api,
@@ -1489,7 +1553,12 @@ repos = list_repository_details(api)  # list variant
 ### Repository info and file listing
 
 ```python
-from pyado.raw import get_repository_info, iter_repository_items, list_repository_items, RecursionLevel
+from pyado.raw import (
+    get_repository_info,
+    iter_repository_items,
+    list_repository_items,
+    RecursionLevel,
+)
 
 # Full repository metadata (size, links, fork info, etc.)
 info = get_repository_info(repo_api)
@@ -1501,7 +1570,9 @@ for item in items:
     print(item.path, item.is_folder)
 
 # Recursive listing scoped to a branch
-items = list_repository_items(repo_api, branch="main", recursion_level=RecursionLevel.ONE_LEVEL)
+items = list_repository_items(
+    repo_api, branch="main", recursion_level=RecursionLevel.ONE_LEVEL
+)
 ```
 
 ### Reading file content
@@ -1537,7 +1608,9 @@ from pyado.raw import get_commit_diff_page
 # ADO returns one page at a time; iterate until allChangesIncluded is True
 skip = 0
 while True:
-    page = get_commit_diff_page(repo_api, base_commit="abc123", target_commit="def456", skip=skip)
+    page = get_commit_diff_page(
+        repo_api, base_commit="abc123", target_commit="def456", skip=skip
+    )
     for change in page.changes:
         if change.item and not change.item.is_folder:
             print(change.change_type, change.item.path)
@@ -1603,7 +1676,7 @@ from pyado.raw import get_git_acl, make_git_acl_token
 import uuid
 
 project_id = uuid.UUID("<project-uuid>")
-repo_id    = uuid.UUID("<repo-uuid>")
+repo_id = uuid.UUID("<repo-uuid>")
 
 # Token for the whole project (all repos)
 token = make_git_acl_token(project_id)
@@ -1622,21 +1695,31 @@ acl = get_git_acl(org_base_api_call, project_id, repo_id)
 from pyado.raw import iter_refs, post_repository_refs, GitRefUpdate
 
 # Create a new branch from an existing commit
-post_repository_refs(repo_api, [GitRefUpdate(
-    name="refs/heads/feature/new-branch",
-    old_object_id="0000000000000000000000000000000000000000",
-    new_object_id="abc123",
-)])
+post_repository_refs(
+    repo_api,
+    [
+        GitRefUpdate(
+            name="refs/heads/feature/new-branch",
+            old_object_id="0000000000000000000000000000000000000000",
+            new_object_id="abc123",
+        )
+    ],
+)
 
 # Delete a branch (requires the current HEAD SHA for optimistic concurrency)
 current_sha = next(
     ref.object_id for ref in iter_refs(repo_api, name_filter="heads/feature/old-branch")
 )
-post_repository_refs(repo_api, [GitRefUpdate(
-    name="refs/heads/feature/old-branch",
-    old_object_id=current_sha,
-    new_object_id="0000000000000000000000000000000000000000",
-)])
+post_repository_refs(
+    repo_api,
+    [
+        GitRefUpdate(
+            name="refs/heads/feature/old-branch",
+            old_object_id=current_sha,
+            new_object_id="0000000000000000000000000000000000000000",
+        )
+    ],
+)
 ```
 
 ---
@@ -1655,10 +1738,10 @@ Four OOP helpers from `pyado` create the change descriptors:
 ```python
 from pyado import AddFile, EditFile, DeleteFile, RenameFile
 
-AddFile("/path/to/new.json", '{"key": "value"}')   # create new file
-EditFile("/path/to/existing.py", new_content)       # overwrite existing file
-DeleteFile("/path/to/old.txt")                      # delete a file
-RenameFile("/path/a.json", "/path/b.json")          # rename without changing content
+AddFile("/path/to/new.json", '{"key": "value"}')  # create new file
+EditFile("/path/to/existing.py", new_content)  # overwrite existing file
+DeleteFile("/path/to/old.txt")  # delete a file
+RenameFile("/path/a.json", "/path/b.json")  # rename without changing content
 ```
 
 These return objects that can be passed to `repo.commit(...)` (OOP layer) or
@@ -1727,12 +1810,18 @@ result = post_push(
                     GitPushChange(
                         change_type="add",
                         item={"path": "/config/new.json"},
-                        new_content=GitPushNewContent(content='{"created": true}', content_type=GitPushContentType.raw_text),
+                        new_content=GitPushNewContent(
+                            content='{"created": true}',
+                            content_type=GitPushContentType.raw_text,
+                        ),
                     ),
                     GitPushChange(
                         change_type="edit",
                         item={"path": "/config/settings.json"},
-                        new_content=GitPushNewContent(content='{"key": "value"}', content_type=GitPushContentType.raw_text),
+                        new_content=GitPushNewContent(
+                            content='{"key": "value"}',
+                            content_type=GitPushContentType.raw_text,
+                        ),
                     ),
                     GitPushChange(
                         change_type="delete",
@@ -1865,15 +1954,15 @@ import os, uuid
 from pyado.raw import get_plan_api_call, get_job_api_call, get_log_api_call
 
 # Values come from ADO agent environment variables
-plan_id      = uuid.UUID(os.environ["SYSTEM_PLANID"])
-timeline_id  = uuid.UUID(os.environ["SYSTEM_TIMELINEID"])
-job_id       = uuid.UUID(os.environ["SYSTEM_JOBID"])
-task_id      = uuid.UUID(os.environ["SYSTEM_TASKINSTANCEID"])
-log_id       = int(os.environ.get("SYSTEM_LOGID", "1"))
+plan_id = uuid.UUID(os.environ["SYSTEM_PLANID"])
+timeline_id = uuid.UUID(os.environ["SYSTEM_TIMELINEID"])
+job_id = uuid.UUID(os.environ["SYSTEM_JOBID"])
+task_id = uuid.UUID(os.environ["SYSTEM_TASKINSTANCEID"])
+log_id = int(os.environ.get("SYSTEM_LOGID", "1"))
 
 plan_api = get_plan_api_call(api, hub_name="build", plan_id=plan_id)
-job_api  = get_job_api_call(api, "build", plan_id, timeline_id, job_id)
-log_api  = get_log_api_call(api, "build", plan_id, log_id)
+job_api = get_job_api_call(api, "build", plan_id, timeline_id, job_id)
+log_api = get_log_api_call(api, "build", plan_id, log_id)
 ```
 
 ### Feed messages and log lines
@@ -1904,7 +1993,7 @@ post_job_event(
     task_id=task_id,
     job_id=job_id,
     job_event_name="TaskCompleted",
-    job_event_result="succeeded",   # or "failed"
+    job_event_result="succeeded",  # or "failed"
 )
 ```
 
@@ -1941,7 +2030,13 @@ for approval in iter_approvals(api):
 # Approve one
 patch_approvals(
     api,
-    [PipelineApprovalUpdateRequest(approval_id=approval.id, status="approved", comment="Verified in staging, LGTM")],
+    [
+        PipelineApprovalUpdateRequest(
+            approval_id=approval.id,
+            status="approved",
+            comment="Verified in staging, LGTM",
+        )
+    ],
 )
 ```
 
@@ -1954,7 +2049,14 @@ resource from the older Builds API. Use this when triggering YAML pipelines
 or querying run results by pipeline folder and name.
 
 ```python
-from pyado.raw import iter_pipelines, get_pipeline, iter_pipeline_runs, get_pipeline_run, post_pipeline_run, PipelineRunRequest
+from pyado.raw import (
+    iter_pipelines,
+    get_pipeline,
+    iter_pipeline_runs,
+    get_pipeline_run,
+    post_pipeline_run,
+    PipelineRunRequest,
+)
 
 # List all YAML pipelines
 for pipeline in iter_pipelines(api):
@@ -2069,9 +2171,9 @@ from pyado.raw import get_session, get_profile_api_call, get_my_profile
 profile_api = get_profile_api_call(get_session(pat="<your-pat>"))
 me = get_my_profile(profile_api)
 
-print(me.display_name)    # "Jane Smith"
-print(me.email_address)   # "jane@example.com"
-print(me.id)              # identity UUID string
+print(me.display_name)  # "Jane Smith"
+print(me.email_address)  # "jane@example.com"
+print(me.id)  # identity UUID string
 ```
 
 ---
@@ -2179,7 +2281,7 @@ proj.settings.create_policy_configuration(policy.to_request())
 ```python
 import pyado
 
-scope = pyado.RepoPolicyScope(repository_id=None)   # all repositories
+scope = pyado.RepoPolicyScope(repository_id=None)  # all repositories
 policy = pyado.FileSizeRestrictionPolicy(
     scope=[scope],
     maximum_git_blob_size_in_bytes=10 * 1024 * 1024,
@@ -2216,7 +2318,7 @@ from pyado.raw import (
     SearchRequest,
 )
 
-search_api = get_search_api_call(api)   # api is an org-level ApiCall
+search_api = get_search_api_call(api)  # api is an org-level ApiCall
 
 # Full-text code search
 for result in post_code_search(
@@ -2370,7 +2472,7 @@ pipeline library. They appear as a single task in classic pipeline definitions.
 # List task groups
 for tg in proj.pipelines.iter_task_groups():
     print(tg.id, tg.name, tg.description, tg.category)
-tgs = proj.pipelines.list_task_groups()   # list variant
+tgs = proj.pipelines.list_task_groups()  # list variant
 
 # Fetch by name or UUID
 tg = proj.pipelines.get_task_group("my-deploy-steps")
@@ -2417,7 +2519,9 @@ for tg in iter_task_groups(api):
     print(tg.id, tg.name)
 
 new_tg = post_task_group(api, TaskGroupCreateRequest(name="...", tasks=[...]))
-put_task_group(api, new_tg.id, TaskGroupUpdateRequest(id=new_tg.id, name="...", tasks=[...]))
+put_task_group(
+    api, new_tg.id, TaskGroupUpdateRequest(id=new_tg.id, name="...", tasks=[...])
+)
 delete_task_group(api, new_tg.id)
 ```
 
@@ -2432,7 +2536,7 @@ Slack, …) when events occur in the organisation.
 # List all subscriptions
 for sub in org.iter_hook_subscriptions():
     print(sub.id, sub.publisher_id, sub.event_type, sub.consumer_id)
-subs = org.list_hook_subscriptions()   # list variant
+subs = org.list_hook_subscriptions()  # list variant
 
 # Fetch a single subscription
 sub = org.get_hook_subscription(subscription_uuid)
@@ -2574,7 +2678,9 @@ new_sub = post_notification_subscription(org_api, body)
 print(new_sub.id)
 
 # Update a subscription (partial update)
-updated = patch_notification_subscription(org_api, new_sub.id, {"description": "Updated"})
+updated = patch_notification_subscription(
+    org_api, new_sub.id, {"description": "Updated"}
+)
 
 # Delete a subscription
 delete_notification_subscription(org_api, new_sub.id)
@@ -2606,17 +2712,17 @@ from pyado.raw import (
 )
 
 # Build org-level and project-level API calls
-session  = get_session(pat="<your-pat>")
-org_api  = ApiCall(session=session, url="https://dev.azure.com/<org>/_apis/")
+session = get_session(pat="<your-pat>")
+org_api = ApiCall(session=session, url="https://dev.azure.com/<org>/_apis/")
 proj_api = ApiCall(session=session, url="https://dev.azure.com/<org>/<project>/_apis/")
 
 # Get the template type ID from the project info
 project_info = get_project(org_api, "MyProject")
-template_id  = project_info.capabilities.process_template.template_type_id
+template_id = project_info.capabilities.process_template.template_type_id
 
 process: ProcessDetail = get_process_info(org_api, proj_api, template_id)
 
-print(process.name, process.customization_type)   # "Agile", "inherited"
+print(process.name, process.customization_type)  # "Agile", "inherited"
 
 for wit in process.work_item_types:
     print(wit.name)
@@ -2649,7 +2755,7 @@ CRUD for all of these at org scope.
 # Enumerate all process templates in the organisation
 for process in org.iter_processes():
     print(process.id, process.name, process.description)
-processes = org.list_processes()   # list variant
+processes = org.list_processes()  # list variant
 
 # Fetch by UUID
 process = org.get_process(process_uuid)
@@ -2688,7 +2794,8 @@ print(wit.reference_name)
 
 # Update
 process.update_work_item_type(
-    wit.reference_name, ProcessWorkItemTypeUpdateRequest(description="Updated description")
+    wit.reference_name,
+    ProcessWorkItemTypeUpdateRequest(description="Updated description"),
 )
 
 # Delete
@@ -2843,10 +2950,14 @@ for descriptor in members:
     print(descriptor)
 
 # Add a member to a group
-put_graph_membership(vssps_api, member_descriptor="aad.abc123", group_descriptor="vssgp.Uy0x...")
+put_graph_membership(
+    vssps_api, member_descriptor="aad.abc123", group_descriptor="vssgp.Uy0x..."
+)
 
 # Remove a member from a group
-delete_graph_membership(vssps_api, member_descriptor="aad.abc123", group_descriptor="vssgp.Uy0x...")
+delete_graph_membership(
+    vssps_api, member_descriptor="aad.abc123", group_descriptor="vssgp.Uy0x..."
+)
 ```
 
 > `group_descriptor` is the subject descriptor of the target group (starts with
@@ -2874,7 +2985,7 @@ from pyado.raw.boards.work_item import (
     delete_classification_node,
 )
 
-AREAS      = ClassificationNodeUrlType.AREAS
+AREAS = ClassificationNodeUrlType.AREAS
 ITERATIONS = ClassificationNodeUrlType.ITERATIONS
 
 # Read a node by its relative path (empty string = project root)
@@ -2981,29 +3092,35 @@ settings = get_team_settings(team_api)
 print(settings["bugsBehavior"], settings["workingDays"])
 
 # Update settings (partial patch — only include keys you want to change)
-patch_team_settings(team_api, {
-    "bugsBehavior": "asTasks",
-    "workingDays": ["monday", "tuesday", "wednesday", "thursday", "friday"],
-    "backlogVisibilities": {
-        "Microsoft.EpicCategory": True,
-        "Microsoft.FeatureCategory": True,
-        "Microsoft.RequirementCategory": True,
+patch_team_settings(
+    team_api,
+    {
+        "bugsBehavior": "asTasks",
+        "workingDays": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+        "backlogVisibilities": {
+            "Microsoft.EpicCategory": True,
+            "Microsoft.FeatureCategory": True,
+            "Microsoft.RequirementCategory": True,
+        },
     },
-})
+)
 
 # Read area path assignments
 field_values = get_team_field_values(team_api)
-print(field_values["defaultValue"])   # default area path
+print(field_values["defaultValue"])  # default area path
 for entry in field_values["values"]:
     print(entry["value"], entry["includeChildren"])
 
 # Write area path assignments
-patch_team_field_values(team_api, {
-    "defaultValue": "MyProject\\Team A",
-    "values": [
-        {"value": "MyProject\\Team A", "includeChildren": True},
-    ],
-})
+patch_team_field_values(
+    team_api,
+    {
+        "defaultValue": "MyProject\\Team A",
+        "values": [
+            {"value": "MyProject\\Team A", "includeChildren": True},
+        ],
+    },
+)
 
 # Read iteration subscriptions
 iterations = get_team_iterations(team_api)

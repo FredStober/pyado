@@ -24,7 +24,7 @@ docs = [
 
 [project]
 authors = [
-  {name = "Fred Stober", email = "pyado@fredstober.de"}
+  { name = "Fred Stober", email = "pyado@fredstober.de" }
 ]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -48,7 +48,7 @@ license = "MIT"
 name = "pyado"
 readme = "README.md"
 requires-python = ">=3.11"
-version = "0.10.0"
+version = "0.10.1"
 
 [project.optional-dependencies]
 azure = ["azure-core>=1.41.0"]
@@ -100,10 +100,10 @@ exclude = [".secrets.baseline"]
 
 [tool.ruff.lint]
 ignore = [
-  "ANN401",  # any-type
-  "COM812",  # missing-trailing-comma
-  "PLR0904",  # OOP resource classes expose many public methods by design
-  "PLR0913"  # function argument counts are not constrained in this project
+  "any-type",  # any-type
+  "missing-trailing-comma",  # missing-trailing-comma
+  "too-many-public-methods",  # OOP resource classes expose many public methods by design
+  "too-many-arguments"  # function argument counts are not constrained in this project
 ]
 preview = true
 select = [
@@ -112,20 +112,20 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
-  "D101",  # Test classes don't need class-level docstrings
-  "D102",  # Test methods are self-documenting via their names
-  "PLR2004",  # Magic values in test assertions are self-explanatory
-  "PLR6301",  # Test helper methods are instance methods by convention
-  "PLC2701",  # Private name imports are needed for unit testing internals
-  "S101",  # pytest uses assert by convention
-  "S105",  # Test tokens are intentionally hardcoded fake values
-  "SLF001",  # Private member access is needed for testing implementation details
-  "PLR0917",  # Helper functions may need >5 positional params
-  "FBT001",  # Boolean flags are acceptable in test helpers
-  "FBT002",  # Boolean defaults are acceptable in test helpers
-  "DOC201",  # Test helper Returns are self-evident from the type annotation
-  "BLE001",  # Smoke tests legitimately catch broad exceptions for skip/fail reporting
-  "S311"  # RNG is used for test seed selection, not cryptography
+  "undocumented-public-class",  # Test classes don't need class-level docstrings
+  "undocumented-public-method",  # Test methods are self-documenting via their names
+  "magic-value-comparison",  # Magic values in test assertions are self-explanatory
+  "no-self-use",  # Test helper methods are instance methods by convention
+  "import-private-name",  # Private name imports are needed for unit testing internals
+  "assert",  # pytest uses assert by convention
+  "hardcoded-password-string",  # Test tokens are intentionally hardcoded fake values
+  "private-member-access",  # Private member access is needed for testing implementation details
+  "too-many-positional-arguments",  # Helper functions may need >5 positional params
+  "boolean-type-hint-positional-argument",  # Boolean flags are acceptable in test helpers
+  "boolean-default-value-positional-argument",  # Boolean defaults are acceptable in test helpers
+  "docstring-missing-returns",  # Test helper Returns are self-evident from the type annotation
+  "blind-except",  # Smoke tests legitimately catch broad exceptions for skip/fail reporting
+  "suspicious-non-cryptographic-random-usage"  # RNG is used for test seed selection, not cryptography
 ]
 
 [tool.ruff.lint.pydocstyle]

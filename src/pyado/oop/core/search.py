@@ -154,7 +154,7 @@ class ProjectSearch:
             CodeSearchResult for each matching code file.
         """
         yield from raw.post_code_search(
-            self._project._service.oop_api.make_search_project_api_call(  # noqa: SLF001
+            self._project._service.oop_api.make_search_project_api_call(  # ruff: ignore[private-member-access]
                 self._project.name
             ),
             request,
@@ -173,7 +173,7 @@ class ProjectSearch:
             WorkItemSearchResult for each matching work item.
         """
         yield from raw.post_work_item_search(
-            self._project._service.oop_api.make_search_project_api_call(  # noqa: SLF001
+            self._project._service.oop_api.make_search_project_api_call(  # ruff: ignore[private-member-access]
                 self._project.name
             ),
             request,
@@ -192,7 +192,7 @@ class ProjectSearch:
             WikiSearchResult for each matching wiki page.
         """
         yield from raw.post_wiki_search(
-            self._project._service.oop_api.make_search_project_api_call(  # noqa: SLF001
+            self._project._service.oop_api.make_search_project_api_call(  # ruff: ignore[private-member-access]
                 self._project.name
             ),
             request,
@@ -211,6 +211,6 @@ class ProjectSearch:
             PackageSearchResult for each matching package.
         """
         yield from raw.post_package_search(
-            self._project._service.oop_api.search_api_call,  # noqa: SLF001
+            self._project._service.oop_api.search_api_call,  # ruff: ignore[private-member-access]
             request,
         )

@@ -323,7 +323,7 @@ class ProjectBoards:
             SprintIterationInfo for each sprint iteration.
         """
         yield from raw.iter_sprint_iterations(
-            self._project._service.oop_api.make_team_api_call(  # noqa: SLF001
+            self._project._service.oop_api.make_team_api_call(  # ruff: ignore[private-member-access]
                 self._project.name, team_name
             ),
             timeframe_filter=timeframe_filter,
@@ -354,7 +354,7 @@ class ProjectBoards:
             iteration_id: UUID of the iteration classification node to assign.
         """
         raw.post_team_iteration(
-            self._project._service.oop_api.make_team_api_call(  # noqa: SLF001
+            self._project._service.oop_api.make_team_api_call(  # ruff: ignore[private-member-access]
                 self._project.name, team_name
             ),
             iteration_id,
@@ -423,7 +423,7 @@ class ProjectBoards:
             area paths.
         """
         return raw.get_team_field_values(
-            self._project._service.oop_api.make_team_api_call(  # noqa: SLF001
+            self._project._service.oop_api.make_team_api_call(  # ruff: ignore[private-member-access]
                 self._project.name, team_name
             )
         )
@@ -442,7 +442,7 @@ class ProjectBoards:
             yield Team(
                 self._project,
                 info,
-                self._project._service,  # noqa: SLF001
+                self._project._service,  # ruff: ignore[private-member-access]
             )
 
     def get_team(self, name: str) -> Team:
@@ -455,7 +455,7 @@ class ProjectBoards:
             Team wrapping the requested team.
         """
         info = raw.get_team(self._project.org.api_call, self._project.name, name)
-        return Team(self._project, info, self._project._service)  # noqa: SLF001
+        return Team(self._project, info, self._project._service)  # ruff: ignore[private-member-access]
 
     def get_team_by_id(self, team_id: TeamId) -> Team:
         """Return a specific team by ID.
@@ -467,7 +467,7 @@ class ProjectBoards:
             Team wrapping the requested team.
         """
         info = raw.get_team(self._project.org.api_call, self._project.name, team_id)
-        return Team(self._project, info, self._project._service)  # noqa: SLF001
+        return Team(self._project, info, self._project._service)  # ruff: ignore[private-member-access]
 
     def list_teams(self) -> list[Team]:
         """Return all teams in the project as a list."""

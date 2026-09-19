@@ -430,6 +430,7 @@ new higher-level helper:
 ```python
 # raw/work_item.py
 
+
 def get_work_item_revisions(
     work_item_api_call: ApiCall,
 ) -> list[WorkItemInfo]:

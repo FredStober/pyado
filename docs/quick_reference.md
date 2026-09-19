@@ -9,7 +9,7 @@ For the complete agent reference (gotchas, type details, enums) see [AGENT.md](A
 ## Imports
 
 ```python
-import pyado                              # raw layer + AzureDevOpsService
+import pyado  # raw layer + AzureDevOpsService
 from pyado.oop import AzureDevOpsService  # preferred OOP entry point
 ```
 

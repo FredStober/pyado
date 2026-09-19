@@ -61,7 +61,7 @@ import pyado
 # Credentials come from env vars if not passed explicitly:
 #   AZURE_DEVOPS_ORG (or SYSTEM_TEAMFOUNDATIONCOLLECTIONURI)
 #   AZURE_DEVOPS_EXT_PAT
-svc  = pyado.AzureDevOpsService(org="https://dev.azure.com/myorg", pat="<pat>")
+svc = pyado.AzureDevOpsService(org="https://dev.azure.com/myorg", pat="<pat>")
 proj = svc.org.get_project("MyProject")
 ```
 
@@ -84,7 +84,10 @@ for wi in proj.boards.iter_work_items(
 # Create a work item
 wi = proj.boards.create_work_item(
     "Task",
-    fields={"System.Title": "Investigate memory leak", "System.AssignedTo": "jane@example.com"},
+    fields={
+        "System.Title": "Investigate memory leak",
+        "System.AssignedTo": "jane@example.com",
+    },
 )
 ```
 
@@ -102,7 +105,7 @@ pr = repo.create_pull_request(
 )
 pr.add_reviewer(reviewer_id, is_required=True)
 pr.add_label("ready-to-merge")
-pr.link_work_item(wi)          # shows on both the PR page and the work item
+pr.link_work_item(wi)  # shows on both the PR page and the work item
 
 # List all active PRs across every repo in the project
 for pr in proj.repos.iter_active_prs():
@@ -142,11 +145,15 @@ for approval in proj.pipelines.iter_approvals():
 text = repo.get_file_at_branch("/config.json", "main")
 
 # Push changes programmatically
-result = repo.commit("main", "chore: update config", [
-    pyado.EditFile("/config.json", '{"key": "value"}'),
-    pyado.DeleteFile("/old_config.json"),
-    pyado.AddFile("/new_file.txt", "hello"),
-])
+result = repo.commit(
+    "main",
+    "chore: update config",
+    [
+        pyado.EditFile("/config.json", '{"key": "value"}'),
+        pyado.DeleteFile("/old_config.json"),
+        pyado.AddFile("/new_file.txt", "hello"),
+    ],
+)
 print(result.commits[0].commit_id)
 
 # Branches and tags
@@ -189,15 +196,17 @@ for sub in org.iter_hook_subscriptions():
 # Create a webhook that fires on every completed build
 from pyado.raw import HookSubscriptionCreateRequest
 
-org.create_hook_subscription(HookSubscriptionCreateRequest(
-    publisher_id="tfs",
-    event_type="build.complete",
-    resource_version="1.0",
-    consumer_id="webHooks",
-    consumer_action_id="httpRequest",
-    publisher_inputs={"projectId": "<project-id>"},
-    consumer_inputs={"url": "https://hooks.example.com/ado"},
-))
+org.create_hook_subscription(
+    HookSubscriptionCreateRequest(
+        publisher_id="tfs",
+        event_type="build.complete",
+        resource_version="1.0",
+        consumer_id="webHooks",
+        consumer_action_id="httpRequest",
+        publisher_inputs={"projectId": "<project-id>"},
+        consumer_inputs={"url": "https://hooks.example.com/ado"},
+    )
+)
 ```
 
 ### Task groups
@@ -229,6 +238,7 @@ svc = pyado.AzureDevOpsService()
 
 # Azure managed identity or workload identity federation
 from azure.identity import DefaultAzureCredential
+
 svc = pyado.AzureDevOpsService(
     org="https://dev.azure.com/myorg",
     credential=DefaultAzureCredential(),

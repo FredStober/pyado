@@ -5,7 +5,7 @@
 
 project = "Pythonic Azure DevOps Interface"
 author = "Fred Stober"
-copyright = "2023, Fred Stober"  # noqa:A001
+copyright = "2023, Fred Stober"  # ruff: ignore[builtin-variable-shadowing]
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",

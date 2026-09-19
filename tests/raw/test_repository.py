@@ -502,6 +502,28 @@ class TestGetRepositoryCommits:
         assert len(result) == 1
         assert result[0].commit_id == "def456"
 
+    @staticmethod
+    def test_compare_version_forwarded_as_params(repo_api_call: ApiCall) -> None:
+        """compare_version and compare_version_type are forwarded as params."""
+        response_data: dict[str, Any] = {"value": []}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            get_repository_commits(
+                repo_api_call,
+                GitCommitSearchCriteria(
+                    item_version="abc123",
+                    item_version_type=VersionDescriptorType.COMMIT,
+                    compare_version="def456",
+                    compare_version_type=VersionDescriptorType.COMMIT,
+                    top=1,
+                ),
+            )
+        params = mock_req.call_args.kwargs.get("params") or {}
+        assert params["searchCriteria.compareVersion.version"] == "def456"
+        assert params["searchCriteria.compareVersion.versionType"] == "commit"
+
 
 PROJECT_ID = uuid4()
 REPO_ID = uuid4()

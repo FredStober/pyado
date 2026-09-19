@@ -313,6 +313,16 @@ class GitCommitSearchCriteria(AdoBaseModel):
         item_path: Filter to commits that touched this file path.
         item_version: Version string for the item version filter.
         item_version_type: Version type (e.g. ``"commit"``).
+        compare_version: Version string for the compare-version filter. When
+            set alongside ``item_version``, the result is the commits
+            reachable from ``item_version`` but not from ``compare_version``
+            (equivalent to ``git log compare_version..item_version``). An
+            empty result means every commit reachable from ``item_version``
+            is also reachable from ``compare_version`` — i.e.
+            ``compare_version`` is a descendant of (or equal to)
+            ``item_version``.
+        compare_version_type: Version type for ``compare_version`` (e.g.
+            ``"branch"``).
         top: Maximum number of commits to return.
     """
 
@@ -322,6 +332,12 @@ class GitCommitSearchCriteria(AdoBaseModel):
     )
     item_version_type: VersionDescriptorType | None = Field(
         default=None, serialization_alias="itemVersion.versionType"
+    )
+    compare_version: str | None = Field(
+        default=None, serialization_alias="compareVersion.version"
+    )
+    compare_version_type: VersionDescriptorType | None = Field(
+        default=None, serialization_alias="compareVersion.versionType"
     )
     top: int | None = Field(default=None, serialization_alias="$top")
 

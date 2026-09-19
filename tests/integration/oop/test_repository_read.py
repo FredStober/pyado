@@ -40,6 +40,7 @@ def _read_commits(repo: Repository, commits: list[Commit]) -> None:
     if len(commits) >= 2:
         _take(repo.iter_commit_diff(commits[-1].sha, commits[0].sha), 10)
         repo.list_commit_diff(commits[-1].sha, commits[0].sha)
+        repo.is_ancestor(commits[-1].sha, commits[0].sha)
     repo.get_last_commit_touching_file("/", head_commit.sha)
 
 

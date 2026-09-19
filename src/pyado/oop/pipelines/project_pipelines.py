@@ -110,7 +110,7 @@ class ProjectPipelines:
         Returns:
             Pipeline wrapping the requested pipeline.
         """
-        service = self._project._service  # noqa: SLF001
+        service = self._project._service  # ruff: ignore[private-member-access]
         cache_key = str(self._project.api_call.url) + "/pipelines/" + str(pipeline_id)
 
         def _make() -> Pipeline:
@@ -177,7 +177,7 @@ class ProjectPipelines:
         Yields:
             Build for each matching build.
         """
-        service = self._project._service  # noqa: SLF001
+        service = self._project._service  # ruff: ignore[private-member-access]
         for info in raw.iter_builds(
             self._project.api_call,
             search_criteria=BuildSearchCriteria(
@@ -199,7 +199,7 @@ class ProjectPipelines:
         Returns:
             Build wrapping the requested build.
         """
-        service = self._project._service  # noqa: SLF001
+        service = self._project._service  # ruff: ignore[private-member-access]
         build_api_call = raw.get_build_api_call(self._project.api_call, build_id)
         info = raw.get_build_details(build_api_call)
         return Build(self._project, build_api_call, info, service)
@@ -227,7 +227,7 @@ class ProjectPipelines:
         Returns:
             Build for the newly queued build run.
         """
-        service = self._project._service  # noqa: SLF001
+        service = self._project._service  # ruff: ignore[private-member-access]
         details = _build_helpers.start_build(
             self._project.api_call,
             pipeline_id,
@@ -252,7 +252,7 @@ class ProjectPipelines:
         Returns:
             Build wrapping the requested build with expanded info.
         """
-        service = self._project._service  # noqa: SLF001
+        service = self._project._service  # ruff: ignore[private-member-access]
         build_api_call = raw.get_build_api_call(self._project.api_call, build_id)
         info = raw.get_build_details(build_api_call, expand=expand)
         return Build(self._project, build_api_call, info, service)

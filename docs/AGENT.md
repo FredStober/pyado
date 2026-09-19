@@ -19,7 +19,7 @@ code without reading the source.
    top-level `pyado` package.
 
 ```python
-import pyado                              # raw layer + AzureDevOpsService
+import pyado  # raw layer + AzureDevOpsService
 from pyado.oop import AzureDevOpsService  # preferred OOP entry point
 ```
 
@@ -35,18 +35,18 @@ signature summary; [usage.md](usage.md) for worked examples.
 ```python
 import pyado
 
-svc  = pyado.AzureDevOpsService(org="https://dev.azure.com/myorg", pat="<pat>")
+svc = pyado.AzureDevOpsService(org="https://dev.azure.com/myorg", pat="<pat>")
 # or: AzureDevOpsService()  ->  reads AZURE_DEVOPS_ORG + AZURE_DEVOPS_EXT_PAT
 proj = svc.org.get_project("MyProject")
 
 repo = proj.get_repository("myrepo")
-pr   = repo.create_pull_request("Update config", "feature/branch", "main")
-wi   = proj.get_work_item(153)
+pr = repo.create_pull_request("Update config", "feature/branch", "main")
+wi = proj.get_work_item(153)
 pr.link_work_item(wi)
 
-build    = proj.start_build(definition_id=42)
+build = proj.start_build(definition_id=42)
 pipeline = proj.get_pipeline(99)
-run      = pipeline.start_run(template_parameters={"env": "staging"})
+run = pipeline.start_run(template_parameters={"env": "staging"})
 ```
 
 ### AzureDevOpsService
@@ -183,9 +183,9 @@ org = svc.org
 File change helpers (use with `repo.commit` or `pyado.make_commit`):
 
 ```python
-pyado.AddFile(path, content)          # create a new file
-pyado.EditFile(path, content)         # overwrite existing file
-pyado.DeleteFile(path)                # delete a file
+pyado.AddFile(path, content)  # create a new file
+pyado.EditFile(path, content)  # overwrite existing file
+pyado.DeleteFile(path)  # delete a file
 pyado.RenameFile(old_path, new_path)  # rename without changing content
 ```
 
@@ -496,10 +496,10 @@ argument. It is an immutable Pydantic model.
 
 ```python
 class ApiCall(BaseModel):
-    url: HttpUrl                      # must be https://
-    session: requests.Session = ...   # default: unauthenticated session
-    parameters: dict = {}             # merged into every request as query params
-    timeout: int = 10                 # request timeout in seconds
+    url: HttpUrl  # must be https://
+    session: requests.Session = ...  # default: unauthenticated session
+    parameters: dict = {}  # merged into every request as query params
+    timeout: int = 10  # request timeout in seconds
 ```
 
 ### Construction
@@ -1134,44 +1134,78 @@ ProjectInfo
 
 ```python
 # Work item
-WorkItemField = str          # ADO field reference name, e.g. "System.Title"
+WorkItemField = str  # ADO field reference name, e.g. "System.Title"
 WorkItemId = int
-WorkItemRelationType = str   # e.g. "System.LinkTypes.Hierarchy-Reverse"
+WorkItemRelationType = str  # e.g. "System.LinkTypes.Hierarchy-Reverse"
 
 # Git
-CommitId = str               # SHA hex string
+CommitId = str  # SHA hex string
 BranchName = str
 RepositoryId = UUID
 GitPushChangeType = Literal["add", "edit", "delete", "rename"]
 
 # Builds
 BuildStatus = Literal[
-    "all", "cancelling", "completed", "inProgress",
-    "none", "notStarted", "postponed",
+    "all",
+    "cancelling",
+    "completed",
+    "inProgress",
+    "none",
+    "notStarted",
+    "postponed",
 ]
 BuildResult = Literal[
-    "canceled", "failed", "none", "partiallySucceeded", "succeeded",
+    "canceled",
+    "failed",
+    "none",
+    "partiallySucceeded",
+    "succeeded",
 ]
 BuildRecordType = Literal[
-    "Checkpoint", "Checkpoint.Approval", "Checkpoint.Authorization",
-    "Checkpoint.ExtendsCheck", "Phase", "Stage", "Job", "Task",
+    "Checkpoint",
+    "Checkpoint.Approval",
+    "Checkpoint.Authorization",
+    "Checkpoint.ExtendsCheck",
+    "Phase",
+    "Stage",
+    "Job",
+    "Task",
 ]
 
 # Pull requests
 PullRequestStatus = Literal["active", "abandoned", "completed"]
 PullRequestMergeStatus = Literal[
-    "notSet", "queued", "conflicts", "succeeded",
-    "rejectedByPolicy", "failure",
+    "notSet",
+    "queued",
+    "conflicts",
+    "succeeded",
+    "rejectedByPolicy",
+    "failure",
 ]
 PullRequestThreadStatus = Literal[
-    "active", "byDesign", "closed", "fixed", "pending", "unknown", "wontFix",
+    "active",
+    "byDesign",
+    "closed",
+    "fixed",
+    "pending",
+    "unknown",
+    "wontFix",
 ]
 PullRequestStatusState = Literal[
-    "error", "failed", "notApplicable", "notSet", "pending", "succeeded",
+    "error",
+    "failed",
+    "notApplicable",
+    "notSet",
+    "pending",
+    "succeeded",
 ]
 GitPullRequestMergeStrategy = Literal[
-    "noFastForward", "squash", "rebase", "rebaseMerge",
+    "noFastForward",
+    "squash",
+    "rebase",
+    "rebaseMerge",
 ]
+
 
 class PullRequestVote(IntEnum):
     APPROVED = 10
@@ -1180,18 +1214,26 @@ class PullRequestVote(IntEnum):
     WAITING_FOR_AUTHOR = -5
     REJECTED = -10
 
+
 class PullRequestThreadCommentType(IntEnum):
     UNKNOWN = 0
     TEXT = 1
     CODE_CHANGE = 2
     SYSTEM = 3
 
+
 # Pipelines
 PipelineRunState = Literal["unknown", "inProgress", "canceling", "completed"]
 PipelineRunResult = Literal["unknown", "succeeded", "failed", "canceled"]
 PipelineApprovalStatus = Literal[
-    "approved", "canceled", "failed", "pending",
-    "rejected", "skipped", "timedOut", "undefined",
+    "approved",
+    "canceled",
+    "failed",
+    "pending",
+    "rejected",
+    "skipped",
+    "timedOut",
+    "undefined",
 ]
 
 # Pipeline task callbacks
