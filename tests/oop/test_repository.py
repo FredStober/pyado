@@ -744,9 +744,9 @@ class TestRepositoryIsAncestor:
             mock_commits.return_value = []
             _make_repo().is_ancestor("ancestor_sha", "descendant_sha")
         criteria = mock_commits.call_args.args[1]
-        assert criteria.item_version == "ancestor_sha"
+        assert criteria.item_version == "descendant_sha"
         assert criteria.item_version_type == VersionDescriptorType.COMMIT
-        assert criteria.compare_version == "descendant_sha"
+        assert criteria.compare_version == "ancestor_sha"
         assert criteria.compare_version_type == VersionDescriptorType.COMMIT
         assert criteria.top == 1
 

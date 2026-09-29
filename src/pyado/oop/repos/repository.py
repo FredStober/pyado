@@ -405,13 +405,13 @@ class Repository:
         """Report whether one commit is a (non-strict) git ancestor of another.
 
         Uses the commits search endpoint's ``compareVersion`` filter, which
-        returns commits reachable from ``itemVersion`` but not from
-        ``compareVersion`` — equivalent to
-        ``git log compareVersion..itemVersion``. Setting ``itemVersion`` to
-        *ancestor_commit* and ``compareVersion`` to *descendant_commit* and
+        returns commits reachable from ``compareVersion`` but not from
+        ``itemVersion`` — equivalent to
+        ``git log itemVersion..compareVersion``. Setting ``itemVersion`` to
+        *descendant_commit* and ``compareVersion`` to *ancestor_commit* and
         checking for an empty result means every commit reachable from
         *ancestor_commit* is already reachable from *descendant_commit*, i.e.
-        *descendant_commit* is a descendant of (or equal to) *ancestor_commit*.
+        *ancestor_commit* is an ancestor of (or equal to) *descendant_commit*.
 
         Args:
             ancestor_commit: Commit SHA to test as the potential ancestor.
@@ -422,9 +422,9 @@ class Repository:
             (including the case where the two commits are equal).
         """
         criteria = GitCommitSearchCriteria(
-            item_version=ancestor_commit,
+            item_version=descendant_commit,
             item_version_type=VersionDescriptorType.COMMIT,
-            compare_version=descendant_commit,
+            compare_version=ancestor_commit,
             compare_version_type=VersionDescriptorType.COMMIT,
             top=1,
         )

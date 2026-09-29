@@ -315,11 +315,11 @@ class GitCommitSearchCriteria(AdoBaseModel):
         item_version_type: Version type (e.g. ``"commit"``).
         compare_version: Version string for the compare-version filter. When
             set alongside ``item_version``, the result is the commits
-            reachable from ``item_version`` but not from ``compare_version``
-            (equivalent to ``git log compare_version..item_version``). An
-            empty result means every commit reachable from ``item_version``
-            is also reachable from ``compare_version`` — i.e.
-            ``compare_version`` is a descendant of (or equal to)
+            reachable from ``compare_version`` but not from ``item_version``
+            (equivalent to ``git log item_version..compare_version``). An
+            empty result means every commit reachable from ``compare_version``
+            is also reachable from ``item_version`` — i.e.
+            ``compare_version`` is an ancestor of (or equal to)
             ``item_version``.
         compare_version_type: Version type for ``compare_version`` (e.g.
             ``"branch"``).
