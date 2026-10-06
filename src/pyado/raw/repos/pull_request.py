@@ -27,6 +27,7 @@ __all__ = [
     "GitCherryPickResponse",
     "GitCherryPickStatus",
     "GitForkRef",
+    "GitMergeOperationStatusDetail",
     "GitMergeRequest",
     "GitMergeResponse",
     "GitMergeStatus",
@@ -562,16 +563,16 @@ class PullRequestResponse(AdoBaseModel):
 
 
 class GitMergeStatus(StrEnum):
-    """Possible completion states of a git merge operation."""
+    """Possible completion states of a git merge operation.
 
-    COMPLETED = "completed"
-    CONFLICTS = "conflicts"
-    FAILURE = "failure"
-    IN_PROGRESS = "inProgress"
-    INVALID_REFS = "invalidRefs"
-    NONE = "none"
+    Corresponds to the ADO ``GitAsyncOperationStatus`` enum.
+    """
+
     QUEUED = "queued"
-    REJECTED_BY_POLICY = "rejectedByPolicy"
+    IN_PROGRESS = "inProgress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    ABANDONED = "abandoned"
 
 
 class GitMergeRequest(AdoBaseModel):
@@ -586,19 +587,35 @@ class GitMergeRequest(AdoBaseModel):
     parents: list[CommitId]
 
 
+class GitMergeOperationStatusDetail(AdoBaseModel):
+    """Status detail for a git merge operation.
+
+    Attributes:
+        merge_commit_id: The resulting merge commit SHA once the merge
+            completes, or ``None`` if the merge has not yet finished.
+        failure_message: Error message describing why the merge failed, or
+            ``None`` if the operation did not fail.
+    """
+
+    merge_commit_id: CommitId | None = None
+    failure_message: str | None = None
+
+
 class GitMergeResponse(AdoBaseModel):
     """Response from the git merge endpoint.
 
     Attributes:
         merge_operation_id: Unique identifier for this merge operation.
-        status: Current state of the merge (e.g. ``completed``, ``conflicts``).
-        merge_commit_id: The resulting merge commit SHA once the merge completes,
-            or ``None`` if the merge has not yet finished.
+        status: Current state of the merge (e.g. ``completed``, ``failed``).
+        detailed_status: Detailed status, including the resulting merge
+            commit ID and any failure message.
     """
 
     merge_operation_id: int | None = None
     status: GitMergeStatus
-    merge_commit_id: CommitId | None = None
+    detailed_status: GitMergeOperationStatusDetail = Field(
+        default_factory=GitMergeOperationStatusDetail,
+    )
 
 
 class GitCherryPickStatus(StrEnum):

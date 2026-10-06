@@ -1102,12 +1102,13 @@ _GIT_MERGE_QUEUED_RESPONSE = {
 _GIT_MERGE_COMPLETED_RESPONSE = {
     "mergeOperationId": 2,
     "status": "completed",
-    "mergeCommitId": _COMMIT_MERGE_RESULT,
+    "detailedStatus": {"mergeCommitId": _COMMIT_MERGE_RESULT},
 }
 
-_GIT_MERGE_CONFLICTS_RESPONSE = {
+_GIT_MERGE_FAILED_RESPONSE = {
     "mergeOperationId": 3,
-    "status": "conflicts",
+    "status": "failed",
+    "detailedStatus": {"failureMessage": "Merge conflict in file.txt"},
 }
 
 
@@ -1194,19 +1195,20 @@ class TestPostGitMerge:
                 GitMergeRequest(parents=[_COMMIT_A, _COMMIT_B]),
             )
         assert result.status == GitMergeStatus.COMPLETED
-        assert result.merge_commit_id == _COMMIT_MERGE_RESULT
+        assert result.detailed_status.merge_commit_id == _COMMIT_MERGE_RESULT
 
     @staticmethod
-    def test_conflicts_status_no_merge_commit_id(api_call: ApiCall) -> None:
-        """Conflicts response has no merge commit ID."""
-        mock_response = _make_mock_response(_GIT_MERGE_CONFLICTS_RESPONSE)
+    def test_failed_status_has_failure_message(api_call: ApiCall) -> None:
+        """Failed response has no merge commit ID but has a failure message."""
+        mock_response = _make_mock_response(_GIT_MERGE_FAILED_RESPONSE)
         with patch.object(requests.Session, "request", return_value=mock_response):
             result = post_git_merge(
                 api_call,
                 GitMergeRequest(parents=[_COMMIT_A, _COMMIT_B]),
             )
-        assert result.status == GitMergeStatus.CONFLICTS
-        assert result.merge_commit_id is None
+        assert result.status == GitMergeStatus.FAILED
+        assert result.detailed_status.merge_commit_id is None
+        assert result.detailed_status.failure_message == "Merge conflict in file.txt"
 
 
 class TestGetGitMerge:
@@ -1220,7 +1222,7 @@ class TestGetGitMerge:
             result = get_git_merge(api_call, 2)
         assert isinstance(result, GitMergeResponse)
         assert result.status == GitMergeStatus.COMPLETED
-        assert result.merge_commit_id == _COMMIT_MERGE_RESULT
+        assert result.detailed_status.merge_commit_id == _COMMIT_MERGE_RESULT
 
     @staticmethod
     def test_sends_get_to_merges_endpoint(api_call: ApiCall) -> None:

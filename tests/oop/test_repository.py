@@ -1202,7 +1202,7 @@ def _merge_response(status: GitMergeStatus, op_id: int = 1) -> GitMergeResponse:
         {
             "mergeOperationId": op_id,
             "status": status.value,
-            **(
+            "detailedStatus": (
                 {"mergeCommitId": _SHA_MERGE}
                 if status == GitMergeStatus.COMPLETED
                 else {}
@@ -1288,19 +1288,19 @@ class TestRepositoryMerge:
         ):
             assert repo.check_merge_feasible(_SHA_A, _SHA_B) is True
 
-    def test_check_merge_feasible_returns_false_when_conflicts(self) -> None:
+    def test_check_merge_feasible_returns_false_when_failed(self) -> None:
         repo = _make_repo()
         with patch(
             "pyado.oop.repos.repository.raw.post_git_merge",
-            return_value=_merge_response(GitMergeStatus.CONFLICTS),
+            return_value=_merge_response(GitMergeStatus.FAILED),
         ):
             assert repo.check_merge_feasible(_SHA_A, _SHA_B) is False
 
-    def test_check_merge_feasible_returns_false_when_failure(self) -> None:
+    def test_check_merge_feasible_returns_false_when_abandoned(self) -> None:
         repo = _make_repo()
         with patch(
             "pyado.oop.repos.repository.raw.post_git_merge",
-            return_value=_merge_response(GitMergeStatus.FAILURE),
+            return_value=_merge_response(GitMergeStatus.ABANDONED),
         ):
             assert repo.check_merge_feasible(_SHA_A, _SHA_B) is False
 
@@ -1322,17 +1322,6 @@ class TestRepositoryMerge:
             result = repo.check_merge_feasible(_SHA_A, _SHA_B)
         assert result is True
         mock_get.assert_called_once_with(repo.api_call, 5)
-
-    def test_check_merge_feasible_raises_for_invalid_refs(self) -> None:
-        repo = _make_repo()
-        with (
-            patch(
-                "pyado.oop.repos.repository.raw.post_git_merge",
-                return_value=_merge_response(GitMergeStatus.INVALID_REFS),
-            ),
-            pytest.raises(AzureDevOpsNotFoundError),
-        ):
-            repo.check_merge_feasible(_SHA_A, _SHA_B)
 
     def test_check_merge_feasible_raises_timeout_when_always_queued(self) -> None:
         repo = _make_repo()

@@ -1417,7 +1417,10 @@ class Repository:
 
         Queues a merge via ADO and polls until the operation reaches a terminal
         status or *timeout* seconds elapse.  Returns ``True`` for
-        ``COMPLETED``, ``False`` for ``CONFLICTS`` or ``FAILURE``.
+        ``COMPLETED``, ``False`` for ``FAILED`` or ``ABANDONED``.  A failure
+        (including unresolvable commit SHAs or merge conflicts) is reported by
+        ADO as ``FAILED``; details are available via
+        ``response.detailed_status.failure_message``.
 
         Args:
             source: Commit SHA of the source branch tip.
@@ -1430,8 +1433,6 @@ class Repository:
             True if the merge can be applied cleanly, False if it cannot.
 
         Raises:
-            AzureDevOpsNotFoundError: If either commit SHA is not found by ADO
-                (``INVALID_REFS`` status).
             TimeoutError: If the operation is still ``QUEUED`` after *timeout*
                 seconds.
         """
@@ -1445,12 +1446,6 @@ class Repository:
             time.sleep(poll_interval)
             if operation_id is not None:
                 response = self.get_merge_status(operation_id)
-        if response.status == GitMergeStatus.INVALID_REFS:
-            raise AzureDevOpsNotFoundError(
-                404,
-                f"Merge check failed: one or both commit SHAs not found "
-                f"(source={source!r}, target={target!r}).",
-            )
         return response.status == GitMergeStatus.COMPLETED
 
     # ------------------------------------------------------------------
