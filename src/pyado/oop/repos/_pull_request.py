@@ -12,6 +12,7 @@ from pyado.raw import (
     JsonPatchAdd,
     PullRequestCompletionOptions,
     PullRequestCreateRequest,
+    PullRequestMergeStatus,
     PullRequestResponse,
     PullRequestReviewerRequest,
     PullRequestReviewerVoteRequest,
@@ -321,6 +322,25 @@ def abandon_pull_request(pr_api_call: ApiCall) -> PullRequestResponse:
     return patch_pull_request(
         pr_api_call,
         PullRequestUpdateRequest(status=PullRequestStatus.ABANDONED),
+    )
+
+
+def restart_pull_request_merge(pr_api_call: ApiCall) -> PullRequestResponse:
+    """Queue a new merge attempt so ADO re-evaluates merge conflicts.
+
+    ADO computes the merge status asynchronously; the returned response
+    typically has ``merge_status`` ``QUEUED``.  Re-fetch the pull request
+    after a few seconds to read the final ``succeeded``/``conflicts`` result.
+
+    Args:
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
+
+    Returns:
+        PullRequestResponse populated with the PR state after the request.
+    """
+    return patch_pull_request(
+        pr_api_call,
+        PullRequestUpdateRequest(merge_status=PullRequestMergeStatus.QUEUED),
     )
 
 

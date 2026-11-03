@@ -20,6 +20,7 @@ from pyado.oop.repos._pull_request import (
     iter_pull_request_work_item_ids,
     link_pull_request_work_item,
     reply_to_pull_request_thread,
+    restart_pull_request_merge,
     set_pull_request_reviewer_vote,
     update_pull_request_work_item_refs,
 )
@@ -388,6 +389,24 @@ class TestAbandonPr:
         assert mock_req.call_args.args[0] == "PATCH"
         sent_json = mock_req.call_args.kwargs.get("json") or {}
         assert sent_json.get("status") == "abandoned"
+
+
+class TestRestartPrMerge:
+    """Tests for restart_pull_request_merge."""
+
+    @staticmethod
+    def test_patches_pr_with_queued_merge_status(api_call: ApiCall) -> None:
+        """Sends PATCH with mergeStatus=queued and returns PullRequestResponse."""
+        response_data = {**_PATCH_PR_RESPONSE, "mergeStatus": "queued"}
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            result = restart_pull_request_merge(api_call)
+        assert isinstance(result, PullRequestResponse)
+        assert mock_req.call_args.args[0] == "PATCH"
+        sent_json = mock_req.call_args.kwargs.get("json") or {}
+        assert sent_json == {"mergeStatus": "queued"}
 
 
 class TestLinkPrWorkItem:
@@ -987,6 +1006,17 @@ class TestPullRequestLifecycle:
             mock_abandon.return_value = abandoned
             pr.abandon()
         assert pr._info is abandoned
+
+    def test_restart_merge_delegates_and_updates_info(self) -> None:
+        pr = _make_pr()
+        restarted = _pr_created()
+        with patch(
+            "pyado.oop.repos.pull_request._pull_request.restart_pull_request_merge"
+        ) as mock_restart:
+            mock_restart.return_value = restarted
+            pr.restart_merge()
+        mock_restart.assert_called_once_with(pr.api_call)
+        assert pr._info is restarted
 
     def test_set_work_item_refs_delegates(self) -> None:
         pr = _make_pr()

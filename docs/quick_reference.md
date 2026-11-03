@@ -209,6 +209,7 @@ Obtained via `Repository.get_pull_request`, `Repository.iter_pull_requests`,
 | `.update(*, title, description, status, is_draft)` | `-> None` | Update PR metadata |
 | `.complete(last_merge_source_commit, *, completion_options)` | `-> None` | Complete (merge) the PR |
 | `.abandon()` | `-> None` | Abandon the PR |
+| `.restart_merge()` | `-> None` | Queue a new merge attempt to re-check conflicts (then `.refresh()`) |
 | `.enable_auto_complete(identity_id?, *, completion_options)` | `-> None` | Enable auto-complete (defaults to own identity) |
 | `.disable_auto_complete()` | `-> None` | Clear auto-complete |
 | `.link_work_item(work_item, *, comment)` | `-> None` | Link PR to a work item via ArtifactLink |

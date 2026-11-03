@@ -456,6 +456,12 @@ pr.enable_auto_complete("<identity-id>")  # or pass an explicit identity
 pr.disable_auto_complete()
 pr.complete(last_merge_source_commit="<sha>")
 pr.abandon()
+
+# Re-check merge conflicts: queue a new merge attempt, then refresh later
+pr.restart_merge()
+time.sleep(10)
+pr.refresh()
+print(pr.info.merge_status)  # "succeeded" | "conflicts"
 ```
 
 ### WorkItem

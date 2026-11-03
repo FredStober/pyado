@@ -459,6 +459,8 @@ class PullRequestUpdateRequest(AdoBaseModel):
             when completing (merging) a PR.
         last_merge_source_commit: Commit ID of the source branch tip at the
             time of the request, used for optimistic concurrency on complete.
+        merge_status: Set to ``PullRequestMergeStatus.QUEUED`` to make ADO
+            restart the merge attempt and re-evaluate merge conflicts.
     """
 
     title: str | None = None
@@ -469,6 +471,7 @@ class PullRequestUpdateRequest(AdoBaseModel):
     last_merge_source_commit: CommitIdRef | None = None
     work_item_refs: list[WorkItemRef] | None = None
     auto_complete_set_by: IdentityIdRef | None = None
+    merge_status: PullRequestMergeStatus | None = None
 
 
 class PullRequestIterationRecord(AdoBaseModel):

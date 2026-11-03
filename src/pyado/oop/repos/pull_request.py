@@ -470,6 +470,15 @@ class PullRequest:
         """Abandon the pull request."""
         self._info = _pull_request.abandon_pull_request(self._api_call)
 
+    def restart_merge(self) -> None:
+        """Trigger a new merge attempt to re-check for merge conflicts.
+
+        ADO evaluates the merge asynchronously.  Call :meth:`refresh` after a
+        few seconds and read ``pr.info.merge_status`` (``"succeeded"`` or
+        ``"conflicts"``) for the result.
+        """
+        self._info = _pull_request.restart_pull_request_merge(self._api_call)
+
     def set_work_item_refs(self, work_item_ids: list[WorkItemId]) -> None:
         """Set the work items visible on the pull request page.
 

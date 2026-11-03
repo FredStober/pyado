@@ -243,6 +243,7 @@ pyado.RenameFile(old_path, new_path)  # rename without changing content
 .disable_auto_complete()
 .complete(last_merge_source_commit, *, completion_options?)
 .abandon()
+.restart_merge()  # queue new merge attempt; .refresh() later, read .info.merge_status
 ```
 
 ### WorkItem
