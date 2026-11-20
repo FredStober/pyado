@@ -44,6 +44,28 @@ def test_graph_users_read(
             console.print("  get_graph_user returned 404 — skipping single-user check")
 
 
+def test_personal_access_tokens_read(
+    token: str,
+    org_url: str,
+) -> None:
+    """List the caller's own personal access tokens (token admin API)."""
+    console.print("\n=== PERSONAL ACCESS TOKENS (read) ===")
+    session = raw.get_session(pat=token)
+    org_name = org_url.rstrip("/").rsplit("/", 1)[-1]
+    vssps_call = raw.get_vssps_api_call(session, org_name)
+    # get_connection_data appends ``_apis`` itself, so it needs the bare org URL.
+    org_call = raw.ApiCall(session=session, url=org_url)
+    descriptor = raw.get_connection_data(org_call).authenticated_user.subject_descriptor
+    if descriptor is None:
+        pytest.skip(reason="caller has no subject descriptor")
+
+    try:
+        tokens = list(raw.iter_personal_access_tokens(vssps_call, descriptor))
+    except (AzureDevOpsAuthError, AzureDevOpsNotFoundError):
+        pytest.skip(reason="PAT lacks Token Administration scope")
+    console.print(f"  found {len(tokens)} personal access token(s)")
+
+
 def test_user_entitlements_read(
     token: str,
     org_url: str,

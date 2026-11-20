@@ -1211,6 +1211,50 @@ post_work_item_comment(
 )
 ```
 
+### Mailing work items
+
+`ProjectBoards.send_mail` mails a table of work items through the ADO work
+item mail service (the same service as *Email query* in the web UI):
+
+```python
+proj.boards.send_mail(
+    "Sprint review items",
+    "Please have a look before Friday.\nhttps://example.com/agenda",
+    [user_identity_id],  # identity IDs (UUID) of the recipients
+    work_item_ids=[123, 456],
+    fields=["System.State", "System.AssignedTo"],  # ID and Title come first
+    cc=[another_identity_id],
+)
+
+# Or select the work items with a WIQL query
+proj.boards.send_mail(
+    "Open bugs",
+    "Weekly list.",
+    [user_identity_id],
+    wiql="SELECT [System.Id] FROM workitems WHERE [System.State] = 'Active'",
+)
+```
+
+Behaviour observed against Azure DevOps Services (the service is barely
+documented, and the REST reference omits some of this):
+
+- The sender is the authenticated user, and the mail uses a fixed ADO template
+  ("... sent you a work item with a note") followed by a table of the selected
+  work items.  It is not a free-form mailer.
+- Recipients must be ADO identities.  Plaintext `email_addresses` and
+  `unresolved_entity_ids` are accepted by the request model but ADO answers
+  them with HTTP 500 (`TF400969` / `TF400898`).
+- At least one of `work_item_ids` or `wiql` is required.  Selecting by WIQL
+  changes the mail text to "shared a work item query".
+- The note is **plain text**: newlines are kept and URLs are auto-linked, but
+  HTML tags and markdown are shown literally.  (The REST reference calls the
+  body "HTML"; that is wrong.)
+- `fields` sets the table columns.  HTML fields such as `System.Description`
+  are flattened to text and can make the mail very long, so avoid them.
+
+The raw layer exposes the full request as `pyado.raw.WorkItemMailRequest`
+(with `EmailRecipients`) for `post_send_mail`.
+
 ### Attaching files
 
 Attachment is a two-step operation. First, upload the file bytes to ADO's

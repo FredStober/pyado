@@ -147,6 +147,14 @@ class WorkItem:
         return self._api_call
 
     @property
+    def web_url(self) -> str:
+        """Browser URL of this work item."""
+        return (
+            f"https://dev.azure.com/{self.org.name}/{self.project.name}"
+            f"/_workitems/edit/{self.id}"
+        )
+
+    @property
     def project(self) -> "Project":
         """Project this work item belongs to — zero-cost."""
         return self._project

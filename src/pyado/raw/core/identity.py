@@ -8,9 +8,11 @@ module always constructs the full absolute base URL.
 # SPDX-License-Identifier: MIT
 
 from collections.abc import Iterator
+from datetime import datetime
 from uuid import UUID
 
 import requests
+from pydantic import Field
 
 from pyado.raw._core import _ADO_URL_ADAPTER, AdoBaseModel, ApiCall
 
@@ -20,6 +22,7 @@ __all__ = [
     "GraphMembership",
     "GraphUser",
     "IdentityInfo",
+    "PersonalAccessToken",
     "UserEntitlement",
     "UserEntitlementCreateRequest",
     "delete_graph_membership",
@@ -28,6 +31,7 @@ __all__ = [
     "get_vssps_api_call",
     "iter_graph_groups",
     "iter_graph_users",
+    "iter_personal_access_tokens",
     "iter_user_entitlements",
     "list_graph_memberships",
     "list_graph_users",
@@ -176,6 +180,71 @@ class _GraphMembershipResults(AdoBaseModel):
     """Internal: container for graph membership list results."""
 
     value: list[GraphMembership]
+
+
+class PersonalAccessToken(AdoBaseModel):
+    """A personal access token as listed by the token admin API.
+
+    The token secret itself is never returned; only metadata.
+    """
+
+    display_name: str | None = None
+    authorization_id: str | None = None
+    scope: str | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime
+
+
+class _PersonalAccessTokenPage(AdoBaseModel):
+    """Internal: one page of the token admin listing.
+
+    ADO documents the list under ``patTokens`` while some API versions use
+    the generic ``value`` envelope; both are accepted.
+    """
+
+    value: list[PersonalAccessToken] = Field(default_factory=list)
+    pat_tokens: list[PersonalAccessToken] = Field(default_factory=list)
+    continuation_token: str | None = None
+
+
+def iter_personal_access_tokens(
+    vssps_call: ApiCall,
+    subject_descriptor: str,
+    *,
+    page_size: int = 100,
+) -> Iterator[PersonalAccessToken]:
+    """Iterate over all personal access tokens of one user (token admin API).
+
+    Requires a PAT with the *Token Administration* scope.
+
+    Args:
+        vssps_call: vssps-scoped API call (from :func:`get_vssps_api_call`).
+        subject_descriptor: Subject descriptor of the token owner, e.g.
+            ``ConnectionDataIdentity.subject_descriptor`` of the caller.
+        page_size: Number of tokens requested per page.
+
+    Yields:
+        PersonalAccessToken metadata for each token of the user.
+    """
+    continuation: str | None = None
+    while True:
+        parameters: dict[str, int | str | bool] = {"pageSize": page_size}
+        if continuation:
+            parameters["continuationToken"] = continuation
+        response = vssps_call.get(
+            "_apis",
+            "tokenadmin",
+            "personalaccesstokens",
+            subject_descriptor,
+            parameters=parameters,
+            version="7.1-preview.1",
+        )
+        page = _PersonalAccessTokenPage.model_validate(response)
+        yield from page.value
+        yield from page.pat_tokens
+        continuation = page.continuation_token
+        if not continuation:
+            return
 
 
 def list_graph_memberships(

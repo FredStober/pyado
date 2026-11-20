@@ -4,7 +4,7 @@
 
 from typing import Any
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import requests
@@ -17,6 +17,7 @@ from pyado.raw import (
     ClassificationNodePatchRequest,
     ClassificationNodeRequest,
     ClassificationNodeUrlType,
+    EmailRecipients,
     SprintIterationInfo,
     SprintIterationTimeframe,
     TeamFieldValue,
@@ -24,6 +25,8 @@ from pyado.raw import (
     WorkItemComment,
     WorkItemExpand,
     WorkItemInfo,
+    WorkItemMailMessage,
+    WorkItemMailRequest,
     WorkItemQuery,
     WorkItemQueryExpand,
     WorkItemRef,
@@ -36,6 +39,7 @@ from pyado.raw import (
     get_query_folder,
     get_query_tree,
     get_team_field_values,
+    get_wiql_by_id,
     get_work_item,
     get_work_item_api_call,
     get_work_item_attachment_bytes,
@@ -49,6 +53,7 @@ from pyado.raw import (
     patch_recycle_bin_work_item,
     patch_work_item_comment,
     post_classification_node,
+    post_send_mail,
     post_team_iteration,
     post_wiql,
     post_work_item_comment,
@@ -1482,3 +1487,67 @@ class TestListWorkItemRevisions:
             result = list_work_item_revisions(api_call)
         assert result == []
         m.assert_called_once_with(api_call)
+
+
+class TestGetWiqlById:
+    @staticmethod
+    def test_returns_refs_and_calls_saved_query_url(api_call: ApiCall) -> None:
+        response = _make_mock_response({"workItems": [{"id": 5}, {"id": 7}]})
+        with patch.object(requests.Session, "request", return_value=response) as m:
+            result = get_wiql_by_id(api_call, "query-guid")
+        assert [ref.id for ref in result] == [5, 7]
+        assert m.call_args.args[0] == "GET"
+        assert m.call_args.kwargs["url"].endswith("/wit/wiql/query-guid")
+
+    @staticmethod
+    def test_relation_query_without_work_items_returns_empty(
+        api_call: ApiCall,
+    ) -> None:
+        response = _make_mock_response({"workItemRelations": []})
+        with patch.object(requests.Session, "request", return_value=response):
+            assert get_wiql_by_id(api_call, "query-guid") == []
+
+
+class TestPostSendMail:
+    @staticmethod
+    def test_posts_ui_shaped_request(api_call: ApiCall) -> None:
+        response = _make_mock_response({})
+        user = UUID("904cf2a3-862a-694e-b9c4-3c56754c42c9")
+        request = WorkItemMailRequest(
+            message=WorkItemMailMessage(
+                subject="Hi",
+                body="note",
+                to=EmailRecipients(tf_ids=[user]),
+            ),
+            ids=[12324],
+            fields=["System.Id", "System.Title"],
+            project_id="ICS",
+        )
+        with patch.object(requests.Session, "request", return_value=response) as m:
+            post_send_mail(api_call, request)
+        assert m.call_args.args[0] == "POST"
+        assert m.call_args.kwargs["url"].endswith("/wit/sendMail")
+        assert m.call_args.kwargs["params"]["api-version"] == "5.1-preview.1"
+        empty: dict[str, list[str]] = {
+            "tfIds": [],
+            "emailAddresses": [],
+            "unresolvedEntityIds": [],
+        }
+        assert m.call_args.kwargs["json"] == {
+            "message": {
+                "subject": "Hi",
+                "body": "note",
+                "to": {**empty, "tfIds": [str(user)]},
+                "cc": empty,
+                "replyTo": empty,
+                "inReplyTo": "",
+                "messageId": "",
+            },
+            "ids": [12324],
+            "wiql": "",
+            "fields": ["System.Id", "System.Title"],
+            "sortFields": [],
+            "persistenceId": "",
+            "tempQueryId": "",
+            "projectId": "ICS",
+        }

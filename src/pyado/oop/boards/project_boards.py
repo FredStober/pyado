@@ -5,6 +5,7 @@
 from collections.abc import Iterator
 from datetime import date
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from pyado import raw
 from pyado.oop.boards import _work_item
@@ -17,6 +18,7 @@ from pyado.raw import (
     ClassificationNodeAttributes,
     ClassificationNodeRequest,
     ClassificationNodeUrlType,
+    EmailRecipients,
     SprintIterationId,
     SprintIterationInfo,
     SprintIterationTimeframe,
@@ -26,7 +28,10 @@ from pyado.raw import (
     WorkItemBatchRequest,
     WorkItemExpand,
     WorkItemField,
+    WorkItemFieldName,
     WorkItemId,
+    WorkItemMailMessage,
+    WorkItemMailRequest,
     WorkItemQuery,
     WorkItemQueryExpand,
     WorkItemRelation,
@@ -188,6 +193,79 @@ class ProjectBoards:
     def list_work_items(self, query: str) -> list[WorkItem]:
         """Return all work items matching a WIQL query as a list."""
         return list(self.iter_work_items(query))
+
+    def iter_work_items_by_query_id(self, query_id: str) -> Iterator[WorkItem]:
+        """Iterate over the work items returned by a saved query.
+
+        Only flat queries are supported (see :func:`pyado.raw.get_wiql_by_id`).
+
+        Args:
+            query_id: GUID of the saved query (from :meth:`get_query_tree`).
+
+        Yields:
+            WorkItem for each result, in query order.
+        """
+        refs = raw.get_wiql_by_id(self._project.api_call, query_id)
+        yield from self.iter_work_items_by_ids([ref.id for ref in refs])
+
+    def list_work_items_by_query_id(self, query_id: str) -> list[WorkItem]:
+        """Return the work items returned by a saved query as a list."""
+        return list(self.iter_work_items_by_query_id(query_id))
+
+    def send_mail(
+        self,
+        subject: str,
+        note: str,
+        recipients: list[UUID],
+        *,
+        work_item_ids: list[WorkItemId] | None = None,
+        wiql: str | None = None,
+        fields: list[str] | None = None,
+        cc: list[UUID] | None = None,
+    ) -> None:
+        """Mail a list of work items through the ADO work item mail service.
+
+        The mail is sent by the authenticated user from a fixed ADO template
+        ("... sent you a work item with a note") and lists the selected work
+        items in a table below the note.  It cannot be used as a free-form
+        mailer.
+
+        Args:
+            subject: Mail subject line.
+            note: Note shown above the table.  Plain text: newlines are kept
+                and URLs are auto-linked, but HTML and markdown are shown
+                literally.
+            recipients: Identity IDs of the users to mail.  Plaintext e-mail
+                addresses are not supported by ADO (HTTP 500).
+            work_item_ids: IDs of the work items to list.
+            wiql: WIQL query selecting the work items to list; the mail then
+                reads "shared a work item query".
+            fields: Reference names of the table columns (ID and Title come
+                first).  Avoid HTML fields such as ``System.Description``,
+                which are flattened to text.
+            cc: Identity IDs of carbon-copy recipients.
+
+        Raises:
+            ValueError: If neither ``work_item_ids`` nor ``wiql`` is given.
+        """
+        if not work_item_ids and not wiql:
+            msg = "send_mail requires work_item_ids or wiql"
+            raise ValueError(msg)
+        raw.post_send_mail(
+            self._project.api_call,
+            WorkItemMailRequest(
+                message=WorkItemMailMessage(
+                    subject=subject,
+                    body=note,
+                    to=EmailRecipients(tf_ids=recipients),
+                    cc=EmailRecipients(tf_ids=cc or []),
+                ),
+                ids=work_item_ids or [],
+                wiql=wiql or "",
+                fields=fields or [WorkItemFieldName.ID, WorkItemFieldName.TITLE],
+                project_id=self._project.name,
+            ),
+        )
 
     # ------------------------------------------------------------------
     # WIT queries

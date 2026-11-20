@@ -62,6 +62,12 @@ class Branch:
         return self._ref.object_id
 
     @property
+    def creator(self) -> str | None:
+        """Display name of the branch creator, or ``None`` if ADO omits it."""
+        creator = self._ref.creator
+        return creator.display_name if creator else None
+
+    @property
     def repo(self) -> "Repository":
         """Repository this branch belongs to — zero-cost."""
         return self._repo

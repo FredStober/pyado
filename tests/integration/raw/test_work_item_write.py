@@ -74,6 +74,11 @@ def test_work_item_write(
     )
     if attachment_ref:
         raw.get_work_item_attachment_bytes(project_api_call, str(attachment_ref.id))
+        # Attachment URLs embedded in descriptions are fetched with this helper.
+        raw.get_ado_url_bytes(
+            project_api_call.session,
+            str(attachment_ref.url),
+        )
 
     # iter_work_item_revisions
     _take(raw.iter_work_item_revisions(wi_api_call), 5)

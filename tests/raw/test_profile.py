@@ -86,6 +86,22 @@ class TestGetConnectionData:
         assert result.authenticated_user.provider_display_name == "Bob Example"
 
     @staticmethod
+    def test_reads_optional_subject_descriptor(api_call: ApiCall) -> None:
+        """Exposes subjectDescriptor when ADO returns it, else None."""
+        with_desc = _make_mock_response(
+            {
+                "authenticatedUser": {
+                    "id": "u",
+                    "providerDisplayName": "B",
+                    "subjectDescriptor": "aad.xyz",
+                }
+            }
+        )
+        with patch.object(requests.Session, "request", return_value=with_desc):
+            result = get_connection_data(api_call)
+        assert result.authenticated_user.subject_descriptor == "aad.xyz"
+
+    @staticmethod
     def test_sends_get_request_to_connection_data_endpoint(
         api_call: ApiCall,
     ) -> None:

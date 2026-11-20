@@ -11,6 +11,7 @@ from pyado.oop import AgentPool, OrganizationSearch, Project
 from pyado.raw import (
     AccessLevel,
     AgentPoolInfo,
+    ConnectionData,
     GraphGroup,
     GraphMembership,
     GraphUser,
@@ -20,6 +21,7 @@ from pyado.raw import (
     HookSubscriptionUpdateRequest,
     IdentityInfo,
     NotificationSubscription,
+    PersonalAccessToken,
     UserEntitlement,
     UserEntitlementCreateRequest,
 )
@@ -539,3 +541,50 @@ class TestOrganizationGraphMemberships:
             svc.org.remove_graph_membership("vssgp.member", "vssgp.container")
         passed_api_call = mock_remove.call_args[0][0]
         assert f"vssps.dev.azure.com/{ORG_NAME}" in str(passed_api_call.url)
+
+
+class TestOrganizationTokensAndDownload:
+    def test_name_is_org_slug(self) -> None:
+        assert _make_service().org.name == "testorg"
+
+    def test_iter_my_personal_access_tokens_uses_caller_descriptor(self) -> None:
+        svc = _make_service()
+        conn = ConnectionData.model_validate(
+            {
+                "authenticatedUser": {
+                    "id": "u",
+                    "providerDisplayName": "B",
+                    "subjectDescriptor": "aad.xyz",
+                }
+            }
+        )
+        pat = PersonalAccessToken.model_validate({"validTo": "2027-01-01T00:00:00Z"})
+        with (
+            patch("pyado.oop.organization.raw.get_connection_data", return_value=conn),
+            patch(
+                "pyado.oop.organization.raw.iter_personal_access_tokens",
+                return_value=iter([pat]),
+            ) as mock_iter,
+        ):
+            result = svc.org.list_my_personal_access_tokens()
+        assert result == [pat]
+        assert mock_iter.call_args.args[1] == "aad.xyz"
+
+    def test_iter_my_personal_access_tokens_requires_descriptor(self) -> None:
+        svc = _make_service()
+        conn = ConnectionData.model_validate(
+            {"authenticatedUser": {"id": "u", "providerDisplayName": "B"}}
+        )
+        with (
+            patch("pyado.oop.organization.raw.get_connection_data", return_value=conn),
+            pytest.raises(ValueError, match="subject descriptor"),
+        ):
+            svc.org.list_my_personal_access_tokens()
+
+    def test_download_url_delegates_with_service_session(self) -> None:
+        svc = _make_service()
+        with patch(
+            "pyado.oop.organization.raw.get_ado_url_bytes", return_value=b"x"
+        ) as mock_dl:
+            assert svc.org.download_url("https://dev.azure.com/o/x") == b"x"
+        assert mock_dl.call_args.args[1] == "https://dev.azure.com/o/x"

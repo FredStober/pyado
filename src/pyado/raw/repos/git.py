@@ -10,7 +10,14 @@ from uuid import UUID
 
 from pydantic import BeforeValidator, Field, NonNegativeInt
 
-from pyado.raw._core import AdoBaseModel, AdoUrl, ApiCall, AzureDevOpsNotFoundError
+from pyado.exceptions import AzureDevOpsRefUpdateError
+from pyado.raw._core import (
+    AdoBaseModel,
+    AdoUrl,
+    ApiCall,
+    AzureDevOpsNotFoundError,
+    _IdentityRef,
+)
 from pyado.raw.boards.work_item import WorkItemRef
 from pyado.raw.core.project import ProjectInfo
 
@@ -269,6 +276,7 @@ class GitRef(AdoBaseModel):
 
     name: str
     object_id: CommitId
+    creator: _IdentityRef | None = None
 
 
 class GitRefFilter(AdoBaseModel):
@@ -354,6 +362,20 @@ class GitRefUpdate(AdoBaseModel):
     name: str
     new_object_id: CommitId
     old_object_id: CommitId
+
+
+class _GitRefUpdateResult(AdoBaseModel):
+    """Outcome of a single ref update as reported by ``POST .../refs``."""
+
+    name: str
+    success: bool
+    update_status: str
+
+
+class _GitRefUpdateResults(AdoBaseModel):
+    """Response of ``POST .../refs``."""
+
+    value: list[_GitRefUpdateResult]
 
 
 # ---------------------------------------------------------------------------
@@ -686,12 +708,19 @@ def post_repository_refs(
             get_repository_api_call).
         ref_updates: List of ref updates, each specifying a name and old/new
             object IDs.
+
+    Raises:
+        AzureDevOpsRefUpdateError: If ADO rejected a ref update.  The API
+            answers HTTP 200 and reports failures per ref in the body.
     """
-    repository_api_call.post(
+    response = repository_api_call.post(
         "refs",
         version="7.1",
         json=[u.model_dump(mode="json", by_alias=True) for u in ref_updates],
     )
+    for result in _GitRefUpdateResults.model_validate(response).value:
+        if not result.success:
+            raise AzureDevOpsRefUpdateError(result.name, result.update_status)
 
 
 def iter_refs(

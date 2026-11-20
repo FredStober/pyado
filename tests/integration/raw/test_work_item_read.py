@@ -38,6 +38,14 @@ def test_work_items_read(
             " ORDER BY [System.Id] DESC"
         ),
     ]
+    saved_queries = [
+        query
+        for root in raw.get_query_tree(project_api_call, depth=2)
+        for query in root.children
+        if not query.is_folder and query.query_type == raw.WorkItemQueryType.FLAT
+    ]
+    if saved_queries:
+        raw.get_wiql_by_id(project_api_call, saved_queries[0].id)
     rng.shuffle(wiql_queries)
     wi_refs = raw.post_wiql(project_api_call, wiql_queries[0])
     raw.post_wiql(project_api_call, wiql_queries[1])

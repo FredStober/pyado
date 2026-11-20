@@ -25,6 +25,7 @@ from pyado.raw import (
     HookSubscriptionUpdateRequest,
     IdentityInfo,
     NotificationSubscription,
+    PersonalAccessToken,
     ProcessCreateRequest,
     ProcessDetail,
     ProcessId,
@@ -75,6 +76,11 @@ class Organization:
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
+
+    @property
+    def name(self) -> str:
+        """Organisation name (the ``{org}`` slug in ``dev.azure.com/{org}``)."""
+        return self._service.oop_api.org_name
 
     @property
     def api_call(self) -> ApiCall:
@@ -150,6 +156,48 @@ class Organization:
             UserProfile for the authenticated user.
         """
         return raw.get_my_profile(self._service.oop_api.profile_api_call)
+
+    def iter_my_personal_access_tokens(self) -> Iterator[PersonalAccessToken]:
+        """Iterate over the personal access tokens of the authenticated user.
+
+        Requires a PAT with the *Token Administration* scope.  Resolves the
+        caller's subject descriptor via :meth:`get_connection_data`.
+
+        Yields:
+            PersonalAccessToken metadata for each token of the caller.
+
+        Raises:
+            ValueError: If ADO does not report a subject descriptor for the
+                authenticated user.
+        """
+        descriptor = self.get_connection_data().authenticated_user.subject_descriptor
+        if descriptor is None:
+            err_msg = "connectionData did not return a subject descriptor."
+            raise ValueError(err_msg)
+        yield from raw.iter_personal_access_tokens(
+            self._service.oop_api.vssps_api_call, descriptor
+        )
+
+    def list_my_personal_access_tokens(self) -> list[PersonalAccessToken]:
+        """Return the personal access tokens of the authenticated user."""
+        return list(self.iter_my_personal_access_tokens())
+
+    def download_url(self, url: str) -> bytes:
+        """Download an absolute Azure DevOps URL with the service credentials.
+
+        Intended for inline images and attachments referenced from work item
+        descriptions, comments or wiki pages.  Non-Azure DevOps hosts are
+        rejected so credentials are never sent to third parties.
+
+        Args:
+            url: Absolute ``https`` URL on an Azure DevOps host.
+
+        Returns:
+            The response body.
+        """
+        return raw.get_ado_url_bytes(
+            self._service.oop_api.org_base_api_call.session, url
+        )
 
     # ------------------------------------------------------------------
     # Identity / graph

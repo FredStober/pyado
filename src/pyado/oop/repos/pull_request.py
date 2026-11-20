@@ -16,6 +16,7 @@ from pyado.raw import (
     ApiCall,
     CommitId,
     IdentityIdRef,
+    PolicyEvaluation,
     PullRequestCompletionOptions,
     PullRequestId,
     PullRequestIteration,
@@ -149,6 +150,27 @@ class PullRequest:
     def repo(self) -> "Repository":
         """Repository this pull request belongs to — zero-cost."""
         return self._repo
+
+    def iter_policy_evaluations(self) -> Iterator[PolicyEvaluation]:
+        """Iterate over the branch-policy evaluations of this pull request.
+
+        Yields:
+            PolicyEvaluation for each policy that applies to the PR.
+        """
+        artifact_id = raw.make_pull_request_policy_artifact_id(self.project.id, self.id)
+        yield from raw.iter_policy_evaluations(self.project.api_call, artifact_id)
+
+    def list_policy_evaluations(self) -> list[PolicyEvaluation]:
+        """Return the branch-policy evaluations of this pull request."""
+        return list(self.iter_policy_evaluations())
+
+    @property
+    def web_url(self) -> str:
+        """Browser URL of this pull request."""
+        return (
+            f"https://dev.azure.com/{self.org.name}/{self.project.name}"
+            f"/_git/{self.repo.name}/pullrequest/{self.id}"
+        )
 
     @property
     def project(self) -> "Project":
@@ -348,6 +370,28 @@ class PullRequest:
             thread_id,
             content,
             parent_comment_id=parent_comment_id,
+        )
+
+    def update_comment(
+        self,
+        thread_id: int,
+        content: str,
+        *,
+        comment_id: int = 1,
+    ) -> PullRequestThreadCommentResponse:
+        """Replace the text of an existing comment in a review thread.
+
+        Args:
+            thread_id: ID of the thread containing the comment.
+            content: New text content of the comment.
+            comment_id: ID of the comment within the thread (default: ``1``,
+                the thread's first comment).
+
+        Returns:
+            The updated PullRequestThreadCommentResponse.
+        """
+        return raw.patch_pull_request_thread_comment(
+            self._api_call, thread_id, comment_id, content
         )
 
     # ------------------------------------------------------------------

@@ -97,6 +97,7 @@ __all__ = [
     "list_pull_requests",
     "patch_pull_request",
     "patch_pull_request_thread",
+    "patch_pull_request_thread_comment",
     "post_git_cherry_pick",
     "post_git_merge",
     "post_git_revert",
@@ -427,6 +428,12 @@ class _PullRequestThreadPatchRequest(AdoBaseModel):
     """Internal: request body for patching a PR review thread."""
 
     status: PullRequestThreadStatus
+
+
+class _PullRequestThreadCommentPatchRequest(AdoBaseModel):
+    """Internal: request body for editing a PR thread comment."""
+
+    content: str
 
 
 class _PullRequestThreadResults(AdoBaseModel):
@@ -1170,6 +1177,36 @@ def patch_pull_request_thread(
         json=_PullRequestThreadPatchRequest(status=status).model_dump(mode="json"),
     )
     return PullRequestThreadResponse.model_validate(response)
+
+
+def patch_pull_request_thread_comment(
+    pr_api_call: ApiCall,
+    thread_id: ThreadId,
+    comment_id: CommentId,
+    content: str,
+) -> PullRequestThreadCommentResponse:
+    """Replace the text of an existing comment in a PR review thread.
+
+    Args:
+        pr_api_call: PR-level ADO API call (from get_pull_request_api_call).
+        thread_id: Numeric ID of the thread containing the comment.
+        comment_id: ID of the comment within the thread (``1`` is the first).
+        content: New text content of the comment.
+
+    Returns:
+        The updated PullRequestThreadCommentResponse.
+    """
+    response = pr_api_call.patch(
+        "threads",
+        thread_id,
+        "comments",
+        comment_id,
+        version="7.1-preview.1",
+        json=_PullRequestThreadCommentPatchRequest(content=content).model_dump(
+            mode="json"
+        ),
+    )
+    return PullRequestThreadCommentResponse.model_validate(response)
 
 
 def iter_pull_request_statuses(pr_api_call: ApiCall) -> Iterator[PullRequestStatusInfo]:

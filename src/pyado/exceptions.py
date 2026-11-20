@@ -9,6 +9,7 @@ __all__ = [
     "AzureDevOpsError",
     "AzureDevOpsHttpError",
     "AzureDevOpsNotFoundError",
+    "AzureDevOpsRefUpdateError",
     "AzureDevOpsThrottledError",
 ]
 
@@ -51,6 +52,30 @@ class AzureDevOpsConflictError(AzureDevOpsHttpError):
 
 class AzureDevOpsBadRequestError(AzureDevOpsHttpError):
     """HTTP 400 from the Azure DevOps API (malformed or invalid request)."""
+
+
+class AzureDevOpsRefUpdateError(AzureDevOpsError):
+    """A git ref update was rejected although the HTTP request succeeded.
+
+    ``POST .../refs`` answers HTTP 200 and reports the outcome of each ref
+    update in the response body, e.g. ``updateStatus: forcePushRequired``
+    when the caller lacks the permission to delete a branch.
+
+    Attributes:
+        ref_name: Full name of the ref whose update failed.
+        update_status: The ``updateStatus`` value reported by the API.
+    """
+
+    def __init__(self, ref_name: str, update_status: str) -> None:
+        """Construct the error.
+
+        Args:
+            ref_name: Full name of the ref whose update failed.
+            update_status: The ``updateStatus`` value reported by the API.
+        """
+        super().__init__(f"Update of {ref_name!r} failed: {update_status}")
+        self.ref_name = ref_name
+        self.update_status = update_status
 
 
 class AzureDevOpsThrottledError(AzureDevOpsHttpError):

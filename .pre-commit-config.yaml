@@ -42,13 +42,31 @@ repos:
     always_run: true
     args: [run, ruff, check, --fix]
 
+  # The four soupsieve advisories below are ignored on purpose:
+  #  - soupsieve is not a pyado dependency.  It is only pulled in by the docs
+  #    group (furo -> beautifulsoup4 -> soupsieve) and is never installed for
+  #    users of the package or imported by pyado.
+  #  - All four are denial-of-service issues (CSS parser recursion, ReDoS,
+  #    quadratic matching) that need an attacker to supply CSS selectors or
+  #    HTML to soupsieve.  Sphinx only runs it over our own docs and theme, in
+  #    a local or CI docs build, so there is no untrusted input.
+  #  - The complete fix is soupsieve >= 4.0.0, which needs Python >= 3.11.5,
+  #    but pyado supports Python >= 3.11.  An upgrade would split the lock file
+  #    by Python version for a docs-only tool.
+  # Revisit when furo/beautifulsoup4 release versions that pull in a fixed
+  # soupsieve, or when requires-python is raised to >= 3.11.5, then drop these.
   - id: uv-audit
     name: uv audit
     entry: uv
     language: system
     pass_filenames: false
     always_run: true
-    args: [audit]
+    args:
+    - audit
+    - --ignore=GHSA-7g44-g9rc-x53w    # soupsieve: CSS parser recursion
+    - --ignore=GHSA-mmhr-3c5m-f64f    # soupsieve: descendant combinator DoS
+    - --ignore=GHSA-6655-6qjp-jx7x    # soupsieve: selector compilation ReDoS
+    - --ignore=GHSA-4j63-6c4x-wfg4    # soupsieve: :has() sibling combinator DoS
 
   - id: mypy
     name: mypy

@@ -55,6 +55,7 @@ from pyado.raw import (
     WorkItemExpand,
     WorkItemQuery,
     WorkItemQueryExpand,
+    WorkItemRef,
 )
 from tests.oop.conftest import (
     PROJECT_ID,
@@ -1860,3 +1861,61 @@ def _make_wit_query(name: str = "My Queries") -> WorkItemQuery:
     return WorkItemQuery.model_validate(
         {"id": "00000000-0000-0000-0000-000000000001", "name": name}
     )
+
+
+class TestProjectBoardsSavedQueryAndMail:
+    def test_iter_work_items_by_query_id_fetches_refs_then_items(self) -> None:
+        boards = _make_project().boards
+        wi = MagicMock(spec=WorkItem)
+        with (
+            patch(
+                "pyado.oop.boards.project_boards.raw.get_wiql_by_id",
+                return_value=[WorkItemRef(id=3), WorkItemRef(id=4)],
+            ) as mock_q,
+            patch.object(
+                boards, "iter_work_items_by_ids", return_value=iter([wi])
+            ) as mock_ids,
+        ):
+            assert boards.list_work_items_by_query_id("qid") == [wi]
+        assert mock_q.call_args.args[1] == "qid"
+        assert mock_ids.call_args.args[0] == [3, 4]
+
+    def test_send_mail_builds_request(self) -> None:
+        boards = _make_project().boards
+        to_id, cc_id = uuid4(), uuid4()
+        with patch("pyado.oop.boards.project_boards.raw.post_send_mail") as mock_send:
+            boards.send_mail(
+                "S",
+                "note",
+                [to_id],
+                work_item_ids=[5],
+                fields=["System.State"],
+                cc=[cc_id],
+            )
+        request = mock_send.call_args.args[1]
+        assert (request.message.subject, request.message.body) == ("S", "note")
+        assert request.message.to.tf_ids == [to_id]
+        assert request.message.cc.tf_ids == [cc_id]
+        assert request.ids == [5]
+        assert not request.wiql
+        assert request.fields == ["System.State"]
+        assert request.project_id == "TestProject"
+
+    def test_send_mail_with_wiql_defaults_to_id_and_title(self) -> None:
+        boards = _make_project().boards
+        with patch("pyado.oop.boards.project_boards.raw.post_send_mail") as mock_send:
+            boards.send_mail("S", "note", [uuid4()], wiql="SELECT [System.Id] ...")
+        request = mock_send.call_args.args[1]
+        assert request.wiql == "SELECT [System.Id] ..."
+        assert request.ids == []
+        assert request.fields == ["System.Id", "System.Title"]
+        assert request.message.cc.tf_ids == []
+
+    def test_send_mail_requires_work_items(self) -> None:
+        boards = _make_project().boards
+        with (
+            patch("pyado.oop.boards.project_boards.raw.post_send_mail") as mock_send,
+            pytest.raises(ValueError, match="work_item_ids or wiql"),
+        ):
+            boards.send_mail("S", "note", [uuid4()])
+        mock_send.assert_not_called()

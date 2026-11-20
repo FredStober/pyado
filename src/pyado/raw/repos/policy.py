@@ -3,9 +3,12 @@
 # SPDX-License-Identifier: MIT
 
 from collections.abc import Iterator
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, TypeAlias
 from uuid import UUID
+
+from pydantic import Field
 
 from pyado.raw._core import AdoBaseModel, ApiCall
 from pyado.raw.repos.git import GitRefName, RepositoryId
@@ -15,6 +18,11 @@ __all__ = [
     "PolicyConfigurationInfo",
     "PolicyConfigurationRequest",
     "PolicyCreatedBy",
+    "PolicyEvaluation",
+    "PolicyEvaluationConfiguration",
+    "PolicyEvaluationId",
+    "PolicyEvaluationStatus",
+    "PolicyEvaluationType",
     "PolicyScope",
     "PolicyScopeMatchKind",
     "PolicyType",
@@ -25,9 +33,12 @@ __all__ = [
     "get_policy_configuration_api_call",
     "get_policy_type",
     "iter_policy_configurations",
+    "iter_policy_evaluations",
     "iter_policy_types",
     "list_policy_configurations",
+    "list_policy_evaluations",
     "list_policy_types",
+    "make_pull_request_policy_artifact_id",
     "post_policy_configuration",
     "put_policy_configuration",
 ]
@@ -37,6 +48,7 @@ _ALL_BRANCHES_REF_PREFIX: GitRefName = "refs/heads/"
 
 PolicyConfigurationId: TypeAlias = int
 PolicyTypeId: TypeAlias = UUID
+PolicyEvaluationId: TypeAlias = UUID
 
 
 class PolicyScopeMatchKind(StrEnum):
@@ -171,6 +183,49 @@ class PolicyConfigurationInfo(AdoBaseModel):
     created_date: str | None = None
 
 
+class PolicyEvaluationStatus(StrEnum):
+    """Evaluation state of a policy against an artifact (e.g. a pull request).
+
+    ``APPROVED`` and ``NOT_APPLICABLE`` both count as passing.
+    """
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    NOT_APPLICABLE = "notApplicable"
+    BROKEN = "broken"
+
+
+class PolicyEvaluationType(AdoBaseModel):
+    """Policy type reference embedded in an evaluation's configuration."""
+
+    id: PolicyTypeId
+    display_name: str | None = None
+
+
+class PolicyEvaluationConfiguration(AdoBaseModel):
+    """The policy configuration an evaluation was produced by."""
+
+    id: PolicyConfigurationId
+    type: PolicyEvaluationType
+    is_enabled: bool = True
+    is_blocking: bool = False
+    settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class PolicyEvaluation(AdoBaseModel):
+    """The result of evaluating one policy configuration against an artifact."""
+
+    evaluation_id: PolicyEvaluationId
+    status: PolicyEvaluationStatus
+    configuration: PolicyEvaluationConfiguration
+    artifact_id: str | None = None
+    started_date: datetime | None = None
+    completed_date: datetime | None = None
+    context: dict[str, Any] | None = None
+
+
 class PolicyConfigurationRequest(AdoBaseModel):
     """Request body for creating or updating a policy configuration."""
 
@@ -214,6 +269,51 @@ def iter_policy_configurations(
     )
     for item in result.get("value", []):
         yield PolicyConfigurationInfo.model_validate(item)
+
+
+def make_pull_request_policy_artifact_id(project_id: UUID | str, pr_id: int) -> str:
+    """Build the policy artifact ID that identifies a pull request.
+
+    Args:
+        project_id: Project UUID (not the project name).
+        pr_id: Pull request ID.
+
+    Returns:
+        The ``vstfs:///CodeReview/CodeReviewId/{project}/{pr}`` artifact ID.
+    """
+    return f"vstfs:///CodeReview/CodeReviewId/{project_id}/{pr_id}"
+
+
+def iter_policy_evaluations(
+    project_api_call: ApiCall,
+    artifact_id: str,
+) -> Iterator[PolicyEvaluation]:
+    """Iterate over the policy evaluations of an artifact.
+
+    Args:
+        project_api_call: Project-level ADO API call.
+        artifact_id: Artifact ID, e.g. from
+            :func:`make_pull_request_policy_artifact_id`.
+
+    Yields:
+        PolicyEvaluation for each policy that applies to the artifact.
+    """
+    result = project_api_call.get(
+        "policy",
+        "evaluations",
+        parameters={"artifactId": artifact_id},
+        version="7.1-preview.1",
+    )
+    for item in result.get("value", []):
+        yield PolicyEvaluation.model_validate(item)
+
+
+def list_policy_evaluations(
+    project_api_call: ApiCall,
+    artifact_id: str,
+) -> list[PolicyEvaluation]:
+    """Return the policy evaluations of an artifact as a list."""
+    return list(iter_policy_evaluations(project_api_call, artifact_id))
 
 
 def list_policy_configurations(

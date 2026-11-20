@@ -23,6 +23,7 @@ from pyado.raw import (
     get_vssps_api_call,
     iter_graph_groups,
     iter_graph_users,
+    iter_personal_access_tokens,
     iter_user_entitlements,
     list_graph_groups,
     list_graph_users,
@@ -524,3 +525,37 @@ class TestListGraphMemberships:
         with patch.object(requests.Session, "request", return_value=mock_response):
             result = list_graph_memberships(vssps_call, _CONTAINER_DESCRIPTOR)
         assert result == []
+
+
+def _pat_dict(valid_to: str = "2027-01-01T00:00:00Z") -> dict[str, Any]:
+    return {"displayName": "ci", "scope": "app_token", "validTo": valid_to}
+
+
+class TestIterPersonalAccessTokens:
+    @staticmethod
+    def test_reads_value_envelope() -> None:
+        call = get_vssps_api_call(requests.Session(), "myorg")
+        response = _make_mock_response({"value": [_pat_dict()]})
+        with patch.object(requests.Session, "request", return_value=response) as m:
+            result = list(iter_personal_access_tokens(call, "aad.xyz"))
+        assert [t.display_name for t in result] == ["ci"]
+        assert result[0].valid_to.year == 2027
+        url = m.call_args.kwargs["url"]
+        assert url == (
+            "https://vssps.dev.azure.com/myorg/_apis/tokenadmin"
+            "/personalaccesstokens/aad.xyz"
+        )
+
+    @staticmethod
+    def test_reads_pat_tokens_envelope_and_follows_continuation() -> None:
+        call = get_vssps_api_call(requests.Session(), "myorg")
+        pages = [
+            _make_mock_response(
+                {"patTokens": [_pat_dict()], "continuationToken": "next"}
+            ),
+            _make_mock_response({"patTokens": [_pat_dict("2028-01-01T00:00:00Z")]}),
+        ]
+        with patch.object(requests.Session, "request", side_effect=pages) as m:
+            result = list(iter_personal_access_tokens(call, "aad.xyz", page_size=1))
+        assert [t.valid_to.year for t in result] == [2027, 2028]
+        assert m.call_args_list[1].kwargs["params"]["continuationToken"] == "next"

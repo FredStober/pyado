@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 import requests
 
+from pyado.exceptions import AzureDevOpsRefUpdateError
 from pyado.oop.repos._git import (
     create_branch,
     delete_branch,
@@ -391,14 +392,24 @@ class TestIterRefs:
         assert called_params.get("filterContains") == "feature"
 
 
+_REF_UPDATE_OK = {
+    "value": [
+        {
+            "name": "refs/heads/feature/abc",
+            "success": True,
+            "updateStatus": "succeeded",
+        }
+    ]
+}
+
+
 class TestCreateBranch:
     """Tests for create_branch."""
 
     @staticmethod
     def test_posts_correct_payload(repo_api_call: ApiCall) -> None:
         """Posts a ref update with newObjectId set and oldObjectId as zero SHA."""
-        mock_response = _make_mock_response(None)
-        mock_response.content = b""
+        mock_response = _make_mock_response(_REF_UPDATE_OK)
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
@@ -411,8 +422,7 @@ class TestCreateBranch:
     @staticmethod
     def test_accepts_full_refs_prefix(repo_api_call: ApiCall) -> None:
         """Does not double-add refs/heads/ when already present."""
-        mock_response = _make_mock_response(None)
-        mock_response.content = b""
+        mock_response = _make_mock_response(_REF_UPDATE_OK)
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
@@ -427,8 +437,7 @@ class TestDeleteBranch:
     @staticmethod
     def test_posts_zero_new_object_id(repo_api_call: ApiCall) -> None:
         """Posts a ref update with newObjectId as zero SHA to delete the branch."""
-        mock_response = _make_mock_response(None)
-        mock_response.content = b""
+        mock_response = _make_mock_response(_REF_UPDATE_OK)
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
@@ -437,6 +446,28 @@ class TestDeleteBranch:
         assert body[0]["name"] == "refs/heads/feature/abc"
         assert body[0]["newObjectId"] == "0" * 40
         assert body[0]["oldObjectId"] == "deadbeef"
+
+    @staticmethod
+    def test_raises_when_ref_update_rejected(repo_api_call: ApiCall) -> None:
+        """Raises although HTTP 200, since ADO reports failure in the body."""
+        mock_response = _make_mock_response(
+            {
+                "value": [
+                    {
+                        "name": "refs/heads/feature/abc",
+                        "success": False,
+                        "updateStatus": "forcePushRequired",
+                    }
+                ]
+            }
+        )
+        with (
+            patch.object(requests.Session, "request", return_value=mock_response),
+            pytest.raises(AzureDevOpsRefUpdateError) as exc_info,
+        ):
+            delete_branch(repo_api_call, "feature/abc", "deadbeef")
+        assert exc_info.value.ref_name == "refs/heads/feature/abc"
+        assert exc_info.value.update_status == "forcePushRequired"
 
 
 class TestGetFileContentAtBranch:
@@ -1431,3 +1462,24 @@ class TestGetAnnotatedTag:
         assert result.name == "v1.0"
         assert result.tagged_object is not None
         assert result.tagged_object.object_id == "abc123"
+
+
+class TestGitRefCreator:
+    """GitRef exposes the optional creator identity."""
+
+    @staticmethod
+    def test_creator_parsed_when_present() -> None:
+        ref = GitRef.model_validate(
+            {
+                "name": "refs/heads/x",
+                "objectId": "a" * 40,
+                "creator": {"id": "u1", "displayName": "Alice"},
+            }
+        )
+        assert ref.creator is not None
+        assert ref.creator.display_name == "Alice"
+
+    @staticmethod
+    def test_creator_defaults_to_none() -> None:
+        ref = GitRef.model_validate({"name": "refs/heads/x", "objectId": "a" * 40})
+        assert ref.creator is None

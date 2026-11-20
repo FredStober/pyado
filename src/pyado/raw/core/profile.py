@@ -23,6 +23,7 @@ class ConnectionDataIdentity(AdoBaseModel):
 
     id: str
     provider_display_name: str
+    subject_descriptor: str | None = None
 
 
 class ConnectionData(AdoBaseModel):

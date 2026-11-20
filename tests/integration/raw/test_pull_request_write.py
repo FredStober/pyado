@@ -4,6 +4,7 @@
 
 import random
 import time
+from uuid import UUID
 
 from pyado import raw
 from pyado.exceptions import AzureDevOpsBadRequestError
@@ -34,6 +35,7 @@ def _run_pr1_scenario(
     run_ts: str,
     reviewer_id: str | None,
     file_path: str,
+    project_id: UUID,
 ) -> None:
     """PR-1: create, label/thread/reviewer exercise, metadata update, abandon."""
     # Pre-cleanup: abandon any active PR from a previous smoke run on this branch
@@ -122,6 +124,17 @@ def _run_pr1_scenario(
                 parent_comment_id=1,
             ),
         )
+
+    # ---- Edit the reply ----
+    if thread and thread.id:
+        raw.patch_pull_request_thread_comment(
+            pr_api_call, thread.id, 2, "Smoke test reply (edited)"
+        )
+
+    # ---- Policy evaluations ----
+    artifact_id = raw.make_pull_request_policy_artifact_id(project_id, pr.pr_id)
+    evaluations = list(raw.iter_policy_evaluations(project_api_call, artifact_id))
+    assert evaluations == raw.list_policy_evaluations(project_api_call, artifact_id)
 
     list(raw.iter_pull_request_threads(pr_api_call))
     list(raw.iter_pull_request_iterations(pr_api_call))
@@ -616,6 +629,7 @@ def _run_pr_suite(
     run_ts: str,
     rng: random.Random,
     reviewer_id: str | None,
+    project_id: UUID,
 ) -> None:
     """Pre-cleanup, branch create, file pushes, and all three PR scenarios."""
     # Pre-cleanup: delete the branch if it already exists from an aborted run
@@ -711,6 +725,7 @@ def _run_pr_suite(
         run_ts,
         reviewer_id,
         file_path,
+        project_id,
     )
     _run_pr2_scenario(
         project_api_call,
@@ -734,6 +749,8 @@ def _run_pr_suite(
 
 
 def test_pull_request_write(
+    org_api_call: raw.ApiCall,
+    project_name: str,
     project_api_call: raw.ApiCall,
     git_read: tuple[
         raw.RepositoryInfo | None, raw.ApiCall | None, list[raw.GitCommitRef]
@@ -746,6 +763,7 @@ def test_pull_request_write(
     repo, repo_api_call, commits = git_read
     if repo is None or repo_api_call is None:
         return
+    project_id = raw.get_project(org_api_call, project_name).id
     console.print("\n=== GIT & PULL REQUEST (write) ===")
 
     if not commits:
@@ -775,6 +793,7 @@ def test_pull_request_write(
             run_ts,
             rng,
             reviewer_id,
+            project_id,
         )
 
     finally:

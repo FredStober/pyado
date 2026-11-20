@@ -27,6 +27,7 @@ __all__ = [
     "ClassificationNodeRequest",
     "ClassificationNodeType",
     "ClassificationNodeUrlType",
+    "EmailRecipients",
     "SprintIterationAttributes",
     "SprintIterationId",
     "SprintIterationInfo",
@@ -47,6 +48,8 @@ __all__ = [
     "WorkItemFieldType",
     "WorkItemId",
     "WorkItemInfo",
+    "WorkItemMailMessage",
+    "WorkItemMailRequest",
     "WorkItemQuery",
     "WorkItemQueryExpand",
     "WorkItemQueryId",
@@ -69,6 +72,7 @@ __all__ = [
     "get_query_folder",
     "get_query_tree",
     "get_team_field_values",
+    "get_wiql_by_id",
     "get_work_item",
     "get_work_item_api_call",
     "get_work_item_attachment_bytes",
@@ -91,6 +95,7 @@ __all__ = [
     "patch_work_item",
     "patch_work_item_comment",
     "post_classification_node",
+    "post_send_mail",
     "post_team_iteration",
     "post_wiql",
     "post_work_item",
@@ -493,7 +498,83 @@ class _WorkItemRefResults(AdoBaseModel):
 class _WiqlResults(AdoBaseModel):
     """Internal: container for WIQL query results."""
 
-    work_items: list[WorkItemRef]
+    work_items: list[WorkItemRef] = Field(default_factory=list)
+
+
+class EmailRecipients(AdoBaseModel):
+    """Recipient list of a work item mail (``to`` / ``cc`` / ``reply_to``).
+
+    Only ``tf_ids`` (identity IDs) are known to work.  ADO answers plaintext
+    ``email_addresses`` and ``unresolved_entity_ids`` with HTTP 500
+    (``TF400969`` / ``TF400898``), and the web UI never sends them.
+
+    Attributes:
+        tf_ids: IDs of ADO identities (users) to mail.
+        email_addresses: Plaintext e-mail addresses (not usable in practice).
+        unresolved_entity_ids: Unresolved entity IDs (not usable in practice).
+    """
+
+    tf_ids: list[UUID] = Field(default_factory=list)
+    email_addresses: list[str] = Field(default_factory=list)
+    unresolved_entity_ids: list[UUID] = Field(default_factory=list)
+
+
+class WorkItemMailMessage(AdoBaseModel):
+    """The ``message`` part of ``POST wit/sendMail``.
+
+    ADO wraps ``body`` in a fixed template ("<sender> sent you a work item with
+    a note") followed by a table of the selected work items.
+
+    Attributes:
+        subject: Mail subject line.
+        body: Note shown above the work item table.  **Plain text**: newlines
+            are kept and URLs are auto-linked, but HTML tags and markdown are
+            shown literally.
+        to: Primary recipients.
+        cc: Carbon-copy recipients.
+        reply_to: Reply-to recipients.
+        in_reply_to: ``In-Reply-To`` header value.
+        message_id: ``Message-Id`` header value.
+    """
+
+    subject: str
+    body: str
+    to: EmailRecipients
+    cc: EmailRecipients = Field(default_factory=EmailRecipients)
+    reply_to: EmailRecipients = Field(default_factory=EmailRecipients)
+    in_reply_to: str = ""
+    message_id: str = ""
+
+
+class WorkItemMailRequest(AdoBaseModel):
+    """Request body of ``POST wit/sendMail``.
+
+    Exactly the work items to list in the mail must be selected with at least
+    one of ``ids``, ``wiql`` or ``temp_query_id``; ADO rejects the request
+    otherwise.  Selecting by ``wiql`` changes the mail text to "shared a work
+    item query".
+
+    Attributes:
+        message: Subject, note and recipients.
+        ids: Work items to list in the mail.
+        wiql: WIQL query selecting the work items to list.
+        fields: Reference names of the table columns.  ADO always puts ID and
+            Title first.  HTML fields such as ``System.Description`` are
+            flattened to text, so avoid them.
+        sort_fields: Reference names to sort the table by.
+        persistence_id: ID of a saved query to link in the mail.
+        temp_query_id: ID of a temporary query selecting the work items.
+        project_id: Project name or ID.
+    """
+
+    message: WorkItemMailMessage
+    ids: list[WorkItemId] = Field(default_factory=list)
+    wiql: str = ""
+    fields: list[str] = Field(default_factory=list)
+    sort_fields: list[str] = Field(default_factory=list)
+    persistence_id: str = ""
+    temp_query_id: str = ""
+    project_id: str = ""
 
 
 class _WiqlRequest(AdoBaseModel):
@@ -680,6 +761,49 @@ def post_wiql(
         json=_WiqlRequest(query=query).model_dump(mode="json"),
     )
     return _WiqlResults.model_validate(response).work_items
+
+
+def get_wiql_by_id(
+    project_api_call: ApiCall,
+    query_id: str,
+) -> list[WorkItemRef]:
+    """Execute a saved query by ID and return its work item references.
+
+    Only flat queries are supported: tree and one-hop queries return
+    ``workItemRelations`` instead of ``workItems`` and yield an empty list.
+
+    Args:
+        project_api_call: Project-level ADO API call.
+        query_id: GUID of the saved query (see :func:`get_query_tree`).
+
+    Returns:
+        List of WorkItemRef objects in query order.
+    """
+    response = project_api_call.get("wit", "wiql", query_id, version="7.0")
+    return _WiqlResults.model_validate(response).work_items
+
+
+def post_send_mail(
+    project_api_call: ApiCall,
+    request: WorkItemMailRequest,
+) -> None:
+    """Send a work item mail through the ADO work item mail service.
+
+    The sender is the authenticated user.  The mail lists the selected work
+    items in a table below the note; it cannot be used as a free-form mailer.
+
+    ADO: POST {project}/_apis/wit/sendMail
+
+    Args:
+        project_api_call: Project-level ADO API call.
+        request: Message, recipients and work item selection.
+    """
+    project_api_call.post(
+        "wit",
+        "sendMail",
+        version="5.1-preview.1",
+        json=request.model_dump(mode="json", by_alias=True),
+    )
 
 
 def get_work_item_api_call(

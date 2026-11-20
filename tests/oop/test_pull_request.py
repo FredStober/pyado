@@ -852,6 +852,23 @@ class TestPullRequest:
         assert mock_patch.call_args.args[2] == PullRequestThreadStatus.FIXED
         assert result is thread_resp
 
+    def test_update_comment_delegates(self) -> None:
+        comment_resp = MagicMock(spec=PullRequestThreadCommentResponse)
+        with patch(
+            "pyado.oop.repos.pull_request.raw.patch_pull_request_thread_comment"
+        ) as mock_patch:
+            mock_patch.return_value = comment_resp
+            result = _make_pr().update_comment(7, "text", comment_id=2)
+        assert mock_patch.call_args.args[1:] == (7, 2, "text")
+        assert result is comment_resp
+
+    def test_update_comment_defaults_to_first_comment(self) -> None:
+        with patch(
+            "pyado.oop.repos.pull_request.raw.patch_pull_request_thread_comment"
+        ) as mock_patch:
+            _make_pr().update_comment(7, "text")
+        assert mock_patch.call_args.args[1:] == (7, 1, "text")
+
     def test_iter_statuses_delegates(self) -> None:
         status = PullRequestStatusInfo.model_validate(
             {
@@ -1227,3 +1244,22 @@ class TestPullRequestListMethods:
         pr = _make_pr()
         with patch.object(pr, "iter_statuses", return_value=iter([])):
             assert pr.list_statuses() == []
+
+
+def test_pull_request_web_url() -> None:
+    """web_url is built from org, project, repository and PR id."""
+    assert _make_pr(42).web_url == (
+        "https://dev.azure.com/testorg/TestProject/_git/myrepo/pullrequest/42"
+    )
+
+
+def test_pull_request_policy_evaluations_use_project_artifact_id() -> None:
+    """Evaluations are fetched with the project UUID + PR id artifact."""
+    pr = _make_pr(42)
+    with patch(
+        "pyado.oop.repos.pull_request.raw.iter_policy_evaluations",
+        return_value=iter([]),
+    ) as mock_iter:
+        assert pr.list_policy_evaluations() == []
+    artifact = mock_iter.call_args.args[1]
+    assert artifact == f"vstfs:///CodeReview/CodeReviewId/{pr.project.id}/42"

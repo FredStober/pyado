@@ -1624,3 +1624,10 @@ class TestWorkItemRestore:
         ):
             wi.restore()
         mock_refresh.assert_called_once()
+
+
+def test_work_item_web_url() -> None:
+    """web_url is built from org, project and work item id."""
+    assert _make_wi(10).web_url == (
+        "https://dev.azure.com/testorg/TestProject/_workitems/edit/10"
+    )

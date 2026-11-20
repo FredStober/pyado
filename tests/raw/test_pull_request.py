@@ -63,6 +63,7 @@ from pyado.raw import (
     list_pull_requests,
     patch_pull_request,
     patch_pull_request_thread,
+    patch_pull_request_thread_comment,
     post_git_cherry_pick,
     post_git_merge,
     post_git_revert,
@@ -122,6 +123,32 @@ class TestCreatePrComments:
         sent_json = call.kwargs.get("json") or {}
         assert sent_json["status"] == "active"
         assert len(sent_json["comments"]) == 1
+
+
+class TestPatchPrThreadComment:
+    """Tests for patch_pull_request_thread_comment."""
+
+    @staticmethod
+    def test_sends_patch_with_content(api_call: ApiCall) -> None:
+        """PATCHes the comment URL with the new content and parses the result."""
+        response_data = {
+            "id": 3,
+            "content": "new text",
+            "commentType": "text",
+            "parentCommentId": 0,
+            "isDeleted": False,
+        }
+        mock_response = _make_mock_response(response_data)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            result = patch_pull_request_thread_comment(api_call, 7, 3, "new text")
+        assert mock_req.call_args.args[0] == "PATCH"
+        url = mock_req.call_args.kwargs.get("url", "")
+        assert "/threads/7/comments/3" in url
+        assert mock_req.call_args.kwargs["json"] == {"content": "new text"}
+        assert isinstance(result, PullRequestThreadCommentResponse)
+        assert result.content == "new text"
 
 
 class TestCreatePrStatusFlag:

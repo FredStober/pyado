@@ -2,6 +2,7 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
+from typing import Any
 from unittest.mock import patch
 from uuid import UUID
 
@@ -12,6 +13,7 @@ from pyado.raw import (
     PolicyConfigurationInfo,
     PolicyConfigurationRequest,
     PolicyCreatedBy,
+    PolicyEvaluationStatus,
     PolicyScope,
     PolicyScopeMatchKind,
     PolicyType,
@@ -21,9 +23,12 @@ from pyado.raw import (
     get_policy_configuration_api_call,
     get_policy_type,
     iter_policy_configurations,
+    iter_policy_evaluations,
     iter_policy_types,
     list_policy_configurations,
+    list_policy_evaluations,
     list_policy_types,
+    make_pull_request_policy_artifact_id,
     post_policy_configuration,
     put_policy_configuration,
 )
@@ -376,3 +381,65 @@ class TestPolicyScope:
         assert scope.repository_id == _REPO_ID
         assert scope.ref_name is None
         assert scope.match_kind is None
+
+
+def _make_evaluation_dict(
+    status: str = "approved", *, blocking: bool = True
+) -> dict[str, Any]:
+    return {
+        "evaluationId": "11111111-2222-3333-4444-555555555555",
+        "status": status,
+        "configuration": {
+            "id": _CONFIG_ID,
+            "isBlocking": blocking,
+            "type": {"id": _TYPE_ID, "displayName": "Build"},
+        },
+        "startedDate": "2026-01-01T00:00:00Z",
+    }
+
+
+class TestPolicyEvaluations:
+    """Tests for the policy evaluation endpoints."""
+
+    @staticmethod
+    def test_artifact_id_format() -> None:
+        """The PR artifact id follows the vstfs CodeReview format."""
+        assert make_pull_request_policy_artifact_id("proj-guid", 7) == (
+            "vstfs:///CodeReview/CodeReviewId/proj-guid/7"
+        )
+
+    @staticmethod
+    def test_iter_parses_evaluations_and_sends_artifact_id(api_call: ApiCall) -> None:
+        """Evaluations are parsed and artifactId is forwarded as a parameter."""
+        response = _make_mock_response(
+            {
+                "value": [
+                    _make_evaluation_dict("approved"),
+                    _make_evaluation_dict("notApplicable", blocking=False),
+                ]
+            }
+        )
+        with patch.object(requests.Session, "request", return_value=response) as m:
+            result = list(iter_policy_evaluations(api_call, "art-1"))
+        assert [e.status for e in result] == [
+            PolicyEvaluationStatus.APPROVED,
+            PolicyEvaluationStatus.NOT_APPLICABLE,
+        ]
+        assert result[0].configuration.is_blocking is True
+        assert result[0].configuration.type.display_name == "Build"
+        assert m.call_args.kwargs["params"]["artifactId"] == "art-1"
+        assert m.call_args.kwargs["url"].endswith("/policy/evaluations")
+
+    @staticmethod
+    def test_list_returns_list(api_call: ApiCall) -> None:
+        """list_policy_evaluations materialises the iterator."""
+        response = _make_mock_response({"value": [_make_evaluation_dict()]})
+        with patch.object(requests.Session, "request", return_value=response):
+            assert len(list_policy_evaluations(api_call, "art-1")) == 1
+
+    @staticmethod
+    def test_iter_handles_missing_value(api_call: ApiCall) -> None:
+        """A response without ``value`` yields nothing."""
+        response = _make_mock_response({"count": 0})
+        with patch.object(requests.Session, "request", return_value=response):
+            assert list(iter_policy_evaluations(api_call, "art-1")) == []

@@ -156,3 +156,18 @@ class TestTag:
         with patch.object(repo, "delete_git_tag") as mock_del:
             tag.delete()
         mock_del.assert_called_once_with("v1.0", str(_COMMIT_ID))
+
+
+def test_branch_creator_display_name() -> None:
+    """Branch.creator returns the display name or None."""
+    with_creator = GitRef.model_validate(
+        {
+            "name": "refs/heads/x",
+            "objectId": "a" * 40,
+            "creator": {"id": "u1", "displayName": "Alice"},
+        }
+    )
+    without = GitRef.model_validate({"name": "refs/heads/y", "objectId": "b" * 40})
+    repo = _make_repo()
+    assert Branch(repo, with_creator).creator == "Alice"
+    assert Branch(repo, without).creator is None
