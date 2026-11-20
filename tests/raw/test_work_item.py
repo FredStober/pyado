@@ -20,6 +20,7 @@ from pyado.raw import (
     EmailRecipients,
     SprintIterationInfo,
     SprintIterationTimeframe,
+    TeamFieldSettings,
     TeamFieldValue,
     TextFormat,
     WorkItemComment,
@@ -38,6 +39,7 @@ from pyado.raw import (
     get_classification_node,
     get_query_folder,
     get_query_tree,
+    get_team_field_settings,
     get_team_field_values,
     get_wiql_by_id,
     get_work_item,
@@ -722,6 +724,32 @@ class TestPatchClassificationNode:
         assert url.endswith("classificationnodes/iterations")
 
 
+class TestGetTeamFieldSettings:
+    """Tests for get_team_field_settings."""
+
+    @staticmethod
+    def test_returns_default_and_values(api_call: ApiCall) -> None:
+        """Returns the default area path together with all assigned values."""
+        payload = {
+            "defaultValue": "MyProject\\TeamA",
+            "values": [{"value": "MyProject\\TeamA", "includeChildren": True}],
+        }
+        mock_response = _make_mock_response(payload)
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_team_field_settings(api_call)
+        assert isinstance(result, TeamFieldSettings)
+        assert result.default_value == "MyProject\\TeamA"
+        assert result.values[0].include_children is True
+
+    @staticmethod
+    def test_values_default_to_empty(api_call: ApiCall) -> None:
+        """A response without 'values' yields an empty list."""
+        mock_response = _make_mock_response({"defaultValue": "P"})
+        with patch.object(requests.Session, "request", return_value=mock_response):
+            result = get_team_field_settings(api_call)
+        assert result.values == []
+
+
 class TestGetTeamFieldValues:
     """Tests for get_team_field_values."""
 
@@ -762,29 +790,27 @@ class TestAddTeamIteration:
     """Tests for post_team_iteration."""
 
     @staticmethod
-    def test_posts_iteration_id_to_endpoint(api_call: ApiCall) -> None:
-        """Posts the iteration ID to the teamsettings/iterations endpoint."""
+    def test_posts_iteration_id_and_returns_info(api_call: ApiCall) -> None:
+        """Posts the iteration ID and parses the response into a model."""
         iteration_id = uuid4()
-        mock_response = _make_mock_response(None)
+        payload = {
+            "id": str(iteration_id),
+            "name": "Sprint 1",
+            "path": "Proj\\Sprint 1",
+            "attributes": {"timeFrame": "future"},
+        }
+        mock_response = _make_mock_response(payload)
         with patch.object(
             requests.Session, "request", return_value=mock_response
         ) as mock_req:
-            post_team_iteration(api_call, iteration_id)
+            result = post_team_iteration(api_call, iteration_id)
         call = mock_req.call_args
         assert call.args[0] == "POST"
         sent_json = call.kwargs.get("json") or {}
         assert sent_json["id"] == str(iteration_id)
-
-    @staticmethod
-    def test_targets_iterations_endpoint(api_call: ApiCall) -> None:
-        """The request targets the teamsettings/iterations endpoint."""
-        mock_response = _make_mock_response(None)
-        with patch.object(
-            requests.Session, "request", return_value=mock_response
-        ) as mock_req:
-            post_team_iteration(api_call, uuid4())
-        url = mock_req.call_args.kwargs.get("url", "")
-        assert "teamsettings/iterations" in url
+        assert "teamsettings/iterations" in call.kwargs.get("url", "")
+        assert result.id == iteration_id
+        assert result.name == "Sprint 1"
 
 
 class TestDeleteWorkItem:

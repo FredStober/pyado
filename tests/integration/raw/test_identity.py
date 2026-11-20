@@ -42,6 +42,18 @@ def test_graph_users_read(
             assert fetched.descriptor == first.descriptor
         except AzureDevOpsNotFoundError:
             console.print("  get_graph_user returned 404 — skipping single-user check")
+        org_call = raw.ApiCall(session=session, url=org_url)
+        resolved = raw.get_identities_by_subject_descriptor(
+            org_call, [first.descriptor]
+        )
+        console.print(f"  resolved {len(resolved)} storage key(s)")
+
+    groups = raw.list_graph_groups(vssps_call)
+    if groups:
+        members = raw.list_graph_memberships(vssps_call, groups[0].descriptor)
+        assert members == list(
+            raw.iter_graph_memberships(vssps_call, groups[0].descriptor)
+        )
 
 
 def test_personal_access_tokens_read(
@@ -63,6 +75,7 @@ def test_personal_access_tokens_read(
         tokens = list(raw.iter_personal_access_tokens(vssps_call, descriptor))
     except (AzureDevOpsAuthError, AzureDevOpsNotFoundError):
         pytest.skip(reason="PAT lacks Token Administration scope")
+    assert tokens == raw.list_personal_access_tokens(vssps_call, descriptor)
     console.print(f"  found {len(tokens)} personal access token(s)")
 
 

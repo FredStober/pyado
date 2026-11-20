@@ -30,11 +30,13 @@ __all__ = [
     "get_identities",
     "get_vssps_api_call",
     "iter_graph_groups",
+    "iter_graph_memberships",
     "iter_graph_users",
     "iter_personal_access_tokens",
     "iter_user_entitlements",
     "list_graph_memberships",
     "list_graph_users",
+    "list_personal_access_tokens",
     "list_user_entitlements",
     "patch_user_entitlement",
     "post_user_entitlement",
@@ -247,6 +249,58 @@ def iter_personal_access_tokens(
             return
 
 
+def list_personal_access_tokens(
+    vssps_call: ApiCall,
+    subject_descriptor: str,
+    *,
+    page_size: int = 100,
+) -> list[PersonalAccessToken]:
+    """Return all personal access tokens of one user (token admin API).
+
+    Requires a PAT with the *Token Administration* scope.
+
+    Args:
+        vssps_call: vssps-scoped API call (from :func:`get_vssps_api_call`).
+        subject_descriptor: Subject descriptor of the token owner.
+        page_size: Number of tokens requested per page.
+
+    Returns:
+        PersonalAccessToken metadata for each token of the user.
+    """
+    return list(
+        iter_personal_access_tokens(vssps_call, subject_descriptor, page_size=page_size)
+    )
+
+
+def iter_graph_memberships(
+    vssps_call: ApiCall,
+    descriptor: str,
+) -> Iterator[str]:
+    """Iterate over the member descriptors of a group (direction=Down).
+
+    Args:
+        vssps_call: vssps-scoped API call (from get_vssps_api_call).
+        descriptor: Subject descriptor of the container group.
+
+    Yields:
+        Member subject descriptors in sorted order.
+    """
+    response = vssps_call.get(
+        "_apis",
+        "graph",
+        "memberships",
+        descriptor,
+        parameters={"direction": "Down"},
+        version="7.1-preview.1",
+    )
+    if not response:
+        return
+    yield from sorted(
+        m.member_descriptor
+        for m in _GraphMembershipResults.model_validate(response).value
+    )
+
+
 def list_graph_memberships(
     vssps_call: ApiCall,
     descriptor: str,
@@ -260,20 +314,7 @@ def list_graph_memberships(
     Returns:
         Sorted list of member subject descriptors.
     """
-    response = vssps_call.get(
-        "_apis",
-        "graph",
-        "memberships",
-        descriptor,
-        parameters={"direction": "Down"},
-        version="7.1-preview.1",
-    )
-    if not response:
-        return []
-    return sorted(
-        m.member_descriptor
-        for m in _GraphMembershipResults.model_validate(response).value
-    )
+    return list(iter_graph_memberships(vssps_call, descriptor))
 
 
 class AccessLevel(AdoBaseModel):

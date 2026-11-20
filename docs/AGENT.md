@@ -127,7 +127,8 @@ org = svc.org
 .create_iteration(name, parent_path?, *, start_date?, finish_date?) -> str (guid)
 .iter_sprint_iterations(team_name, *, timeframe_filter?) -> Iterator[SprintIterationInfo]
 .add_team_iteration(team_name, iteration_id) -> None
-.get_team_field_values(team_name)  -> list[TeamFieldValue]
+.list_team_field_values(team_name) -> list[TeamFieldValue]
+.get_team_field_settings(team_name)  -> TeamFieldSettings  # incl. default path
 .get_area_node(path?, *, depth?)   -> Area
 .create_area(name, parent_path?)   -> str (guid)
 .get_query_tree(*, depth?, expand?) -> WorkItemQuery
@@ -450,7 +451,9 @@ raw.post_job_logs(
 .org     -> Organization # zero-cost
 
 .iter_sprint_iterations(*, timeframe_filter?) -> Iterator[SprintIterationInfo]
-.get_field_values()     -> list[TeamFieldValue]
+.list_field_values()    -> list[TeamFieldValue]
+.get_field_settings()    -> TeamFieldSettings  # incl. default path
+.set_field_settings(settings) -> TeamFieldSettings
 .add_iteration(iteration_id) -> None
 .iter_members()  -> Iterator[TeamMember]
 .get_members()   -> list[TeamMember]

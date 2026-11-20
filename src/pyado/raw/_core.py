@@ -68,7 +68,7 @@ def _is_login_redirect(response: requests.Response) -> bool:
     return any(marker in response.content for marker in _ADO_LOGIN_CONTENT_MARKERS)
 
 
-def to_camel(s: str) -> str:
+def _to_camel(s: str) -> str:
     parts = s.split("_")
     return parts[0] + "".join(word.capitalize() for word in parts[1:])
 
@@ -77,7 +77,7 @@ class AdoBaseModel(BaseModel):
     """Base model for Azure DevOps REST models."""
 
     model_config = ConfigDict(
-        alias_generator=to_camel,
+        alias_generator=_to_camel,
         populate_by_name=True,
     )
 
@@ -348,11 +348,13 @@ class ApiCall(BaseModel):
         *,
         raw: bool = False,
         extra_headers: dict[str, str] | None = None,
+        with_headers: bool = False,
     ) -> Any:
         """Helper function to interact with the Azure DevOps API.
 
         Returns:
-            The parsed API response.
+            The parsed API response, or a ``(body, headers)`` tuple when
+            ``with_headers`` is set.
 
         Raises:
             ConnectionResetError: If all retry attempts fail due to a reset.
@@ -381,10 +383,14 @@ class ApiCall(BaseModel):
                     url=api_call.url.unicode_string(),
                     **kwargs,
                 )
-                return ApiCall._parse_response(response, raw=raw)
+                body = ApiCall._parse_response(response, raw=raw)
             except ConnectionResetError:
                 if retry == 1:
                     raise
+            else:
+                if with_headers:
+                    return body, response.headers
+                return body
         return None  # pragma: no cover
 
     def get(
@@ -392,14 +398,16 @@ class ApiCall(BaseModel):
         *args: str | int | UUID,
         parameters: dict[str, int | str | bool] | None = None,
         version: str | None = None,
+        with_headers: bool = False,
     ) -> Any:
         """Helper function to interact with the Azure DevOps API via GET.
 
         Returns:
-            The parsed API response.
+            The parsed API response, or a ``(body, headers)`` tuple when
+            ``with_headers`` is set.
         """
         api_call = self.build_call(*args, parameters=parameters, version=version)
-        return ApiCall._request("GET", api_call)
+        return ApiCall._request("GET", api_call, with_headers=with_headers)
 
     def get_raw(
         self,
@@ -423,15 +431,22 @@ class ApiCall(BaseModel):
         json: Any = None,
         data: Any = None,
         extra_headers: dict[str, str] | None = None,
+        with_headers: bool = False,
     ) -> Any:
         """Helper function to interact with the Azure DevOps API via PUT.
 
         Returns:
-            The parsed API response.
+            The parsed API response, or a ``(body, headers)`` tuple when
+            ``with_headers`` is set.
         """
         api_call = self.build_call(*args, parameters=parameters, version=version)
         return ApiCall._request(
-            "PUT", api_call, json=json, data=data, extra_headers=extra_headers
+            "PUT",
+            api_call,
+            json=json,
+            data=data,
+            extra_headers=extra_headers,
+            with_headers=with_headers,
         )
 
     def post(

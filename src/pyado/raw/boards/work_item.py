@@ -33,6 +33,7 @@ __all__ = [
     "SprintIterationInfo",
     "SprintIterationPath",
     "SprintIterationTimeframe",
+    "TeamFieldSettings",
     "TeamFieldValue",
     "TextFormat",
     "WorkItemArtifactUrlPrefix",
@@ -71,6 +72,7 @@ __all__ = [
     "get_classification_node",
     "get_query_folder",
     "get_query_tree",
+    "get_team_field_settings",
     "get_team_field_values",
     "get_wiql_by_id",
     "get_work_item",
@@ -690,6 +692,13 @@ class TeamFieldValue(AdoBaseModel):
     include_children: bool
 
 
+class TeamFieldSettings(AdoBaseModel):
+    """Team area-path configuration: the default path plus all assigned paths."""
+
+    default_value: str
+    values: list[TeamFieldValue] = Field(default_factory=list)
+
+
 class _WorkItemCommentRequest(AdoBaseModel):
     """Internal: request body for adding a work item comment."""
 
@@ -1139,6 +1148,24 @@ def get_team_field_values(team_api_call: ApiCall) -> list[TeamFieldValue]:
     return [TeamFieldValue.model_validate(v) for v in response.get("values", [])]
 
 
+def get_team_field_settings(team_api_call: ApiCall) -> TeamFieldSettings:
+    """Return the full team area-path configuration, including the default path.
+
+    Args:
+        team_api_call: Team-level ADO API call (URL includes the team segment).
+
+    Returns:
+        TeamFieldSettings with ``default_value`` and ``values``.
+    """
+    response = team_api_call.get(
+        "work",
+        "teamsettings",
+        "teamfieldvalues",
+        version="7.0",
+    )
+    return TeamFieldSettings.model_validate(response)
+
+
 def delete_team_iteration(
     team_api_call: ApiCall,
     iteration_id: SprintIterationId,
@@ -1163,20 +1190,24 @@ def delete_team_iteration(
 def post_team_iteration(
     team_api_call: ApiCall,
     iteration_id: SprintIterationId,
-) -> None:
+) -> SprintIterationInfo:
     """Assign an existing iteration to a team.
 
     Args:
         team_api_call: Team-level ADO API call (URL includes the team segment).
         iteration_id: UUID of the iteration to assign.
+
+    Returns:
+        The iteration as recorded in the team's settings.
     """
-    team_api_call.post(
+    response = team_api_call.post(
         "work",
         "teamsettings",
         "iterations",
         version="7.1",
         json=_TeamIterationRef(id=str(iteration_id)).model_dump(mode="json"),
     )
+    return SprintIterationInfo.model_validate(response)
 
 
 class WorkItemQueryExpand(StrEnum):

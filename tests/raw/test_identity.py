@@ -22,6 +22,7 @@ from pyado.raw import (
     get_session,
     get_vssps_api_call,
     iter_graph_groups,
+    iter_graph_memberships,
     iter_graph_users,
     iter_personal_access_tokens,
     iter_user_entitlements,
@@ -33,7 +34,10 @@ from pyado.raw import (
     put_graph_membership,
 )
 from pyado.raw._core import ApiCall
-from pyado.raw.core.identity import list_graph_memberships
+from pyado.raw.core.identity import (
+    list_graph_memberships,
+    list_personal_access_tokens,
+)
 from tests.conftest import ACCESS_TOKEN, _make_mock_response
 
 _USER_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -559,3 +563,36 @@ class TestIterPersonalAccessTokens:
             result = list(iter_personal_access_tokens(call, "aad.xyz", page_size=1))
         assert [t.valid_to.year for t in result] == [2027, 2028]
         assert m.call_args_list[1].kwargs["params"]["continuationToken"] == "next"
+
+
+class TestIterGraphMemberships:
+    @staticmethod
+    def test_yields_sorted_descriptors() -> None:
+        call = get_vssps_api_call(requests.Session(), "myorg")
+        payload = {
+            "value": [
+                {"containerDescriptor": "c", "memberDescriptor": "aad.b"},
+                {"containerDescriptor": "c", "memberDescriptor": "aad.a"},
+            ]
+        }
+        response = _make_mock_response(payload)
+        with patch.object(requests.Session, "request", return_value=response):
+            result = list(iter_graph_memberships(call, "c"))
+        assert result == ["aad.a", "aad.b"]
+
+    @staticmethod
+    def test_yields_nothing_without_body() -> None:
+        call = get_vssps_api_call(requests.Session(), "myorg")
+        response = _make_mock_response(None)
+        with patch.object(requests.Session, "request", return_value=response):
+            assert list(iter_graph_memberships(call, "c")) == []
+
+
+class TestListPersonalAccessTokens:
+    @staticmethod
+    def test_collects_all_tokens() -> None:
+        call = get_vssps_api_call(requests.Session(), "myorg")
+        response = _make_mock_response({"value": [_pat_dict()]})
+        with patch.object(requests.Session, "request", return_value=response):
+            result = list_personal_access_tokens(call, "aad.xyz")
+        assert [t.display_name for t in result] == ["ci"]

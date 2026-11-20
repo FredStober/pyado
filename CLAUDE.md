@@ -96,6 +96,17 @@ verifies that every public OOP class is referenced in at least one integration t
 - ruff uses `select = ["ALL"]` — do not add new ignores without a very good reason.
 - 100% branch coverage is enforced; every new code path needs a test.
 
+## Naming conventions (raw layer)
+
+Public `raw/` functions start with one of these prefixes:
+
+- `get_` / `post_` / `put_` / `patch_` / `delete_` — one HTTP call, named after the verb.
+- `list_` — returns a `list`; `iter_` — lazily yields items. Provide both for a collection.
+- `make_` — pure builder that creates a value or request object (no HTTP call), e.g. `make_ref_update`, `make_git_repo_token`.
+- `parse_` — pure inverse of a `make_` builder.
+
+Module-internal helpers are `_`-prefixed.
+
 ## Re-exports in `__init__.py`
 
 Public symbols in `pyado/__init__.py`, `pyado/raw/__init__.py`, and `pyado/oop/__init__.py` are re-exported via `__all__`.  Use plain `from x import Y` — **never** `from x import Y as Y`.  mypy's `--no-implicit-reexport` (enabled by strict mode) treats any name listed in `__all__` as a public re-export, so the `as Y` alias is redundant.

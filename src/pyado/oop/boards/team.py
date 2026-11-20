@@ -13,6 +13,7 @@ from pyado.raw import (
     SprintIterationId,
     SprintIterationInfo,
     SprintIterationTimeframe,
+    TeamFieldSettings,
     TeamFieldValue,
     TeamMember,
 )
@@ -141,6 +142,25 @@ class Team:
             area paths.
         """
         return raw.get_team_field_values(self.api_call)
+
+    def get_field_settings(self) -> TeamFieldSettings:
+        """Return the team's default area path and all assigned area paths.
+
+        Returns:
+            TeamFieldSettings with ``default_value`` and ``values``.
+        """
+        return raw.get_team_field_settings(self.api_call)
+
+    def set_field_settings(self, settings: TeamFieldSettings) -> TeamFieldSettings:
+        """Replace the team's default area path and assigned area paths.
+
+        Args:
+            settings: Desired area-path configuration.
+
+        Returns:
+            The configuration as stored by ADO.
+        """
+        return raw.patch_team_field_values(self.api_call, settings)
 
     def add_iteration(self, iteration_id: SprintIterationId) -> None:
         """Assign an existing iteration node to this team.

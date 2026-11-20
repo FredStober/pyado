@@ -506,6 +506,16 @@ class TestProjectBoards:
         team_call = mock_get.call_args.args[0]
         assert "MyTeam" in str(team_call.url)
 
+    def test_get_team_field_settings_delegates(self) -> None:
+        proj = _make_project()
+        with patch(
+            "pyado.oop.boards.project_boards.raw.get_team_field_settings"
+        ) as mock_get:
+            mock_get.return_value = MagicMock()
+            result = proj.boards.get_team_field_settings("MyTeam")
+        assert result is mock_get.return_value
+        assert "MyTeam" in str(mock_get.call_args.args[0].url)
+
     def test_add_team_iteration_delegates(self) -> None:
         proj = _make_project()
         iteration_id = uuid4()

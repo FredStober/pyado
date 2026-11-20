@@ -121,7 +121,8 @@ Obtained via `Organization.get_project` / `Organization.iter_projects`.
 | `.create_iteration(name, parent_path, *, start_date, finish_date)` | `-> str` | Create iteration node; returns GUID |
 | `.iter_sprint_iterations(team_name, *, timeframe_filter)` | `-> Iterator[SprintIterationInfo]` | Sprint iterations for a team |
 | `.add_team_iteration(team_name, iteration_id)` | `-> None` | Assign iteration to a team |
-| `.get_team_field_values(team_name)` | `(str) -> list[TeamFieldValue]` | Team area-path configuration |
+| `.list_team_field_values(team_name)` | `(str) -> list[TeamFieldValue]` | Team area-path configuration |
+| `.get_team_field_settings(team_name)` | `(str) -> TeamFieldSettings` | Area paths plus the default path |
 | `.get_area_node(path, *, depth)` | `(str\|None) -> Area` | Area classification tree node |
 | `.create_area(name, parent_path)` | `-> str` | Create area node; returns GUID |
 | `.iter_teams()` | `-> Iterator[Team]` | All teams in the project |
@@ -397,7 +398,9 @@ Obtained via `Project.iter_teams`, `Project.get_team`.
 | Method | Signature | Description |
 |---|---|---|
 | `.iter_sprint_iterations(*, timeframe_filter)` | `-> Iterator[SprintIterationInfo]` | Sprint iterations for the team |
-| `.get_field_values()` | `-> list[TeamFieldValue]` | Team area-path configuration |
+| `.list_field_values()` | `-> list[TeamFieldValue]` | Team area-path configuration |
+| `.get_field_settings()` | `-> TeamFieldSettings` | Area paths plus the default path |
+| `.set_field_settings(settings)` | `(TeamFieldSettings) -> TeamFieldSettings` | Replace default and assigned area paths |
 | `.add_iteration(iteration_id)` | `-> None` | Assign an iteration to the team |
 | `.iter_members()` | `-> Iterator[TeamMember]` | Iterate team members |
 | `.get_members()` | `-> list[TeamMember]` | All team members as a list |
@@ -685,11 +688,17 @@ patch_classification_node(project_call, path, request, *, node_type) -> Classifi
 iter_sprint_iterations(team_api_call, timeframe_filter) -> Iterator[SprintIterationInfo]
     # Sprint iterations for a team.
 
-add_team_iteration(team_call, iteration_id) -> None
+post_team_iteration(team_call, iteration_id) -> SprintIterationInfo
     # Assign an iteration to a team.
 
 get_team_field_values(team_call) -> list[TeamFieldValue]
     # Team area-path configuration.
+
+get_team_field_settings(team_call) -> TeamFieldSettings
+    # Area paths plus the default area path.
+
+patch_team_field_values(team_call, settings) -> TeamFieldSettings
+    # Replace the default and assigned area paths.
 
 get_query_tree(project_call, *, depth, expand) -> list[WorkItemQuery]
     # Root WIT query folders.

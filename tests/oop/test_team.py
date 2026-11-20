@@ -10,6 +10,7 @@ from pyado.raw import (
     DashboardId,
     DashboardInfo,
     SprintIterationInfo,
+    TeamFieldSettings,
     TeamFieldValue,
     TeamMember,
 )
@@ -80,6 +81,24 @@ class TestTeam:
             result = self._make_team().list_field_values()
         assert len(result) == 1
         assert result[0].value == "proj\\Area1"
+
+    def test_get_field_settings_delegates(self) -> None:
+        settings = TeamFieldSettings(default_value="proj\\A", values=[])
+        team = self._make_team()
+        with patch("pyado.oop.boards.team.raw.get_team_field_settings") as mock_get:
+            mock_get.return_value = settings
+            result = team.get_field_settings()
+        mock_get.assert_called_once_with(team.api_call)
+        assert result.default_value == "proj\\A"
+
+    def test_set_field_settings_delegates(self) -> None:
+        settings = TeamFieldSettings(default_value="proj\\A", values=[])
+        team = self._make_team()
+        with patch("pyado.oop.boards.team.raw.patch_team_field_values") as mock_patch:
+            mock_patch.return_value = settings
+            result = team.set_field_settings(settings)
+        mock_patch.assert_called_once_with(team.api_call, settings)
+        assert result is settings
 
     def test_add_iteration_delegates(self) -> None:
         iteration_id = uuid4()

@@ -2,9 +2,9 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from enum import StrEnum
-from typing import TypeAlias
+from typing import Any, TypeAlias
 from uuid import UUID
 
 from pydantic import Field
@@ -83,6 +83,34 @@ class WikiPageDetail(WikiPage):
     content: str | None = None
     git_item_path: str | None = None
     remote_url: str | None = None
+    version: WikiPageVersion | None = None
+    """Page version parsed from the ``ETag`` response header, if present."""
+
+
+def _parse_etag(headers: Mapping[str, str]) -> WikiPageVersion | None:
+    """Extract the integer page version from an ``ETag`` response header.
+
+    Args:
+        headers: HTTP response headers.
+
+    Returns:
+        The integer version, or ``None`` if absent or not numeric.
+    """
+    etag = headers.get("ETag", "").strip()
+    etag = etag.removeprefix("W/")
+    etag = etag.strip('"')
+    return int(etag) if etag.isdigit() else None
+
+
+def _page_detail(result: Any, headers: Mapping[str, str]) -> "WikiPageDetail":
+    """Build a WikiPageDetail from a body and its response headers.
+
+    Returns:
+        The parsed page with ``version`` populated from the ETag header.
+    """
+    page = WikiPageDetail.model_validate(result)
+    page.version = _parse_etag(headers)
+    return page
 
 
 class WikiPageAttachment(AdoBaseModel):
@@ -151,15 +179,16 @@ def get_wiki_page(
     Returns:
         WikiPageDetail for the requested page.
     """
-    result = project_api_call.get(
+    result, headers = project_api_call.get(
         "wiki",
         "wikis",
         wiki_id,
         "pages",
         parameters={"path": path, "includeContent": include_content},
         version=_WIKI_API_VERSION,
+        with_headers=True,
     )
-    return WikiPageDetail.model_validate(result)
+    return _page_detail(result, headers)
 
 
 def put_wiki_page(
@@ -191,7 +220,7 @@ def put_wiki_page(
     if version is not None:
         extra_headers = {"If-Match": f'"{version}"'}
     body = _WikiPageRequest(content=content)
-    result = project_api_call.put(
+    result, headers = project_api_call.put(
         "wiki",
         "wikis",
         wiki_id,
@@ -200,8 +229,9 @@ def put_wiki_page(
         version=_WIKI_API_VERSION,
         json=body.model_dump(by_alias=True),
         extra_headers=extra_headers,
+        with_headers=True,
     )
-    return WikiPageDetail.model_validate(result)
+    return _page_detail(result, headers)
 
 
 def delete_wiki_page(

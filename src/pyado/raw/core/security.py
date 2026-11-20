@@ -2,6 +2,7 @@
 """Generic ADO security namespace ACL API wrappers."""
 
 from typing import Any
+from uuid import UUID
 
 from pyado.raw._core import _ADO_URL_ADAPTER, AdoBaseModel, ApiCall
 
@@ -13,8 +14,15 @@ __all__ = [
     "get_namespace_acl",
     "get_namespace_actions",
     "get_namespace_names",
+    "make_build_token",
+    "make_classification_node_token",
+    "make_environment_token",
+    "make_git_repo_token",
+    "parse_classification_node_token",
     "post_namespace_acl",
 ]
+
+_CLASSIFICATION_NODE_PREFIX = "vstfs:///Classification/Node/"
 
 
 class AceEntry(AdoBaseModel):
@@ -320,3 +328,102 @@ def _vssps_api(org_api: ApiCall) -> ApiCall:
         session=org_api.session,
         url=_ADO_URL_ADAPTER.validate_python(f"https://vssps.dev.azure.com/{org_name}"),
     )
+
+
+def _join_token(*parts: str | int | UUID | None) -> str:
+    """Join leading non-empty parts with ``/``, stopping at the first None.
+
+    Returns:
+        The joined token string.
+    """
+    kept: list[str] = []
+    for part in parts:
+        if part is None:
+            break
+        kept.append(str(part))
+    return "/".join(kept)
+
+
+def make_git_repo_token(
+    project_id: str | UUID,
+    repo_id: str | UUID | None = None,
+) -> str:
+    """Build a "Git Repositories" namespace security token.
+
+    Args:
+        project_id: Project GUID.
+        repo_id: Repository GUID; omit for the project-wide token.
+
+    Returns:
+        ``repoV2/{project_id}`` or ``repoV2/{project_id}/{repo_id}``.
+    """
+    return _join_token("repoV2", project_id, repo_id)
+
+
+def make_build_token(
+    project_id: str | UUID,
+    definition_id: str | int | None = None,
+) -> str:
+    """Build a "Build" namespace security token.
+
+    Args:
+        project_id: Project GUID.
+        definition_id: Build definition ID; omit for the project-wide token.
+
+    Returns:
+        ``{project_id}`` or ``{project_id}/{definition_id}``.
+    """
+    return _join_token(project_id, definition_id)
+
+
+def make_environment_token(
+    project_id: str | UUID,
+    environment_id: str | int | None = None,
+) -> str:
+    """Build an "Environment" namespace security token.
+
+    Args:
+        project_id: Project GUID.
+        environment_id: Environment ID; omit for the project-wide token.
+
+    Returns:
+        ``Environments/{project_id}`` or
+        ``Environments/{project_id}/{environment_id}``.
+    """
+    return _join_token("Environments", project_id, environment_id)
+
+
+def make_classification_node_token(*node_ids: str | UUID) -> str:
+    """Build a "CSS" (area) or "Iteration" namespace security token.
+
+    Args:
+        *node_ids: Node GUIDs from the root down to the target node.
+
+    Returns:
+        Each GUID prefixed with ``vstfs:///Classification/Node/`` and the
+        results joined with ``:``.
+
+    Raises:
+        ValueError: If no node ID is given.
+    """
+    if not node_ids:
+        message = "At least one classification node ID is required"
+        raise ValueError(message)
+    return ":".join(f"{_CLASSIFICATION_NODE_PREFIX}{node}" for node in node_ids)
+
+
+def parse_classification_node_token(token: str) -> list[str] | None:
+    """Split a classification-node token back into its node GUIDs.
+
+    Args:
+        token: Security token as returned by ADO.
+
+    Returns:
+        The node IDs from root to target, or None if the token is not a
+        classification-node token.
+    """
+    if not token.startswith(_CLASSIFICATION_NODE_PREFIX):
+        return None
+    parts = token.split(f":{_CLASSIFICATION_NODE_PREFIX}")
+    parts[0] = parts[0][len(_CLASSIFICATION_NODE_PREFIX) :]
+    return parts

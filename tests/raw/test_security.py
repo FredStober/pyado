@@ -4,7 +4,9 @@
 
 from typing import Any
 from unittest.mock import patch
+from uuid import UUID
 
+import pytest
 import requests
 
 from pyado.raw._core import ApiCall
@@ -16,6 +18,11 @@ from pyado.raw.core.security import (
     get_namespace_acl,
     get_namespace_actions,
     get_namespace_names,
+    make_build_token,
+    make_classification_node_token,
+    make_environment_token,
+    make_git_repo_token,
+    parse_classification_node_token,
     post_namespace_acl,
 )
 from tests.conftest import _make_mock_response
@@ -254,3 +261,37 @@ class TestDeleteNamespaceAcl:
         ) as mock_req:
             delete_namespace_acl(api_call, _NS_ID, _TOKEN)
         assert mock_req.call_args.args[0] == "DELETE"
+
+
+class TestTokenBuilders:
+    def test_git_repo_token(self) -> None:
+        assert make_git_repo_token("p") == "repoV2/p"
+        assert make_git_repo_token("p", "r") == "repoV2/p/r"
+
+    def test_git_repo_token_uuid(self) -> None:
+        pid = UUID(int=1)
+        assert make_git_repo_token(pid) == f"repoV2/{pid}"
+
+    def test_build_token(self) -> None:
+        assert make_build_token("p") == "p"
+        assert make_build_token("p", 7) == "p/7"
+
+    def test_environment_token(self) -> None:
+        assert make_environment_token("p") == "Environments/p"
+        assert make_environment_token("p", 3) == "Environments/p/3"
+
+    def test_classification_node_token(self) -> None:
+        prefix = "vstfs:///Classification/Node/"
+        assert make_classification_node_token("a") == f"{prefix}a"
+        assert make_classification_node_token("a", "b") == f"{prefix}a:{prefix}b"
+
+    def test_classification_node_token_empty(self) -> None:
+        with pytest.raises(ValueError, match="At least one"):
+            make_classification_node_token()
+
+    def test_parse_classification_node_token_roundtrip(self) -> None:
+        token = make_classification_node_token("a", "b")
+        assert parse_classification_node_token(token) == ["a", "b"]
+
+    def test_parse_classification_node_token_other(self) -> None:
+        assert parse_classification_node_token("repoV2/p/r") is None

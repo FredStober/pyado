@@ -267,3 +267,40 @@ class TestGetWikiPageAttachments:
         with patch.object(requests.Session, "request", return_value=mock_resp):
             attachments = get_wiki_page_attachments(api_call, UUID(_WIKI_ID), 1)
         assert attachments == []
+
+
+class TestWikiPageVersion:
+    @staticmethod
+    def _page_response(etag: str | None) -> object:
+        mock_resp = _make_mock_response({"id": 1, "path": "/P", "content": "x"})
+        if etag is not None:
+            mock_resp.headers["ETag"] = etag
+        return mock_resp
+
+    @staticmethod
+    def test_get_page_reads_version_from_etag(api_call: ApiCall) -> None:
+        mock_resp = TestWikiPageVersion._page_response('"7"')
+        with patch.object(requests.Session, "request", return_value=mock_resp):
+            page = get_wiki_page(api_call, UUID(_WIKI_ID), "/P")
+        assert page.version == 7
+
+    @staticmethod
+    def test_put_page_reads_version_from_weak_etag(api_call: ApiCall) -> None:
+        mock_resp = TestWikiPageVersion._page_response('W/"12"')
+        with patch.object(requests.Session, "request", return_value=mock_resp):
+            page = put_wiki_page(api_call, UUID(_WIKI_ID), "/P", "x")
+        assert page.version == 12
+
+    @staticmethod
+    def test_missing_etag_gives_none(api_call: ApiCall) -> None:
+        mock_resp = TestWikiPageVersion._page_response(None)
+        with patch.object(requests.Session, "request", return_value=mock_resp):
+            page = get_wiki_page(api_call, UUID(_WIKI_ID), "/P")
+        assert page.version is None
+
+    @staticmethod
+    def test_non_numeric_etag_gives_none(api_call: ApiCall) -> None:
+        mock_resp = TestWikiPageVersion._page_response('"abc"')
+        with patch.object(requests.Session, "request", return_value=mock_resp):
+            page = get_wiki_page(api_call, UUID(_WIKI_ID), "/P")
+        assert page.version is None

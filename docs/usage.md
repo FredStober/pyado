@@ -730,7 +730,10 @@ for sprint in team.iter_sprint_iterations(
     print(sprint.name)
 
 # Area path configuration
-field_values = team.get_field_values()
+field_values = team.list_field_values()  # list[TeamFieldValue]
+settings = team.get_field_settings()  # TeamFieldSettings (incl. default path)
+print(settings.default_value)
+team.set_field_settings(settings)  # write it back
 
 # Assign iteration to team (or remove it)
 team.add_iteration(iteration_id)
@@ -2668,6 +2671,35 @@ for page in pages:
         print(f"  {sub_page.path}")
 ```
 
+Updating an existing page needs its current version, which ADO returns in the
+`ETag` response header. `get_wiki_page` exposes it as `WikiPageDetail.version`:
+
+```python
+from pyado.raw import get_wiki_page, put_wiki_page
+
+page = get_wiki_page(api, wiki_id, "/Overview")
+put_wiki_page(api, wiki_id, "/Overview", "# New", version=page.version)
+```
+
+---
+
+## Security, boards, team settings and notifications
+
+These raw functions are exported from `pyado.raw`:
+
+| Area | Symbols |
+|---|---|
+| Errors | `AzureDevOpsError`, `AzureDevOpsNotFoundError` (and the other `AzureDevOps*Error` subclasses) |
+| Security ACLs (org-root `ApiCall`) | `AceEntry`, `get_namespace_names`, `get_namespace_actions`, `get_namespace_acl`, `post_namespace_acl`, `delete_namespace_acl`, `get_identities_by_descriptor`, `get_identities_by_subject_descriptor`, `make_git_repo_token`, `make_build_token`, `make_environment_token`, `make_classification_node_token`, `parse_classification_node_token` |
+| Graph memberships (VSSPS `ApiCall`) | `list_graph_memberships`, `iter_graph_memberships` |
+| Boards (team-scoped `ApiCall`) | `get_boards`, `get_board_columns`, `put_board_columns`, `get_board_rows`, `put_board_rows`, `get_card_settings`, `put_card_settings` |
+| Team settings (team-scoped `ApiCall`) | `get_team_settings`, `patch_team_settings`, `get_team_iterations`, `post_team_iteration`, `delete_team_iteration`, `get_team_field_settings`, `patch_team_field_values` |
+| Notifications (org `ApiCall`) | `get_notification_subscription`, `post_notification_subscription`, `patch_notification_subscription`, `delete_notification_subscription` |
+
+Area paths: `get_team_field_values` returns only the assigned paths;
+`get_team_field_settings` also returns the default path (`TeamFieldSettings`),
+and `patch_team_field_values` takes a `TeamFieldSettings`.
+
 ---
 
 ## Dashboards
@@ -2960,6 +2992,25 @@ Common token patterns for the "Git Repositories" namespace (`repoV2`):
 For the "CSS" / area namespace, tokens use classification-node GUIDs:
 `vstfs:///Classification/Node/{node_guid}`.
 
+Typed builders produce these strings (none of them call the API):
+
+```python
+from pyado.raw import (
+    make_build_token,
+    make_classification_node_token,
+    make_environment_token,
+    make_git_repo_token,
+    parse_classification_node_token,
+)
+
+make_git_repo_token(project_id)  # repoV2/{project}
+make_git_repo_token(project_id, repo_id)  # repoV2/{project}/{repo}
+make_build_token(project_id, definition_id)  # {project}/{definition}
+make_environment_token(project_id, env_id)  # Environments/{project}/{env}
+make_classification_node_token(root_id, child_id)  # nested area/iteration node
+parse_classification_node_token(token)  # -> ["root", "child"] or None
+```
+
 ### Identity lookups
 
 ADO's ACL entries use *storage-key descriptors*. To work with human-readable
@@ -3127,14 +3178,14 @@ visibility, iteration subscriptions, area assignments) are managed through
 `ApiCall` (`…/{project_id}/{team_id}/_apis`).
 
 ```python
+from pyado.raw import TeamFieldSettings, TeamFieldValue, get_team_field_settings
 from pyado.raw.boards.team_settings import (
     get_team_settings,
     patch_team_settings,
-    get_team_field_values,
     patch_team_field_values,
     get_team_iterations,
-    add_team_iteration,
-    remove_team_iteration,
+    post_team_iteration,
+    delete_team_iteration,
 )
 
 # Read current settings (dict with backlogIteration, bugsBehavior, workingDays, etc.)
@@ -3156,20 +3207,18 @@ patch_team_settings(
 )
 
 # Read area path assignments
-field_values = get_team_field_values(team_api)
-print(field_values["defaultValue"])  # default area path
-for entry in field_values["values"]:
-    print(entry["value"], entry["includeChildren"])
+field_settings = get_team_field_settings(team_api)
+print(field_settings.default_value)  # default area path
+for entry in field_settings.values:
+    print(entry.value, entry.include_children)
 
 # Write area path assignments
 patch_team_field_values(
     team_api,
-    {
-        "defaultValue": "MyProject\\Team A",
-        "values": [
-            {"value": "MyProject\\Team A", "includeChildren": True},
-        ],
-    },
+    TeamFieldSettings(
+        default_value="MyProject\\Team A",
+        values=[TeamFieldValue(value="MyProject\\Team A", include_children=True)],
+    ),
 )
 
 # Read iteration subscriptions
@@ -3178,8 +3227,10 @@ for it in iterations:
     print(it["id"], it["name"])
 
 # Subscribe/unsubscribe the team to an iteration node
-add_team_iteration(team_api, iteration_id="<classification-node-guid>")
-remove_team_iteration(team_api, iteration_id="<classification-node-guid>")
+added = post_team_iteration(
+    team_api, iteration_id=UUID("<classification-node-guid>")
+)  # SprintIterationInfo
+delete_team_iteration(team_api, iteration_id=UUID("<classification-node-guid>"))
 ```
 
 ---

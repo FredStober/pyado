@@ -22,6 +22,7 @@ from pyado.raw import (
     SprintIterationId,
     SprintIterationInfo,
     SprintIterationTimeframe,
+    TeamFieldSettings,
     TeamFieldValue,
     TeamId,
     TextFormat,
@@ -501,6 +502,21 @@ class ProjectBoards:
             area paths.
         """
         return raw.get_team_field_values(
+            self._project._service.oop_api.make_team_api_call(  # ruff: ignore[private-member-access]
+                self._project.name, team_name
+            )
+        )
+
+    def get_team_field_settings(self, team_name: str) -> TeamFieldSettings:
+        """Return the default area path and assigned area paths for a team.
+
+        Args:
+            team_name: Name of the team within this project.
+
+        Returns:
+            TeamFieldSettings with ``default_value`` and ``values``.
+        """
+        return raw.get_team_field_settings(
             self._project._service.oop_api.make_team_api_call(  # ruff: ignore[private-member-access]
                 self._project.name, team_name
             )
