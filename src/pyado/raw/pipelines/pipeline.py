@@ -181,7 +181,11 @@ class PipelineRunRequest(AdoBaseModel):
 
 
 class JobFeedPayload(AdoBaseModel):
-    """Payload for the job feed (append timeline record feed) endpoint."""
+    """Payload for the job feed (append timeline record feed) endpoint.
+
+    ``count`` must equal ``len(value)``.  See :func:`post_job_feed` for the
+    live-only, job-record-targeted behaviour of the feed.
+    """
 
     value: list[str]
     count: int
@@ -546,6 +550,22 @@ def post_new_log(plan_api_call: ApiCall, path: str) -> BuildLogInfo:
 def post_job_feed(job_api_call: ApiCall, payload: JobFeedPayload) -> None:
     """Sends messages to feed of the running task.
 
+    The feed is the *transient live console* of a running build, not a log.
+    Behaviour measured against a live ``InvokeRESTAPI`` task (browser DOM
+    polled without reloads):
+
+    * **Target the Job record.** ``job_api_call`` must come from
+      :func:`get_job_api_call` with the *job* id (the task record's
+      ``parent_id``).  Posting to the task record is also accepted (HTTP 204)
+      but its lines show up late and in batches instead of live.
+    * **Live only, never persisted.**  A line renders in the open task pane
+      within about 0.2 s of the POST.  A page reload or navigation discards
+      it, and lines sent while no page is open are never shown later.  Use
+      :func:`post_job_logs` for anything that must remain readable.
+    * **Not written to the log**; the two are independent.
+    * Wait a few seconds after the task starts before the first call; the
+      ADO handler waits 10 s so the record is ready.
+
     Reference: https://github.com/MicrosoftDocs/vsts-rest-api-specs/blob/master
     /specification/distributedTask/7.1/httpExamples/feed/
     POST__distributedtask_AppendTimelineRecordFeed_.json
@@ -572,6 +592,12 @@ def post_job_logs(log_api_call: ApiCall, message: str) -> None:
 
 def post_job_event(plan_api_call: ApiCall, payload: JobEventPayload) -> None:
     """This notifies the pipeline that the task has completed.
+
+    Authenticate with the build's ``System.AccessToken`` (bearer token); a PAT
+    is rejected with HTTP 500 ("session not found").  For an ``InvokeRESTAPI``
+    step use the ``id`` and ``parent_id`` of that step's own timeline record
+    (found by its display name) as ``task_id`` and ``job_id``, not the
+    ``SYSTEM_TASKINSTANCEID`` / ``SYSTEM_JOBID`` variables.
 
     Reference: https://github.com/MicrosoftDocs/vsts-rest-api-specs/blob/master
     /specification/distributedTask/7.1/httpExamples/events/

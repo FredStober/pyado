@@ -10,6 +10,7 @@ __all__ = [
     "AzureDevOpsHttpError",
     "AzureDevOpsNotFoundError",
     "AzureDevOpsRefUpdateError",
+    "AzureDevOpsSessionError",
     "AzureDevOpsThrottledError",
 ]
 
@@ -76,6 +77,16 @@ class AzureDevOpsRefUpdateError(AzureDevOpsError):
         super().__init__(f"Update of {ref_name!r} failed: {update_status}")
         self.ref_name = ref_name
         self.update_status = update_status
+
+
+class AzureDevOpsSessionError(AzureDevOpsError):
+    """A timeline session refused an operation before sending a request.
+
+    Raised when the operation could not work: the hierarchy would not be
+    drawn by the portal, the System token has expired or is missing, a record
+    cannot be found, or the id belongs to a native record.  No HTTP request
+    was made, so retrying without changing the call cannot succeed.
+    """
 
 
 class AzureDevOpsThrottledError(AzureDevOpsHttpError):

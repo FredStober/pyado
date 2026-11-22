@@ -102,6 +102,12 @@ All five examples above work identically in CI/CD pipelines — the
 `SYSTEM_TEAMFOUNDATIONCOLLECTIONURI` and `SYSTEM_ACCESSTOKEN` variables that
 ADO injects into agent jobs are recognised automatically.
 
+The `System.AccessToken` is only valid for a limited time: the job's
+`timeoutInMinutes` plus 15 minutes after the job started (about 75 minutes with
+the default timeout).  After that every call returns HTTP 401.  It is also the
+only credential that can send `TaskCompleted` for an agentless step; see
+`docs/AGENT.md`, quirks 17-19.
+
 ---
 
 ## OOP interface
@@ -2023,10 +2029,15 @@ log_api = get_log_api_call(api, "build", plan_id, log_id)
 Feed messages appear in the ADO UI next to the task in real time:
 
 ```python
-from pyado.raw import post_job_feed
+from pyado.raw import JobFeedPayload, post_job_feed
 
-post_job_feed(job_api, ["Step 1 complete", "Starting step 2…"])
+lines = ["Step 1 complete", "Starting step 2…"]
+post_job_feed(job_api, JobFeedPayload(value=lines, count=len(lines)))
 ```
+
+Feed lines are transient: they show in a page that is open, within a fraction of
+a second, and are gone after a reload.  Build `job_api` for the **job** record
+(the task's `parent_id`), not the task record.
 
 Log lines are appended to the persistent task log:
 
@@ -2039,37 +2050,81 @@ post_job_logs(log_api, "Detailed diagnostic output here.\n")
 ### Signalling task completion
 
 ```python
-from pyado.raw import post_job_event
+from pyado.raw import JobEventName, JobEventPayload, JobEventResult, post_job_event
 
 post_job_event(
     plan_api,
-    task_id=task_id,
-    job_id=job_id,
-    job_event_name="TaskCompleted",
-    job_event_result="succeeded",  # or "failed"
+    JobEventPayload(
+        name=JobEventName.TASK_COMPLETED,
+        task_id=task_id,
+        job_id=job_id,
+        result=JobEventResult.SUCCEEDED,  # or FAILED
+    ),
 )
 ```
+
+This needs the build's `System.AccessToken`; a PAT is rejected (HTTP 500).
 
 ### Updating timeline records
 
-Timeline records track the state of stages, jobs, and tasks. You can update
-them directly (e.g. to mark a task as in-progress before it starts):
+`patch_timeline_records` takes a `TimelineRecordsUpdatePayload` of full
+`BuildRecordInfo` objects, which need many required fields.  To create virtual
+jobs and tasks or change state, progress and issues, use `TimelineSession`
+(next section), which sends only the fields you change.
+
+### Reporting into a build from outside (TimelineSession)
+
+`TimelineSession` lets an external system (a Lambda, a Step Functions
+execution) show its progress in the pipeline of an agentless `InvokeRESTAPI`
+step: live console lines, a persistent log, virtual jobs and tasks, and the
+final `TaskCompleted`.
 
 ```python
-from pyado.raw import get_timeline_api_call, patch_timeline_records, BuildRecordInfo
+from pyado import LogLines, TimelineSession
 
-timeline_api = get_timeline_api_call(api, "build", plan_id, timeline_id)
-patch_timeline_records(
-    timeline_api,
-    [
-        BuildRecordInfo(
-            id=str(task_id),
-            state="inProgress",
-            result=None,
-        )
-    ],
+session = TimelineSession.from_tokens(
+    org_name="myorg",
+    project_id=project_uuid,  # the project UUID, not its name
+    build_id=build_id,
+    admin_token=pat,  # used for every write except complete()
+    system_token=system_token,  # the build's System.AccessToken
 )
+
+step = session.resolve_task("Run workflow")  # the step's display name
+session.feed(step, "execution started")  # live, not stored
+
+log = LogLines()
+log.section("Execution")
+with log.group("Input"):
+    log.add("bucket: data-lake")
+session.append_log(step, log.text())  # waits for ADO to attach the log
+
+phase = session.native_phase(step)
+branch = session.create_job("Branch A", under=phase)
+validate = session.create_task("Validate", under=branch)
+session.append_log(validate, "schema ok", create=True)
+session.finish(validate)
+session.finish(branch)
+
+session.complete(step)  # System token, before it expires
 ```
+
+Things to know:
+
+* The portal draws Stage -> Job -> Task.  A virtual job only appears under a
+  native Phase, a task only under a job or task; other parents raise
+  `AzureDevOpsSessionError`.
+* `session.record_id("arn/StateA")` gives a stable id, so a retried Lambda
+  updates the same record.  A completed record keeps its `result`, so a rerun
+  needs `attempt=2`.
+* The System token stops working at issue time + the job's `timeoutInMinutes`
+  + 15 minutes.  Set the agentless job's `timeoutInMinutes` to cover the longest
+  expected workflow.  `complete()` raises `AzureDevOpsSessionError` instead of
+  sending a call that would fail.
+* `##[error]` lines are coloured but create no issue; use
+  `session.report_issues(...)`.
+* Build lines with `LogLines` or `pyado.oop.pipelines.log_format`; they keep the
+  markers at the start of the line and neutralise `##[` inside your text.
 
 ### Environment approvals
 

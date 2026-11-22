@@ -217,6 +217,22 @@ pyado provides two layers:
    :members:
 ```
 
+#### TimelineSession
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipelines.timeline_session
+   :members:
+   :no-index:
+```
+
+#### Log formatting
+
+```{eval-rst}
+.. automodule:: pyado.oop.pipelines.log_format
+   :members:
+   :no-index:
+```
+
 #### Agent
 
 ```{eval-rst}

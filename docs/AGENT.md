@@ -332,74 +332,97 @@ pyado.RenameFile(old_path, new_path)  # rename without changing content
 .iter_work_items_between(older_build, *, top?)    -> Iterator[WorkItem]
 .iter_work_item_ids_between(older_build, *, top?) -> Iterator[int]
 
-.get_distributed_task_session(*, hub_name, plan_id, timeline_id, job_id, task_instance_id) -> DistributedTaskSession
 ```
 
-### DistributedTaskSession
+### TimelineSession
 
-An external system (e.g. an AWS Lambda) acting as an ADO agentless pipeline
-task.  ADO injects the following pipeline variables at step startup; map them
-to the constructor parameters:
-
-| Pipeline variable | Constructor parameter | Notes |
-|---|---|---|
-| `SYSTEM_ACCESSTOKEN` | `bearer_token` | not a PAT |
-| `SYSTEM_TEAMFOUNDATIONCOLLECTIONURI` | `collection_uri` | org root URL |
-| `SYSTEM_TEAMPROJECTID` | `team_project_id` | project UUID — **not** `SYSTEM_COLLECTIONID` |
-| `BUILD_BUILDID` | `build_id` | numeric |
-| `SYSTEM_HOSTTYPE` | `hub_name` | always `"build"` for YAML pipelines |
-| `SYSTEM_PLANID` | `plan_id` | equals `timeline_id` in standard YAML builds |
-| `SYSTEM_TIMELINEID` | `timeline_id` | equals `plan_id` in standard YAML builds |
-| `SYSTEM_JOBID` | `job_id` | |
-| `AGENT_TASKINSTANCEID` | `task_instance_id` | |
+Report progress into one build's timeline from outside the pipeline, for
+example from an AWS Lambda or Step Functions execution that fulfils an
+agentless `InvokeRESTAPI` step.  Lives in `pyado.oop` (also `pyado`).
 
 ```python
-session = DistributedTaskSession(
-    bearer_token=os.environ["SYSTEM_ACCESSTOKEN"],
-    collection_uri=os.environ["SYSTEM_TEAMFOUNDATIONCOLLECTIONURI"],
-    team_project_id=UUID(os.environ["SYSTEM_TEAMPROJECTID"]),
-    build_id=int(os.environ["BUILD_BUILDID"]),
-    hub_name="build",
-    plan_id=UUID(os.environ["SYSTEM_PLANID"]),
-    timeline_id=UUID(os.environ["SYSTEM_TIMELINEID"]),
-    job_id=UUID(os.environ["SYSTEM_JOBID"]),
-    task_instance_id=UUID(os.environ["AGENT_TASKINSTANCEID"]),
-)
-```
+from pyado import TimelineSession, LogLines
 
-Inherits all read properties from `BuildTask` (loaded lazily on first access).
+session = TimelineSession.from_tokens(
+    org_name="myorg",
+    project_id=project_uuid,  # the UUID: writes reject the project name
+    build_id=123,
+    admin_token=pat,  # records, feed and logs
+    system_token=system_token,  # only needed for complete()
+)
+step = session.resolve_task("Run workflow")  # find the step by display name
+session.feed(step, "execution started")  # live console (job record)
+
+lines = LogLines()
+lines.section("Deploy")
+with lines.group("Details"):
+    lines.add("image: app:1.2")
+session.append_log(step, lines.text())  # persistent log
+
+job = session.create_job("Branch A", under=session.native_phase(step))
+task = session.create_task("Validate", under=job)
+session.append_log(task, "input ok", create=True)
+session.finish(task)
+session.complete(step)  # System token, before it expires
+```
 
 ```text
-.build     -> Build         # zero-cost; only if obtained via Build.get_distributed_task_session
-.project   -> Project       # zero-cost (same caveat)
-.org       -> Organization  # zero-cost (same caveat)
+TimelineSession.from_tokens(*, org_name, project_id, build_id, admin_token, system_token=None)
 
-.refresh()                  # discard cached record and log ID
-.get_record()  -> BuildRecordInfo   # always-fresh timeline record for this task
+.resolve_task(display_name) -> TimelineTarget     # exactly one Task with that name
+.find(name, *, under=None)  -> TimelineTarget     # stateless re-attachment by name
+.native_phase(step)         -> TimelineTarget     # the Phase above the step's Job
+.plan_id()                  -> UUID
+.record_id(key, *, attempt=1) -> UUID             # stable uuid5; changes per build
+
+.create_job(name, *, under, key=None, attempt=1, state=IN_PROGRESS)   # under a Phase
+.create_task(name, *, under, key=None, attempt=1, state=IN_PROGRESS)  # under a Job/Task
+.set_state(target, *, state=None, result=None, percent=None)
+.finish(target, result=SUCCEEDED)
+.report_issues(target, issues)        # replaces; the Errors/Warnings tabs read this
+.batch()                              # context manager: one PATCH for all writes inside
+
+.feed(step, *lines)                   # live only, job record, never stored
+.append_log(target, text, *, create=False, wait=60)
+.attach_log(target) -> int
+.complete(step, *, succeeded=True)    # System token; raises if it expired
+.seconds_until_system_token_expires() -> float | None
 ```
 
-**Log-attachment sequence for dynamic records** (required to write output to
-records created via `add_task` / `add_job` / `add_subtask`):
+What the session decides for you (each measured, see quirks 17-27):
 
-```python
-# 1. Create the log entry
-log_info = raw.post_plan_logs(session._make_plan_api_call())
+* **Hierarchy:** the portal draws Stage -> Job -> Task only, and a dynamic Job
+  only under a native Phase.  `create_job` rejects any other parent and
+  `create_task` rejects a Phase or Stage parent.
+* **Ids:** `record_id(key)` is deterministic, so a retrying Lambda updates the
+  same record.  Creating an existing id overwrites it; a rerun of a record that
+  already completed needs a new `attempt`, because `result` cannot be cleared.
+  An id that belongs to a native record is refused (it would rename it).
+* **Retries:** after a stage retry the old job id is gone, so ids are always
+  read from the current timeline and never cached; `resolve_task` and `find`
+  re-read it on every call.
+* **Credentials:** the admin token does everything except `complete`, which
+  only works with the System token (a PAT gets HTTP 500).  The System token
+  stops working at issue time + the job's `timeoutInMinutes` + 15 minutes, so
+  `complete` refuses a token with less than 30 seconds left.  Raise the
+  agentless job's `timeoutInMinutes` to cover the longest workflow.
+* **Logs:** a native task's log may take a few seconds to appear, so
+  `append_log` waits; a record you created has none, so pass `create=True`.
+* **Issues vs console lines:** `##[error]` lines colour a line and create no
+  issue; `report_issues` does.
 
-# 2. Attach the log to the timeline record
-child_task.info = child_task.info.model_copy(update={"log": log_info})
-child_task.push_changes(session)
+#### Log formatting helpers
 
-# 3. Append content
-raw.post_job_logs(
-    raw.get_log_api_call(
-        session._project_api_call,
-        session._hub_name,
-        session._plan_id,
-        log_info.id,
-    ),
-    "my log message\n",
-)
-```
+`pyado.oop.pipelines.log_format` builds lines that render the way the portal
+documents them: `error`, `warning`, `debug`, `info`, `section`, `command`,
+`group(title, lines)`, `ansi(text, Ansi.RED)`, `sanitize`, and the `LogLines`
+collector with a `group()` context manager that always writes `##[endgroup]`.
+`sanitize` removes carriage returns (they split the line), control characters
+and any `##[` marker in user text (rewritten to `##[ `, which renders as plain
+text), so a message cannot start, repeat or cut a marker line.  See quirk 26.
+
+Raised on a refused operation: `AzureDevOpsSessionError` (no HTTP request was
+made).
 
 ---
 
@@ -1306,11 +1329,13 @@ Pydantic validation errors (`ValidationError`) are raised on construction of
     `PullRequestUpdateRequest` — without the commit SHA, ADO rejects the
     completion request.
 
-11. **`issues` setter is replace-in-full.** The ADO PATCH API replaces the
-    entire `issues` list when the field is present.  Omitting the field
-    preserves existing issues; sending `issues=[]` clears them.  To add a
-    single issue without losing others, read `.issues`, build a new list,
-    assign, then call `.push_changes(session)`.
+11. **`issues` is replace-in-full on dynamic records, and `[]` does not clear.**
+    Sending a non-empty `issues` list replaces the whole list while the
+    record is `inProgress`.  Omitting the field preserves the issues, and
+    sending `issues=[]` is silently ignored (it does *not* clear them) — in
+    particular on completed dynamic records and on native records.  To add a
+    single issue without losing others, read the record's current `issues`,
+    append, and PATCH the whole list.
 
 12. **`hub_name` is a plain string `"build"`** for YAML pipelines —
     **lowercase**.  Use the value of `SYSTEM_HOSTTYPE` directly, or
@@ -1325,16 +1350,104 @@ Pydantic validation errors (`ValidationError`) are raised on construction of
     `SYSTEM_COLLECTIONID` (the organisation UUID) silently targets the wrong
     resource and returns HTTP 400 or 404.
 
-15. **Dynamic records have no log attached.** Records created via
-    `add_task`, `add_job`, or `add_subtask` are created without a log
-    reference.  To write output for them, follow the three-step sequence:
-    POST `plans/{plan_id}/logs` to create a log entry, PATCH the timeline
-    record to attach it, then POST to `plans/{plan_id}/logs/{log_id}` to
-    append content.  `send_feed`, `send_log`, and `send_message` write to
-    the **session task's** log only.
+15. **Dynamic records have no log attached.**  A record you create has no
+    log; a native task already has one.  To write output for your own record:
+    POST `plans/{plan_id}/logs` to allocate a log id, PATCH the record's `log`
+    field to attach it, then POST to `plans/{plan_id}/logs/{log_id}` to append
+    (`TimelineSession.append_log(..., create=True)` does all three).  Feed
+    lines never go into a log.
 
-16. **`complete()` does not finish child records.** Calling `session.complete()`
-    sends the `TaskCompleted` event that unblocks the pipeline, but it does
-    not automatically transition any dynamically-created child task or job
-    records.  Call `task.finish(session, succeeded=...)` on each child before
-    calling `complete()` to avoid leaving records stuck in `inProgress`.
+16. **Completing the step does not finish child records.**  `TaskCompleted`
+    only unblocks the pipeline.  Records you created and left `inProgress` end
+    as the job's result when the build ends (`succeeded` for a succeeded job),
+    so call `TimelineSession.finish` on each child first.
+
+17. **The `System.AccessToken` expires at issue time + the job's
+    `timeoutInMinutes` + 15 minutes**, not after a fixed ~20 minutes.  The
+    token is a JWT with two expiries: the top-level `exp` (about 24 h 5 min)
+    and a nested `xms_attr.<id>.ado_exp`; the nested one governs.  Measured
+    for timeouts of 1/2/5/10/20/40/60 minutes: 16/17/20/25/35/55/75 minutes.
+    The default 60-minute timeout therefore gives about 75 minutes.  Decode
+    the nested claim (recursively) to read it; a top-level-only decode misses
+    it.
+
+18. **Past the nested expiry every call returns HTTP 401**, reads included,
+    while the PAT keeps working.  The token is not tied to the build: it kept
+    working for about 10 minutes after its build had ended.  A long-running
+    external workflow must therefore send everything that needs the System
+    token (see 19) before the expiry, or obtain a fresh token.
+
+19. **`TaskCompleted` needs the System token.**  With a PAT it fails with
+    HTTP 500 ("session not found"); with the System token it returns 204 and
+    the pipeline continues.  Use `task_id=record.id` and
+    `job_id=record.parent_id` of the step's own timeline record.  For an
+    `InvokeRESTAPI` step on a `server` job, find that record by its display
+    name: `SYSTEM_TASKINSTANCEID` is not reliably set and `SYSTEM_JOBID` is not
+    that step's job.
+
+20. **Feed goes to the Job record, not the Task record.**  Post to
+    `.../records/{job_id}/feed`.  It renders live in the open pipeline view
+    within ~0.2 s and is never stored: a reload or navigation discards it.
+    Posting to the task record is accepted (204) but shows up late and in
+    batches.
+
+21. **A native task already has its log attached** when it first shows
+    `inProgress`; a record you create has none.  For your own records, the
+    allocate / attach / append order is not enforced: an append before the
+    attach is accepted and kept.  Parallel appends are all kept but their
+    order is not preserved.  Appended text renders in the portal after a
+    reload, not live.
+
+22. **Log appends must use `Content-Type: application/octet-stream` to work
+    with a PAT.**  `text/plain` and `application/json` return HTTP 400 for a
+    PAT, while the System token accepts all three.  `post_job_logs` already
+    sends `octet-stream`.
+
+23. **Writes are last-writer-wins.**  Parallel PATCHes of one record all
+    return 200 and the last one stands (no merge of `issues`); the same `id`
+    twice in one batch returns HTTP 500; `parent_id` cannot be changed (the
+    PATCH returns 200 and is ignored).  A non-empty `issues` list replaces the
+    existing list on native records too; `[]` is ignored.  One PATCH accepted
+    2000 records.
+
+24. **Which dynamic records the portal draws** (Stage -> Job -> Task only):
+    a Task under any Job (also a finished or another job) is shown; a Job
+    under a *native Phase* is shown with its tasks (parallel jobs work); a Job
+    under a Stage or under another Job gets no row and its tasks appear one
+    level up; a Phase, a Task under a Phase or Stage, and Job > Job > Job > Job
+    are not drawn.  A dynamic Stage record is stored and invisible.  Status
+    changes repaint within ~0.5 s with no reload, in any direction.
+
+
+25. **Records are addressed by id and creating an existing id overwrites it.**
+    A PATCH that carries an existing `id` updates that record's name and state
+    (no duplicate, also under parallel calls, and regardless of upper/lower
+    case); `type` and `parent_id` stay as first created.  A partial PATCH for
+    an id that does not exist returns HTTP 400, so a new record needs a full
+    body (`name`, `type`, `parent_id`, `state`).  A re-created record keeps its
+    old `result` (`null` does not clear it), so give a rerun a new id.  A
+    native record's id is not protected: writing it renames the native
+    record.
+
+26. **Console lines are formatting only.**  `##[error]` / `##[warning]` colour a
+    line (red / orange; `##[debug]` purple, `##[info]` grey), `##[group]` folds
+    the lines up to `##[endgroup]`, and ANSI colour codes work.  The log and the
+    feed use the same renderer.  None of this creates an issue: `##[error]`,
+    `##[warning]` and `##vso[task.logissue ...]` leave the error and warning
+    counts and the Errors/Warnings tabs unchanged, and other `##vso[...]`
+    commands are shown as plain text.  Only the record's `issues` field
+    reports problems.  Keep `##[section]`, `##[command]` and `##[group]` at the very start of the
+    line and use each at most once per line: they hide their marker and keep
+    the rest, but anything before the marker makes the viewer cut about nine
+    characters, and a second marker of the same type later in the line cuts
+    the text before it.  `##[error]`, `##[warning]`, `##[debug]` and
+    `##[info]` can appear anywhere.  Carriage returns split the line and
+    256-colour ANSI codes are ignored.
+
+27. **After a stage retry the old job and its records are gone from the
+    current timeline.**  The retried stage gets new job and task ids; the old
+    ones move into a sub-timeline listed in `previous_attempts`.  A writer
+    that cached the old job id still gets HTTP 200 but the record lands under
+    the swept job and is never shown, so re-resolve the job id for every call.
+    Chosen record ids from the earlier attempt can be created again under the
+    new job.

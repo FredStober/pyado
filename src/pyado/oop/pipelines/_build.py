@@ -133,6 +133,10 @@ def start_build(
 def send_job_feed(job_api_call: ApiCall, messages: list[str]) -> None:
     """Send messages to the feed of the running task.
 
+    The feed is transient: lines render live in the open pipeline view and are
+    lost on reload.  Pass an API call built for the *job* record, not the task
+    record.  See :func:`pyado.raw.post_job_feed` for the full behaviour.
+
     Args:
         job_api_call: Job-level ADO API call.
         messages: Log lines to append to the feed.

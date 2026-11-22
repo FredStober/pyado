@@ -83,6 +83,7 @@ __all__ = [
     "FileSizeRestrictionPolicy",
     "GitRepositoryPolicy",
     "Iteration",
+    "LogLines",
     "MergeStrategyPolicy",
     "MinimumReviewersPolicy",
     "Organization",
@@ -112,6 +113,8 @@ __all__ = [
     "Tag",
     "TaskGroup",
     "Team",
+    "TimelineSession",
+    "TimelineTarget",
     "VariableGroup",
     "Wiki",
     "WorkItem",
@@ -134,9 +137,11 @@ from pyado.oop.pipelines import PipelineLibrary, ProjectPipelines
 from pyado.oop.pipelines.agent import Agent, AgentPool, AgentQueue
 from pyado.oop.pipelines.build import Build
 from pyado.oop.pipelines.environment import Environment
+from pyado.oop.pipelines.log_format import LogLines
 from pyado.oop.pipelines.pipeline import Pipeline, PipelineRun
 from pyado.oop.pipelines.secure_file import SecureFile
 from pyado.oop.pipelines.task_group import TaskGroup
+from pyado.oop.pipelines.timeline_session import TimelineSession, TimelineTarget
 from pyado.oop.pipelines.variable_group import VariableGroup
 from pyado.oop.project import Project
 from pyado.oop.repos import ProjectRepos

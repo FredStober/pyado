@@ -345,6 +345,36 @@ Obtained via `Project.get_build`, `Project.iter_builds`, `Project.start_build`.
 
 ---
 
+### `TimelineSession` / `LogLines`
+
+Write progress into one build's timeline from outside the pipeline (agentless
+`InvokeRESTAPI` step).  See `usage.md` for a walkthrough.
+
+```python
+TimelineSession.from_tokens(*, org_name, project_id, build_id, admin_token, system_token=None)
+
+.resolve_task(display_name) -> TimelineTarget
+.find(name, *, under=None) -> TimelineTarget
+.native_phase(step) -> TimelineTarget
+.record_id(key, *, attempt=1) -> UUID
+
+.create_job(name, *, under, key=None, attempt=1, state=...) -> TimelineTarget
+.create_task(name, *, under, key=None, attempt=1, state=...) -> TimelineTarget
+.set_state(target, *, state=None, result=None, percent=None) -> None
+.finish(target, result=BuildRecordResult.SUCCEEDED) -> None
+.report_issues(target, issues: list[BuildIssue]) -> None
+.batch()                                  # one PATCH for the writes inside
+
+.feed(step, *lines) -> None               # live only; goes to the job record
+.append_log(target, text, *, create=False, wait=60.0) -> None
+.attach_log(target) -> int
+.complete(step, *, succeeded=True) -> None   # System token; raises AzureDevOpsSessionError
+
+LogLines().add(text) / .section(text) / .command(text) / .error(text) / .warning(text)
+LogLines().group(title)                   # context manager, always closes
+LogLines().lines() -> list[str];  LogLines().text() -> str
+```
+
 ### `Pipeline` / `PipelineRun`
 
 Obtained via `Project.get_pipeline`, `Project.iter_pipelines`, or `Build.pipeline`.
