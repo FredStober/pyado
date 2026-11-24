@@ -17,6 +17,7 @@ from pyado.raw import (
     BuildExpand,
     BuildLogInfo,
     BuildRecordInfo,
+    BuildRecordType,
     BuildSearchCriteria,
     BuildStatus,
     PipelineDefinitionInfo,
@@ -41,7 +42,7 @@ from pyado.raw import (
     list_pipeline_definitions,
     list_timeline_records,
     list_work_items_between_builds,
-    post_build_tag,
+    put_build_tag,
 )
 from tests.conftest import NOW_ISO, _make_mock_response, make_build_record_dict
 
@@ -183,6 +184,83 @@ class TestIterTimelineRecords:
             result = list(iter_timeline_records(api_call))
         assert len(result) == 1
         assert isinstance(result[0], BuildRecordInfo)
+
+    @staticmethod
+    def test_reads_a_sub_timeline(api_call: ApiCall) -> None:
+        """A timeline id from ``previous_attempts`` selects the sub-timeline."""
+        sub_id = uuid4()
+        response_json = {"id": str(sub_id), "records": [make_build_record_dict()]}
+        mock_response = _make_mock_response(response_json)
+        with patch.object(
+            requests.Session, "request", return_value=mock_response
+        ) as mock_req:
+            result = list(iter_timeline_records(api_call, sub_id))
+        assert len(result) == 1
+        url = mock_req.call_args.kwargs["url"]
+        assert url.endswith(f"/timeline/{sub_id}")
+        assert not url.endswith("/timeline/timeline")
+
+    @staticmethod
+    def test_root_timeline_url_has_no_id(api_call: ApiCall) -> None:
+        """Without a timeline id the root timeline is read."""
+        response_json = {"id": str(uuid4()), "records": []}
+        with patch.object(
+            requests.Session, "request", return_value=_make_mock_response(response_json)
+        ) as mock_req:
+            assert list_timeline_records(api_call) == []
+        assert mock_req.call_args.kwargs["url"].endswith("/timeline")
+
+    @staticmethod
+    def test_list_passes_the_timeline_id(api_call: ApiCall) -> None:
+        """``list_timeline_records`` forwards the sub-timeline id."""
+        sub_id = uuid4()
+        response_json = {"id": str(sub_id), "records": []}
+        with patch.object(
+            requests.Session, "request", return_value=_make_mock_response(response_json)
+        ) as mock_req:
+            list_timeline_records(api_call, sub_id)
+        assert mock_req.call_args.kwargs["url"].endswith(f"/timeline/{sub_id}")
+
+    @staticmethod
+    def test_unknown_record_type_does_not_fail_the_read(api_call: ApiCall) -> None:
+        """One foreign record type is read as OTHER, the rest is kept."""
+        records = [
+            make_build_record_dict(type="Task"),
+            make_build_record_dict(type="NotARecordType"),
+        ]
+        response_json = {"id": str(uuid4()), "records": records}
+        with patch.object(
+            requests.Session, "request", return_value=_make_mock_response(response_json)
+        ):
+            result = list(iter_timeline_records(api_call))
+        assert [r.type_name for r in result] == [
+            BuildRecordType.TASK,
+            BuildRecordType.OTHER,
+        ]
+
+    @staticmethod
+    def test_new_fields_in_nested_objects_are_ignored(api_call: ApiCall) -> None:
+        """A field ADO adds to ``log`` or ``previousAttempts`` is not an error."""
+        log = {
+            "id": 5,
+            "type": "Container",
+            "url": "https://dev.azure.com/org/log/5",
+            "newField": "x",
+        }
+        attempt = {
+            "attempt": 1,
+            "timelineId": str(uuid4()),
+            "recordId": str(uuid4()),
+            "newField": "x",
+        }
+        record = make_build_record_dict(log=log, previousAttempts=[attempt])
+        response_json = {"id": str(uuid4()), "records": [record]}
+        with patch.object(
+            requests.Session, "request", return_value=_make_mock_response(response_json)
+        ):
+            result = list(iter_timeline_records(api_call))
+        assert result[0].log is not None
+        assert len(result[0].previous_attempts) == 1
 
 
 def make_build_details_dict(**overrides: Any) -> dict[str, Any]:
@@ -452,14 +530,14 @@ class TestIterBuildTags:
 
 
 class TestPostBuildTag:
-    """Tests for post_build_tag."""
+    """Tests for put_build_tag."""
 
     @staticmethod
     def test_returns_updated_tag_list(api_call: ApiCall) -> None:
         """Returns the updated tag list returned by the API."""
         mock_response = _make_mock_response({"value": ["tag-a", "new-tag"]})
         with patch.object(requests.Session, "request", return_value=mock_response):
-            result = post_build_tag(api_call, "new-tag")
+            result = put_build_tag(api_call, "new-tag")
         assert "new-tag" in result
 
 
@@ -1195,7 +1273,7 @@ class TestListTimelineRecords:
         ) as m:
             result = list_timeline_records(api_call)
         assert result == []
-        m.assert_called_once_with(api_call)
+        m.assert_called_once_with(api_call, None)
 
 
 class TestListWorkItemsBetweenBuilds:

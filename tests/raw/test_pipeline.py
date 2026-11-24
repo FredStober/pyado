@@ -10,7 +10,10 @@ import requests
 
 from pyado.raw import (
     ApiCall,
+    BuildRecordInfo,
+    BuildRecordType,
     JobEventPayload,
+    JobEventResult,
     PipelineApproval,
     PipelineApprovalExpand,
     PipelineApprovalStatus,
@@ -19,6 +22,7 @@ from pyado.raw import (
     PipelineResourceType,
     PipelineRunInfo,
     PipelineRunRequest,
+    TimelineRecordsUpdatePayload,
     get_job_api_call,
     get_log_api_call,
     get_pipeline,
@@ -28,15 +32,19 @@ from pyado.raw import (
     iter_approvals,
     iter_pipeline_runs,
     iter_pipelines,
+    iter_plan_timelines,
     list_approvals,
     list_pipeline_runs,
     list_pipelines,
     patch_pipeline_permission,
+    patch_timeline_records,
+    post_job_event,
     post_job_logs,
     post_new_log,
     post_pipeline_run,
+    post_plan_timeline,
 )
-from tests.conftest import _make_mock_response
+from tests.conftest import _make_mock_response, make_build_record_dict
 
 HUB_NAME = "Build"
 PLAN_ID = uuid4()
@@ -982,3 +990,101 @@ class TestListApprovals:
             result = list_approvals(api_call)
         assert result == []
         m.assert_called_once_with(api_call)
+
+
+class TestJobEventResult:
+    """Tests for the outcome values of a job completion event."""
+
+    @staticmethod
+    def test_skipped_is_a_value() -> None:
+        """ADO accepts ``skipped``; the enum can send it."""
+        assert JobEventResult("skipped") is JobEventResult.SKIPPED
+
+    @staticmethod
+    def test_skipped_is_serialised(api_call: ApiCall) -> None:
+        """A ``skipped`` payload reaches the events endpoint unchanged."""
+        payload = JobEventPayload(
+            name="TaskCompleted",
+            task_id=TASK_ID,
+            job_id=JOB_ID,
+            result=JobEventResult.SKIPPED,
+        )
+        with patch.object(
+            requests.Session, "request", return_value=_make_mock_response()
+        ) as mock_req:
+            post_job_event(get_plan_api_call(api_call, HUB_NAME, PLAN_ID), payload)
+        sent = mock_req.call_args.kwargs["json"]
+        assert sent["result"] == "skipped"
+        assert sent["name"] == "TaskCompleted"
+
+
+class TestPatchTimelineRecords:
+    """Tests for patch_timeline_records."""
+
+    @staticmethod
+    def _payload(**overrides: Any) -> TimelineRecordsUpdatePayload:
+        record = BuildRecordInfo.model_validate(make_build_record_dict(**overrides))
+        return TimelineRecordsUpdatePayload(count=1, value=[record])
+
+    def test_sends_the_records(self, api_call: ApiCall) -> None:
+        """A Task record is sent to the records endpoint."""
+        timeline_call = get_timeline_api_call(api_call, HUB_NAME, PLAN_ID, TIMELINE_ID)
+        with patch.object(
+            requests.Session, "request", return_value=_make_mock_response()
+        ) as mock_req:
+            patch_timeline_records(timeline_call, self._payload(type="Task"))
+        assert mock_req.call_args.args[0] == "PATCH"
+
+    def test_does_not_guard_against_stage_records(self, api_call: ApiCall) -> None:
+        """The raw layer is a thin transport; the oop layer refuses Stage records."""
+        timeline_call = get_timeline_api_call(api_call, HUB_NAME, PLAN_ID, TIMELINE_ID)
+        with patch.object(requests.Session, "request") as mock_req:
+            patch_timeline_records(timeline_call, self._payload(type="Stage"))
+        assert mock_req.call_args.args[0] == "PATCH"
+
+    def test_unknown_record_type_is_read_as_other(self) -> None:
+        """A foreign record type does not make a read fail."""
+        record = BuildRecordInfo.model_validate(
+            make_build_record_dict(type="NotARecordType")
+        )
+        assert record.type_name is BuildRecordType.OTHER
+
+
+class TestPlanTimelines:
+    """Tests for the plan timeline functions."""
+
+    @staticmethod
+    def test_timelines_are_listed(api_call: ApiCall) -> None:
+        """The root and an extra timeline come back."""
+        plan_call = get_plan_api_call(api_call, HUB_NAME, PLAN_ID)
+        other = uuid4()
+        response = _make_mock_response(
+            {
+                "value": [
+                    {"id": str(PLAN_ID), "changeId": 59, "location": "https://x"},
+                    {"id": str(other)},
+                ]
+            }
+        )
+        with patch.object(
+            requests.Session, "request", return_value=response
+        ) as mock_req:
+            items = list(iter_plan_timelines(plan_call))
+        assert mock_req.call_args.kwargs["url"].endswith(f"/plans/{PLAN_ID}/timelines")
+        assert items[0].id == PLAN_ID
+        assert items[0].change_id == 59
+        assert items[1].id == other
+        assert items[1].change_id is None
+
+    @staticmethod
+    def test_a_timeline_is_created(api_call: ApiCall) -> None:
+        """POST with the id and a zero change id."""
+        plan_call = get_plan_api_call(api_call, HUB_NAME, PLAN_ID)
+        new_id = uuid4()
+        with patch.object(
+            requests.Session, "request", return_value=_make_mock_response()
+        ) as mock_req:
+            post_plan_timeline(plan_call, new_id)
+        call = mock_req.call_args
+        assert call.args[0] == "POST"
+        assert call.kwargs["json"] == {"id": str(new_id), "changeId": 0}

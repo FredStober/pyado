@@ -322,7 +322,6 @@ pyado.RenameFile(old_path, new_path)  # rename without changing content
 .remove_tag(tag)   -> list[str]
 
 .iter_timeline_records()  -> Iterator[BuildRecordInfo]
-.iter_stages()            -> Iterator[BuildStage]
 .get_log_text(log_id)     -> str
 .iter_logs()              -> Iterator[BuildLogInfo]
 .get_all_log_text(*, separator?) -> str
@@ -398,14 +397,31 @@ What the session decides for you (each measured, see quirks 17-27):
   same record.  Creating an existing id overwrites it; a rerun of a record that
   already completed needs a new `attempt`, because `result` cannot be cleared.
   An id that belongs to a native record is refused (it would rename it).
+  The id comes from the key only: `create_job` / `create_task` default the key
+  to the parent id plus the name, but an **explicit key is the whole identity**,
+  so the same key under two parents is one record (ADO keeps the first parent
+  and nothing appears under the second).
 * **Retries:** after a stage retry the old job id is gone, so ids are always
   read from the current timeline and never cached; `resolve_task` and `find`
-  re-read it on every call.
+  re-read it on every call.  Records written under the old attempt move into
+  that attempt's sub-timeline (readable with
+  `raw.iter_timeline_records(call, timeline_id)`) and are **not drawn**.  A key
+  that does not change still names the old record.  You
+  normally do **not** have to care: without `key=` the default key holds the parent
+  id, which changes with the retried job.  Only an explicit `key=` (or a rerun of a
+  completed record) needs the attempt.  Then use
+  `session.for_current_attempt(step)` (reads the attempt of the native job) or, in
+  a running job, `session.for_attempt(int(os.environ["SYSTEM_JOBATTEMPT"]))`.  Both
+  mix the attempt into every id; attempt 1 derives the same ids as a plain session.
 * **Credentials:** the admin token does everything except `complete`, which
   only works with the System token (a PAT gets HTTP 500).  The System token
-  stops working at issue time + the job's `timeoutInMinutes` + 15 minutes, so
-  `complete` refuses a token with less than 30 seconds left.  Raise the
-  agentless job's `timeoutInMinutes` to cover the longest workflow.
+  stops working at issue time + the `timeoutInMinutes` of the job it was issued
+  to + 15 minutes (measured on agent jobs, whose script prints the token), so
+  `complete` refuses a token with less than 30 seconds left.  Make sure that
+  job outlives the workflow; whether the agentless job's own timeout governs a
+  token used against it was not measured.  The same job-level timeout is what
+  ends an agentless task that is never completed (task `canceled`, job
+  `failed`); a *task*-level timeout gives a `failed` task.
 * **Logs:** a native task's log may take a few seconds to appear, so
   `append_log` waits; a record you created has none, so pass `create=True`.
 * **Issues vs console lines:** `##[error]` lines colour a line and create no
@@ -737,7 +753,7 @@ resource. Construct them once and reuse.
 | `iter_work_items_between_builds` | `(project_api, from_build_id: int, to_build_id: int, *, top: int \| None = None)` | `Iterator[WorkItemRef]` |
 | `iter_build_artifacts` | `(build_api)` | `Iterator[BuildArtifact]` |
 | `iter_build_tags` | `(build_api)` | `Iterator[str]` |
-| `post_build_tag` | `(build_api, tag: str)` | `list[str]` |
+| `put_build_tag` | `(build_api, tag: str)` | `list[str]` |
 | `delete_build_tag` | `(build_api, tag: str)` | `list[str]` |
 | `iter_pipeline_definitions` | `(project_api, *, name_filter: str \| None = None)` | `Iterator[PipelineDefinitionInfo]` |
 
@@ -1359,11 +1375,14 @@ Pydantic validation errors (`ValidationError`) are raised on construction of
 
 16. **Completing the step does not finish child records.**  `TaskCompleted`
     only unblocks the pipeline.  Records you created and left `inProgress` end
-    as the job's result when the build ends (`succeeded` for a succeeded job),
-    so call `TimelineSession.finish` on each child first.
+    with the **build's** result when the build ends (`completed`, `failed` in a
+    failed build even under a job that succeeded; `pending` ones become
+    `abandoned`), so a crashed writer looks successful in a successful build.
+    Call `TimelineSession.finish` on each child first.
 
-17. **The `System.AccessToken` expires at issue time + the job's
-    `timeoutInMinutes` + 15 minutes**, not after a fixed ~20 minutes.  The
+17. **The `System.AccessToken` expires at issue time + the issuing job's
+    `timeoutInMinutes` + 15 minutes** (measured on agent jobs), not after a
+    fixed ~20 minutes.  The
     token is a JWT with two expiries: the top-level `exp` (about 24 h 5 min)
     and a nested `xms_attr.<id>.ado_exp`; the nested one governs.  Measured
     for timeouts of 1/2/5/10/20/40/60 minutes: 16/17/20/25/35/55/75 minutes.
@@ -1415,8 +1434,12 @@ Pydantic validation errors (`ValidationError`) are raised on construction of
     under a *native Phase* is shown with its tasks (parallel jobs work); a Job
     under a Stage or under another Job gets no row and its tasks appear one
     level up; a Phase, a Task under a Phase or Stage, and Job > Job > Job > Job
-    are not drawn.  A dynamic Stage record is stored and invisible.  Status
-    changes repaint within ~0.5 s with no reload, in any direction.
+    are not drawn.  **A dynamic Stage record is stored, has no row and makes
+    the build's results page show "Build not found"** (no summary, tabs or
+    Errors/Warnings), also after the build ends; never write one.  A Job under
+    a native Phase is also listed on the stage card and in the Jobs tab.  Task
+    nesting is drawn two levels deep.  Status changes repaint within ~0.5 s with
+    no reload, in any direction.
 
 
 25. **Records are addressed by id and creating an existing id overwrites it.**
@@ -1426,8 +1449,8 @@ Pydantic validation errors (`ValidationError`) are raised on construction of
     an id that does not exist returns HTTP 400, so a new record needs a full
     body (`name`, `type`, `parent_id`, `state`).  A re-created record keeps its
     old `result` (`null` does not clear it), so give a rerun a new id.  A
-    native record's id is not protected: writing it renames the native
-    record.
+    native record's id is not protected **by ADO**: writing it renames the
+    native record (`TimelineSession` refuses such an id).
 
 26. **Console lines are formatting only.**  `##[error]` / `##[warning]` colour a
     line (red / orange; `##[debug]` purple, `##[info]` grey), `##[group]` folds

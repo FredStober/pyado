@@ -74,7 +74,7 @@ __all__ = [
     "list_work_items_between_builds",
     "patch_build",
     "post_build",
-    "post_build_tag",
+    "put_build_tag",
 ]
 
 BuildId: TypeAlias = int
@@ -123,7 +123,21 @@ class BuildResult(StrEnum):
 
 
 class BuildRecordType(StrEnum):
-    """Timeline record types present in a build's timeline."""
+    """Timeline record types present in a build's timeline.
+
+    Azure DevOps does not validate the ``type`` of a record that a caller
+    writes: ``PATCH .../records`` stores any string.  Any value that is not
+    listed here is read back as :attr:`OTHER`, so one foreign record cannot make
+    :func:`list_timeline_records` fail for the whole build.  The original string
+    is not kept.
+
+    Warning:
+        Do not write ``STAGE`` records.  A dynamic ``Stage`` record (in any
+        state) makes the portal's results page for the build show "Build not
+        found" and hides the summary, the Errors/Warnings tabs and the stage
+        list; the page stays broken after the build ends.  Records of the other
+        types never do that.
+    """
 
     CHECKPOINT = "Checkpoint"
     CHECKPOINT_APPROVAL = "Checkpoint.Approval"
@@ -134,6 +148,18 @@ class BuildRecordType(StrEnum):
     STAGE = "Stage"
     JOB = "Job"
     TASK = "Task"
+    OTHER = "Other"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "BuildRecordType":  # ruff: ignore[unused-class-method-argument]
+        """Map any unknown record type to :attr:`OTHER`.
+
+        The parameter name must stay ``value`` to match ``Enum._missing_``.
+
+        Returns:
+            :attr:`OTHER`, whatever *value* is.
+        """
+        return cls.OTHER
 
 
 class BuildLogType(StrEnum):
@@ -252,7 +278,7 @@ class _BuildTagResults(AdoBaseModel):
     value: list[str] = Field(default_factory=list)
 
 
-class BuildLogInfo(AdoBaseModel, extra="forbid"):
+class BuildLogInfo(AdoBaseModel, extra="ignore"):
     """Type to store build log details."""
 
     id: BuildLogId
@@ -263,7 +289,7 @@ class BuildLogInfo(AdoBaseModel, extra="forbid"):
     last_changed_on: datetime | None = None
 
 
-class BuildRecordTypeInfo(AdoBaseModel, extra="forbid"):
+class BuildRecordTypeInfo(AdoBaseModel, extra="ignore"):
     """Type to store build task type details."""
 
     id: TaskId
@@ -271,7 +297,7 @@ class BuildRecordTypeInfo(AdoBaseModel, extra="forbid"):
     version: str
 
 
-class BuildAttemptInfo(AdoBaseModel, extra="forbid"):
+class BuildAttemptInfo(AdoBaseModel, extra="ignore"):
     """Type to store build attempt details."""
 
     attempt: int
@@ -288,7 +314,7 @@ class BuildIssue(AdoBaseModel, extra="forbid"):
     type: BuildIssueType
 
 
-class TimelineReference(AdoBaseModel, extra="forbid"):
+class TimelineReference(AdoBaseModel, extra="ignore"):
     """A reference to a sub-timeline within a build timeline record."""
 
     change_id: int
@@ -607,8 +633,12 @@ def iter_build_tags(build_api_call: ApiCall) -> Iterator[str]:
     yield from _BuildTagResults.model_validate(response).value
 
 
-def post_build_tag(build_api_call: ApiCall, tag: str) -> list[str]:
+def put_build_tag(build_api_call: ApiCall, tag: str) -> list[str]:
     """Add a tag to a build.
+
+    Sends ``PUT build/builds/{id}/tags/{tag}``.  It was called ``post_build_tag``
+    before 2026-11; the name now matches the HTTP verb like every other raw
+    function.
 
     Args:
         build_api_call: Build-level ADO API call (from get_build_api_call).
@@ -640,7 +670,9 @@ def delete_build_tag(build_api_call: ApiCall, tag: str) -> list[str]:
     return _BuildTagResults.model_validate(response).value
 
 
-def iter_timeline_records(build_api_call: ApiCall) -> Iterator[BuildRecordInfo]:
+def iter_timeline_records(
+    build_api_call: ApiCall, timeline_id: TimelineId | None = None
+) -> Iterator[BuildRecordInfo]:
     """Iterate over task records in the build timeline.
 
     Note:
@@ -648,19 +680,32 @@ def iter_timeline_records(build_api_call: ApiCall) -> Iterator[BuildRecordInfo]:
         single ``Timeline`` object containing all records at once and does not
         support pagination parameters.
 
+    Note:
+        After a stage or job retry the records of the earlier attempt are **not**
+        in the root timeline any more: each record of the retried stage and jobs
+        lists the earlier attempt in ``previous_attempts`` (``attempt``,
+        ``timeline_id``, ``record_id``), and the records themselves are only
+        reachable in that sub-timeline.  Pass its id as *timeline_id* to read
+        it.  Dynamic records that an external writer attached to the earlier
+        attempt (including ones left ``inProgress``) are in the sub-timeline
+        too.  Writing into a sub-timeline is accepted but the portal does not
+        draw those records.
+
     Reference: https://github.com/MicrosoftDocs/vsts-rest-api-specs/blob/master
     /specification/build/7.1/build.json#L2478
 
     Args:
         build_api_call: Build-level ADO API call (from get_build_api_call).
+        timeline_id: A sub-timeline id taken from ``previous_attempts``, or
+            ``None`` for the build's root timeline.
 
     Yields:
         BuildRecordInfo objects for each record in the timeline.
     """
-    response = build_api_call.get(
-        "timeline",
-        version="7.1",
+    parts: tuple[str, ...] = (
+        ("timeline",) if timeline_id is None else ("timeline", str(timeline_id))
     )
+    response = build_api_call.get(*parts, version="7.1")
     results = _BuildRecordInfoResults.model_validate(response)
     yield from results.records
 
@@ -879,9 +924,14 @@ def list_build_tags(build_api_call: ApiCall) -> list[str]:
     return list(iter_build_tags(build_api_call))
 
 
-def list_timeline_records(build_api_call: ApiCall) -> list[BuildRecordInfo]:
-    """Return all timeline records for a build as a list."""
-    return list(iter_timeline_records(build_api_call))
+def list_timeline_records(
+    build_api_call: ApiCall, timeline_id: TimelineId | None = None
+) -> list[BuildRecordInfo]:
+    """Return all timeline records for a build as a list.
+
+    See :func:`iter_timeline_records` for *timeline_id* (earlier attempts).
+    """
+    return list(iter_timeline_records(build_api_call, timeline_id))
 
 
 def list_build_logs(build_api_call: ApiCall) -> list[BuildLogInfo]:

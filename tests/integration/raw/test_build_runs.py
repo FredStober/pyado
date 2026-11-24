@@ -13,5 +13,5 @@ def test_build_runs(
     The builds_read session fixture calls _test_builds_read which covers:
     list_builds with multiple criteria, get_build_details, list_timeline_records,
     list_build_work_item_ids, list_build_artifacts, get_build_artifact_bytes,
-    list_build_tags, post_build_tag, delete_build_tag, list_work_items_between_builds.
+    list_build_tags, put_build_tag, delete_build_tag, list_work_items_between_builds.
     """

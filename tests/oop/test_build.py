@@ -349,7 +349,7 @@ class TestBuild:
         mock_iter.assert_called_once()
 
     def test_add_tag_delegates(self) -> None:
-        with patch("pyado.oop.pipelines.build.raw.post_build_tag") as mock_tag:
+        with patch("pyado.oop.pipelines.build.raw.put_build_tag") as mock_tag:
             _make_build().add_tag("tag-a")
         mock_tag.assert_called_once()
 

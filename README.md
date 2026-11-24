@@ -124,11 +124,9 @@ pipeline = proj.pipelines.get_pipeline("deploy-prod")
 build = proj.pipelines.start_build(pipeline, source_branch="refs/heads/main")
 print(build.id, build.number, build.status)
 
-# Inspect stages, jobs, and tasks
-for stage in build.iter_stages():
-    for job in stage.iter_jobs():
-        for task in job.iter_tasks():
-            print(f"  {task.name}: {task.result}")
+# Inspect the timeline records (stages, phases, jobs, tasks; flat, linked by parent_id)
+for record in build.iter_timeline_records():
+    print(f"  {record.type_name}: {record.name}: {record.result}")
 
 # Trigger a YAML pipeline run with template parameters
 run = pipeline.start_run(template_parameters={"env": "staging"})

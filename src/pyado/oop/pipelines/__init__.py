@@ -16,7 +16,12 @@ from pyado.oop.pipelines.pipeline_library import PipelineLibrary
 from pyado.oop.pipelines.project_pipelines import ProjectPipelines
 from pyado.oop.pipelines.secure_file import SecureFile
 from pyado.oop.pipelines.task_group import TaskGroup
-from pyado.oop.pipelines.timeline_session import TimelineSession, TimelineTarget
+from pyado.oop.pipelines.timeline_session import (
+    RecordOrder,
+    StatusIcon,
+    TimelineSession,
+    TimelineTarget,
+)
 from pyado.oop.pipelines.variable_group import VariableGroup
 from pyado.oop.settings.service_endpoint import ServiceEndpoint
 
@@ -31,8 +36,10 @@ __all__ = [
     "PipelineLibrary",
     "PipelineRun",
     "ProjectPipelines",
+    "RecordOrder",
     "SecureFile",
     "ServiceEndpoint",
+    "StatusIcon",
     "TaskGroup",
     "TimelineSession",
     "TimelineTarget",

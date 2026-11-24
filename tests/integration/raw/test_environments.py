@@ -21,3 +21,9 @@ def test_environments_read(project_api_call: raw.ApiCall) -> None:
         if env_api_call:
             deployments = list(raw.iter_environment_deployments(env_api_call))
             assert deployments == raw.list_environment_deployments(env_api_call)
+            for record in deployments[:5]:
+                # measured: the nested definition fills the name; the build is the owner
+                assert record.definition_name
+                assert record.build_id is not None
+                assert record.stage_name
+                assert record.job_name

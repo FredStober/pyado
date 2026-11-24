@@ -4,11 +4,13 @@
 
 from collections.abc import Iterator
 
+from pyado.exceptions import AzureDevOpsSessionError
 from pyado.raw import (
     ApiCall,
     BuildDetails,
     BuildQueueRequest,
     BuildRecordInfo,
+    BuildRecordType,
     BuildStatus,
     JobEventName,
     JobEventPayload,
@@ -180,7 +182,24 @@ def update_timeline_records(
     Args:
         timeline_api_call: Timeline-level ADO API call.
         records: List of build record updates to apply.
+
+    Raises:
+        AzureDevOpsSessionError: If a record of type ``Stage`` is included.
+            Azure DevOps accepts it, but the build's results page then shows
+            "Build not found" (no summary, tabs or stage list), also after the
+            build ends; no way to undo this is known.  Use a Job under a native
+            Phase instead.
     """
+    stages = [r.name for r in records if r.type_name == BuildRecordType.STAGE]
+    if stages:
+        msg = (
+            f"Refusing to write Stage record(s) {stages}.  Azure DevOps accepts "
+            "them, but the build's results page then shows 'Build not found' "
+            "(no summary, tabs or stage list), also after the build ends; no "
+            "way to undo this is known.  Write a Job under a native Phase "
+            "instead."
+        )
+        raise AzureDevOpsSessionError(msg)
     patch_timeline_records(
         timeline_api_call,
         TimelineRecordsUpdatePayload(value=records, count=len(records)),

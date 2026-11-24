@@ -99,9 +99,9 @@ def _exercise_build_tags(build_api_call: raw.ApiCall, rng: random.Random) -> Non
     smoke_tag_b = f"pyado-smoke-b-{rng.randint(10000, 99999)}"
     smoke_tag_c = f"pyado-smoke-c-{rng.randint(10000, 99999)}"
     console.print(f"  tags: {smoke_tag_a!r}  {smoke_tag_b!r}  {smoke_tag_c!r}")
-    raw.post_build_tag(build_api_call, smoke_tag_a)
-    raw.post_build_tag(build_api_call, smoke_tag_b)
-    raw.post_build_tag(build_api_call, smoke_tag_c)
+    raw.put_build_tag(build_api_call, smoke_tag_a)
+    raw.put_build_tag(build_api_call, smoke_tag_b)
+    raw.put_build_tag(build_api_call, smoke_tag_c)
     list(raw.iter_build_tags(build_api_call))
     raw.delete_build_tag(build_api_call, smoke_tag_a)
     raw.delete_build_tag(build_api_call, smoke_tag_b)

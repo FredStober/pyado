@@ -362,7 +362,7 @@ class Build:
         Args:
             tag: Tag name to add.
         """
-        raw.post_build_tag(self._api_call, tag)
+        raw.put_build_tag(self._api_call, tag)
 
     def remove_tag(self, tag: str) -> None:
         """Remove a tag from the build.
@@ -416,8 +416,8 @@ class Build:
 
         Args:
             log_id: Numeric log ID from a :class:`~pyado.raw.BuildLogInfo`
-                record.  Obtain it via :attr:`BuildTask.log`,
-                :attr:`BuildJob.log`, or :attr:`BuildStage.log`.
+                record.  Obtain it from the ``log`` field of a record returned
+                by :meth:`iter_timeline_records`.
 
         Returns:
             Log content as a decoded UTF-8 string.

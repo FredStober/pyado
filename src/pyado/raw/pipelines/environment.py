@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from datetime import datetime
 from typing import TypeAlias
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from pyado.raw._core import AdoBaseModel, ApiCall
 
@@ -66,21 +66,65 @@ class EnvironmentInfo(AdoBaseModel):
     project: _EnvironmentProjectRef | None = None
 
 
-class _DeploymentRecordOwner(AdoBaseModel):
+class _DeploymentRecordOwner(AdoBaseModel, extra="ignore"):
     """Build/run reference embedded in an environment deployment record."""
 
+    id: int | None = None
     name: str = ""
 
 
-class EnvironmentDeploymentRecord(AdoBaseModel):
-    """A single deployment record for a pipeline environment."""
+class _DeploymentRecordDefinition(AdoBaseModel, extra="ignore"):
+    """Pipeline definition reference embedded in a deployment record."""
+
+    id: int | None = None
+    name: str = ""
+
+
+class EnvironmentDeploymentRecord(AdoBaseModel, extra="ignore"):
+    """A single deployment record for a pipeline environment.
+
+    The server writes these records itself when a **deployment job that targets
+    the environment** runs; there is no write route (POST, PUT, PATCH and DELETE
+    all answer 405).  A build that never reached such a job leaves no record.
+    The environment's *Deployments* tab lists exactly these records.
+    """
 
     id: DeploymentRecordId
     definition_name: str = ""
+    definition: _DeploymentRecordDefinition | None = None
+    plan_id: str | None = None
+    stage_name: str | None = None
+    job_name: str | None = None
+    stage_attempt: int | None = None
+    job_attempt: int | None = None
+    queue_time: datetime | None = None
     start_time: datetime | None = None
     finish_time: datetime | None = None
     result: str | None = None
     owner: _DeploymentRecordOwner | None = None
+
+    @model_validator(mode="after")
+    def _fill_definition_name(self) -> "EnvironmentDeploymentRecord":
+        """Take ``definition_name`` from the nested ``definition`` object.
+
+        The API sends the name as ``definition.name``; the flat field was
+        always empty.
+
+        Returns:
+            This record.
+        """
+        if not self.definition_name and self.definition is not None:
+            self.definition_name = self.definition.name
+        return self
+
+    @property
+    def build_id(self) -> int | None:
+        """The id of the build that ran the deployment job.
+
+        Returns:
+            The owner's id, or ``None`` if the record has no owner.
+        """
+        return self.owner.id if self.owner is not None else None
 
 
 def get_environment_api_call(

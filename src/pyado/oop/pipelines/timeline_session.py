@@ -11,8 +11,11 @@ shaped the design are:
 
 * Record writes, feed and log appends work with a PAT or any bearer token.
   ``TaskCompleted`` only works with the build's ``System.AccessToken``.
-* The System token expires at issue time + the printing job's
-  ``timeoutInMinutes`` + 15 minutes; afterwards every call returns HTTP 401.
+* The System token expires at issue time + the ``timeoutInMinutes`` of the job
+  it was issued to + 15 minutes; afterwards every call returns HTTP 401.  This
+  was measured on *agent* jobs (the token is printed by a script); an agentless
+  job runs no script, so the lifetime of its own token, and whether its timeout
+  governs a token used against it, was not measured.
 * Feed lines go to the **job** record, are shown live and are never stored.
 * A record id that already exists is overwritten (upsert); ``type`` and
   ``parent_id`` stay as first created; a partial update of an unknown id is
@@ -20,6 +23,13 @@ shaped the design are:
 * The portal draws Stage -> Job -> Task only; a dynamic Job is drawn only under
   a native Phase.
 * After a stage retry the old job id is gone from the timeline; never cache it.
+  Records written under the old attempt move into that attempt's sub-timeline
+  and are not drawn.
+* Records you leave ``inProgress`` take the **build's** result when the build
+  ends (``pending`` ones become ``abandoned``): finish what you start.
+* ``TaskCompleted`` completes the task only, and a PAT cannot send it.
+* Never create a ``Stage`` record: the portal's results page for the build then
+  shows "Build not found" (this class cannot create one).
 """
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
@@ -27,13 +37,15 @@ shaped the design are:
 import base64
 import json
 import time
-from collections.abc import Callable, Iterator
+import warnings
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from enum import IntEnum, StrEnum
 from typing import Any, Final
 from uuid import UUID, uuid5
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from pyado import raw
 from pyado.exceptions import AzureDevOpsSessionError
@@ -49,6 +61,8 @@ from pyado.raw import (
 from pyado.raw._core import AdoBaseModel
 
 __all__ = [
+    "RecordOrder",
+    "StatusIcon",
     "TimelineSession",
     "TimelineTarget",
     "decode_token_expiry",
@@ -63,6 +77,47 @@ _EPOCH_MIN: Final = 1.0e9
 _EPOCH_MAX: Final = 4.0e9
 _JWT_PARTS: Final = 3
 _ID_NAMESPACE: Final = UUID("9d6e1a3c-6c0e-4d77-9a5e-5f3a1e7d2b10")
+_DRAWN_TASK_DEPTH: Final = 2
+
+
+class StatusIcon(StrEnum):
+    """The colour of a virtual record's status icon in the portal.
+
+    The portal draws the icon from the record's ``refName``: a name that is
+    missing or starts with the exact-case text ``JobExtension`` gives the grey
+    ``system-task`` icon, any other name the green ``success`` icon.  The test
+    is case-sensitive (``jobextension_init`` is green).  The members hold the
+    ``refName`` that this class sends.
+
+    The colour is a **creation-time choice**.  Measured against a live
+    organisation: a ``refName`` can be set once, from nothing; a later write of a
+    different value is answered 200 and ignored (eight start/target
+    combinations, read back from the timeline).  Create the record with the colour
+    it should keep.
+
+    Warning:
+        Measured on Tasks.  For a *running* Job in the logs tree only a missing
+        ``refName`` made the icon grey; a ``JobExtension...`` name did not.  On
+        the **stage card** of the Summary page a dynamic Job is coloured by its
+        state and result only (running blue, succeeded green, failed red),
+        whatever its ``refName``, so ``icon=`` does not change that view.
+    """
+
+    COLOURED = "CmdLine1"
+    GREY = "JobExtension"
+
+
+class RecordOrder(IntEnum):
+    """Sort positions among sibling records, as measured.
+
+    Native tasks of an agent job are numbered ``1..N`` without gaps
+    (``Initialize job`` is 1), so no integer lies between the last step you wrote
+    and ``Post-job``.  ``null`` is not "last": the portal puts such records
+    between ``1`` and ``2``.
+    """
+
+    FIRST = 0
+    LAST = 2_147_483_646
 
 
 class TimelineTarget(AdoBaseModel):
@@ -106,6 +161,26 @@ class _RecordWrite(AdoBaseModel):
     log: dict[str, Any] | None = None
     last_modified: str | None = None
     previous_attempts: list[Any] | None = None
+
+    @model_validator(mode="after")
+    def _no_stage(self) -> "_RecordWrite":
+        """Refuse a ``Stage`` record: it breaks the build's results page.
+
+        Returns:
+            The validated write.
+
+        Raises:
+            AzureDevOpsSessionError: If the record type is ``Stage``.
+        """
+        if self.type_name == BuildRecordType.STAGE:
+            msg = (
+                "Refusing to write a Stage record.  Azure DevOps accepts it, but "
+                "the build's results page then shows 'Build not found' (no "
+                "summary, tabs or stage list), also after the build ends; no way "
+                "to undo this is known.  Write a Job under a native Phase instead"
+            )
+            raise AzureDevOpsSessionError(msg)
+        return self
 
 
 def decode_token_expiry(token: str) -> float | None:
@@ -167,6 +242,25 @@ class TimelineSession:
     record, feed and log write.  The System token is only needed for
     :meth:`complete`, so it may be omitted until then.
 
+    Pitfalls (each measured against a live organisation):
+
+    * **Ids**: the id of a virtual record comes from a key, not from the parent
+      or the job attempt (see :meth:`record_id`).  After a stage retry, records
+      of the earlier attempt move into its sub-timeline and are not drawn.
+    * **Closing**: a record left ``inProgress`` takes the **build's** result when
+      the build ends, so a crashed writer looks successful in a successful
+      build; ``pending`` ones become ``abandoned``.  :meth:`complete` finishes
+      the task only, never your records.
+    * **What is drawn**: Stage -> Job -> Task; a Job only under a native Phase,
+      Task nesting two levels deep.  A *Stage* record would make the build's
+      results page show "Build not found"; this class never creates one.
+    * **Credentials**: a PAT writes records, feed and logs but cannot complete
+      the task (HTTP 500).  Both the PAT and the System token can still write
+      into a finished build, and the records are drawn.
+    * **Native records**: their ``refName`` cannot be changed, a non-empty
+      ``issues`` list replaces and ``[]`` is ignored, and they cannot be
+      cleared of issues.
+
     Example:
         >>> session = TimelineSession.from_tokens(  # doctest: +SKIP
         ...     org_name="myorg", project_id=project_uuid, build_id=123,
@@ -185,6 +279,7 @@ class TimelineSession:
         build_id: int,
         system_token_expiry: float | None = None,
         clock: Callable[[], float] = time.time,
+        attempt: int = 1,
     ) -> None:
         """Construct the session from ready ``ApiCall`` objects.
 
@@ -199,7 +294,10 @@ class TimelineSession:
             system_token_expiry: Epoch at which the System token stops
                 working, if known.
             clock: Source of the current time, replaceable in tests.
+            attempt: Default attempt mixed into every derived record id (see
+                :meth:`for_attempt`).
         """
+        self._attempt = attempt
         self._admin = admin_call
         self._system = system_call
         self._build_id = build_id
@@ -207,6 +305,8 @@ class TimelineSession:
         self._clock = clock
         self._plan_id: UUID | None = None
         self._batch: list[_RecordWrite] | None = None
+        self._native_ids: set[UUID] | None = None
+        self._log_ids: dict[UUID, BuildLogId] = {}
 
     @classmethod
     def from_tokens(
@@ -361,7 +461,85 @@ class TimelineSession:
 
     # -- ids -------------------------------------------------------------------
 
-    def record_id(self, key: str, *, attempt: int = 1) -> UUID:
+    @property
+    def attempt(self) -> int:
+        """The default attempt that this session mixes into record ids.
+
+        Returns:
+            ``1`` unless the session came from :meth:`for_attempt`.
+        """
+        return self._attempt
+
+    def for_attempt(self, attempt: int) -> "TimelineSession":
+        """Return a session whose record ids carry a job attempt.
+
+        After a stage or job retry the job gets a new id, but a key that does not
+        change still names the record written under the *old* job (it moved to
+        the earlier attempt's sub-timeline and is not drawn).  A session from
+        this method mixes *attempt* into every id it derives, so a retried job
+        writes new records even with explicit keys.  Pass the job attempt
+        (``SYSTEM_JOBATTEMPT``).
+
+        Attempt ``1`` derives the same ids as a plain session, so adding
+        ``for_attempt(1)`` changes nothing for a writer that exists already.  A
+        ``attempt=`` argument of :meth:`record_id`, :meth:`create_job` or
+        :meth:`create_task` still wins over the session's attempt.
+
+        The record's own ``attempt`` field stays ``1``: ADO owns it.
+
+        Args:
+            attempt: The job attempt, at least 1.
+
+        Returns:
+            A new session over the same calls and clock.  Its caches start
+            empty, because a retry changes the timeline.
+
+        Raises:
+            ValueError: If *attempt* is below 1.
+        """
+        if attempt < 1:
+            msg = f"attempt must be at least 1, got {attempt}"
+            raise ValueError(msg)
+        return TimelineSession(
+            admin_call=self._admin,
+            system_call=self._system,
+            build_id=self._build_id,
+            system_token_expiry=self._expiry,
+            clock=self._clock,
+            attempt=attempt,
+        )
+
+    def for_current_attempt(self, step: TimelineTarget) -> "TimelineSession":
+        """Return a session bound to the attempt of a native record's job.
+
+        Reads the ``attempt`` of the native Job that owns *step* (a Task, or the
+        Job itself) from the timeline, so a writer outside the agent does not
+        have to know the number.  A job that was never retried reports 1, which
+        derives the same ids as a plain session; after a retry the new job
+        reports 2 and every id this session derives is a new record.
+
+        Inside a running job you can also pass ``SYSTEM_JOBATTEMPT`` to
+        :meth:`for_attempt`.
+
+        Args:
+            step: A native Task or Job (for example from :meth:`resolve_task`).
+
+        Returns:
+            A session from :meth:`for_attempt`.
+
+        Raises:
+            AzureDevOpsSessionError: If no job can be found for *step*.
+        """
+        job_id = (
+            step.record_id if step.type_name == BuildRecordType.JOB else step.parent_id
+        )
+        for record in self._records():
+            if record.id == job_id and record.type_name == BuildRecordType.JOB:
+                return self.for_attempt(max(record.attempt, 1))
+        msg = f"{step.name!r} has no job in the timeline to read an attempt from"
+        raise AzureDevOpsSessionError(msg)
+
+    def record_id(self, key: str, *, attempt: int | None = None) -> UUID:
         """Derive a stable record id from a key.
 
         The same key (and attempt) always gives the same id, so a stateless
@@ -370,15 +548,37 @@ class TimelineSession:
         already completed needs a new *attempt*, because the record keeps its
         old ``result``.
 
+        Warning:
+            The id does **not** depend on the parent.  Two ``create_*`` calls
+            with the same key under *different* parents are the same record:
+            ADO upserts it, keeps the **first** parent (the parent of an
+            existing record cannot change) and overwrites name and state, so
+            nothing appears under the second parent.  :meth:`create_job` and
+            :meth:`create_task` therefore default the key to the parent id plus
+            the name; build a key that is unique per parent yourself when you
+            pass one.
+
+        Warning:
+            The id does not depend on the job attempt either.  After a stage or
+            job retry the job gets a new id; a key that stays the same still
+            names the record that was written under the *old* job (it now lives
+            in the earlier attempt's sub-timeline and is not drawn).  Put the
+            attempt (``SYSTEM_JOBATTEMPT``) or the current job id into the key,
+            or use :meth:`for_current_attempt` / :meth:`for_attempt`, which do it
+            for every id.  With the default key (no ``key=``) you need nothing: the
+            parent id is in the key and changes with the retried job.
+
         Args:
             key: Any stable string, for example an execution arn and a state
                 name.
-            attempt: Increase for a rerun of a completed record.
+            attempt: Increase for a rerun of a completed record.  ``None`` takes
+                the session's attempt (see :meth:`for_attempt`).
 
         Returns:
             A UUID.
         """
-        return uuid5(_ID_NAMESPACE, f"{self._build_id}/{key}#{attempt}")
+        used = self._attempt if attempt is None else attempt
+        return uuid5(_ID_NAMESPACE, f"{self._build_id}/{key}#{used}")
 
     # -- writing ---------------------------------------------------------------
 
@@ -437,9 +637,32 @@ class TimelineSession:
             pending, self._batch = self._batch, None
         self._patch(pending)
 
-    @staticmethod
-    def _check_new_id(record_id: UUID, native_ids: set[UUID]) -> None:
-        if record_id in native_ids:
+    def _native(self) -> set[UUID]:
+        """Return the ids of the records ADO created, read once per session.
+
+        A record counts as native when it has a task definition, an
+        ``identifier`` or a ``worker_name``, none of which this class ever
+        sets.  Records created after the first read are not in the set.
+
+        Returns:
+            The native record ids.
+        """
+        if self._native_ids is None:
+            self._native_ids = {
+                r.id
+                for r in self._records()
+                if r.task is not None or r.identifier or r.worker_name
+            }
+        return self._native_ids
+
+    def _check_new_id(self, record_id: UUID) -> None:
+        """Refuse an id that belongs to a native record.
+
+        Raises:
+            AzureDevOpsSessionError: If writing the id would rename a native
+                record.
+        """
+        if record_id in self._native():
             msg = f"{record_id} belongs to a native record; writing it would rename it"
             raise AzureDevOpsSessionError(msg)
 
@@ -451,6 +674,8 @@ class TimelineSession:
         under: TimelineTarget,
         state: BuildRecordState,
         record_id: UUID,
+        ref_name: str | None,
+        order: int | None,
     ) -> TimelineTarget:
         """Create (or upsert) a record below *under*.
 
@@ -466,15 +691,12 @@ class TimelineSession:
             state=state,
             attempt=1,
             start_time=now if state != BuildRecordState.PENDING else None,
-            ref_name="CmdLine1",
+            ref_name=ref_name,
+            order=order,
             last_modified="0001-01-01T00:00:00",
             previous_attempts=[],
         )
-        if self._batch is None:
-            native = {
-                r.id for r in self._records() if r.task is not None or r.identifier
-            }
-            self._check_new_id(record_id, native)
+        self._check_new_id(record_id)
         self._send([write])
         return TimelineTarget(
             record_id=record_id,
@@ -483,26 +705,57 @@ class TimelineSession:
             name=name,
         )
 
+    @staticmethod
+    def _default_key(under: TimelineTarget, name: str) -> str:
+        """Return the key used when the caller gives none: parent id + name.
+
+        Returns:
+            A key that is unique per parent and name.
+        """
+        return f"{under.record_id}/{name}"
+
     def create_job(
         self,
         name: str,
         *,
         under: TimelineTarget,
         key: str | None = None,
-        attempt: int = 1,
+        attempt: int | None = None,
         state: BuildRecordState = BuildRecordState.IN_PROGRESS,
+        icon: StatusIcon | str = StatusIcon.COLOURED,
+        order: int | None = None,
     ) -> TimelineTarget:
         """Create a virtual job.
 
         The portal only draws a dynamic Job under a native Phase (see
-        :meth:`native_phase`); under a Stage or another Job it gets no row.
+        :meth:`native_phase`); under a Stage or another Job it gets no row.  A
+        Job under a native Phase is also listed on the stage card and in the
+        Jobs tab, whether it is running or completed.
+
+        Warning:
+            A job that you create already ``COMPLETED`` is drawn as a plain row
+            at the top level, not as an expandable job with children, and a
+            :class:`UserWarning` is issued.  Create it ``IN_PROGRESS`` and finish
+            it afterwards.
+
+        Warning:
+            While a Job is running the portal's icon followed only a missing
+            ``refName`` (grey); see :class:`StatusIcon`.
 
         Args:
             name: Display name.
             under: A native Phase.
-            key: Stable key for the id; defaults to *name*.
-            attempt: Attempt number for the id (see :meth:`record_id`).
+            key: Stable key for the id; defaults to the parent id and *name*.
+                See the warnings of :meth:`record_id`: the same key under two
+                parents is one record, and a key that does not change survives
+                a retry only as a record under the *old* job.
+            attempt: Attempt number for the id; ``None`` takes the session's
+                attempt (see :meth:`for_attempt` and :meth:`record_id`).
             state: Initial state.
+            icon: A :class:`StatusIcon`, or any ``refName`` string.  The icon is
+                chosen **here and cannot be changed later**: ADO stores a
+                ``refName`` only the first time it is set.
+            order: Sort position among the siblings (see :class:`RecordOrder`).
 
         Returns:
             The created record.
@@ -513,12 +766,24 @@ class TimelineSession:
         if under.type_name != BuildRecordType.PHASE:
             msg = f"A job is only drawn under a Phase, not under a {under.type_name}"
             raise AzureDevOpsSessionError(msg)
+        if state == BuildRecordState.COMPLETED:
+            warnings.warn(
+                "A Job created COMPLETED is drawn as a plain row without children; "
+                "create it IN_PROGRESS and finish it afterwards",
+                UserWarning,
+                stacklevel=2,
+            )
         return self._create(
             BuildRecordType.JOB,
             name,
             under=under,
             state=state,
-            record_id=self.record_id(key if key is not None else name, attempt=attempt),
+            record_id=self.record_id(
+                key if key is not None else self._default_key(under, name),
+                attempt=attempt,
+            ),
+            ref_name=str(icon),
+            order=order,
         )
 
     def create_task(
@@ -527,17 +792,31 @@ class TimelineSession:
         *,
         under: TimelineTarget,
         key: str | None = None,
-        attempt: int = 1,
+        attempt: int | None = None,
         state: BuildRecordState = BuildRecordState.IN_PROGRESS,
+        icon: StatusIcon | str = StatusIcon.COLOURED,
+        order: int | None = None,
     ) -> TimelineTarget:
         """Create a virtual task below a Job or another Task.
+
+        Warning:
+            The portal draws Task nesting two levels deep (a task under a task);
+            a third and fourth level are stored but **not drawn**, and a
+            :class:`UserWarning` is issued for a task whose parent is already a
+            task of a task.  Nothing below a Phase or Stage is drawn either.
 
         Args:
             name: Display name.
             under: A Job or Task.
-            key: Stable key for the id; defaults to *name*.
-            attempt: Attempt number for the id (see :meth:`record_id`).
+            key: Stable key for the id; defaults to the parent id and *name*.
+                See the warnings of :meth:`record_id`.
+            attempt: Attempt number for the id; ``None`` takes the session's
+                attempt (see :meth:`for_attempt` and :meth:`record_id`).
             state: Initial state.
+            icon: A :class:`StatusIcon`, or any ``refName`` string.  The icon is
+                chosen **here and cannot be changed later**: ADO stores a
+                ``refName`` only the first time it is set.
+            order: Sort position among the siblings (see :class:`RecordOrder`).
 
         Returns:
             The created record.
@@ -552,13 +831,40 @@ class TimelineSession:
                 f"not under a {under.type_name}"
             )
             raise AzureDevOpsSessionError(msg)
+        if under.type_name == BuildRecordType.TASK and self._task_depth(under) >= (
+            _DRAWN_TASK_DEPTH
+        ):
+            warnings.warn(
+                "The portal draws Task nesting two levels deep; this task is "
+                "stored but not drawn",
+                UserWarning,
+                stacklevel=2,
+            )
         return self._create(
             BuildRecordType.TASK,
             name,
             under=under,
             state=state,
-            record_id=self.record_id(key if key is not None else name, attempt=attempt),
+            record_id=self.record_id(
+                key if key is not None else self._default_key(under, name),
+                attempt=attempt,
+            ),
+            ref_name=str(icon),
+            order=order,
         )
+
+    def _task_depth(self, target: TimelineTarget) -> int:
+        """Count the Task ancestors of *target*, itself included.
+
+        Returns:
+            1 for a task directly under a Job, 2 for a task under that, ...
+        """
+        by_id = {r.id: r for r in self._records()}
+        depth, current = 0, by_id.get(target.record_id)
+        while current is not None and current.type_name == BuildRecordType.TASK:
+            depth += 1
+            current = by_id.get(current.parent_id) if current.parent_id else None
+        return depth
 
     def set_state(
         self,
@@ -609,8 +915,33 @@ class TimelineSession:
     def report_issues(self, target: TimelineTarget, issues: list[BuildIssue]) -> None:
         """Set a record's issues, which feed the Errors and Warnings tabs.
 
-        The list **replaces** the existing one, on native records too, and an
-        empty list is ignored by ADO.  Console lines never create issues.
+        The list **replaces** the existing one, on native records too.  Console
+        lines never create issues.
+
+        Warning:
+            An empty list does not always clear: it is ignored on native records
+            and on completed records, and it clears only a *virtual* record
+            that is still ``inProgress``.  Once a record is completed its issues
+            cannot be removed.
+
+        Warning:
+            ``warning_count`` and ``error_count`` are worked out when an issue
+            list is written and are **not** recomputed when the list is
+            replaced by a shorter one (two warnings replaced by one error read
+            back as one error and two warnings); on a virtual record they are
+            not writable.
+
+        Warning:
+            An issue of an unknown ``type`` is stored as ``error`` by ADO, yet
+            appears in neither the Errors nor the Warnings tab of the summary
+            page.  :class:`~pyado.raw.BuildIssueType` only allows the two real
+            types.
+
+        Note:
+            Issues of a Job or Task show in the summary with the record's name
+            as breadcrumb.  Issues of Phase, Checkpoint and Stage records were
+            not measured, and a Stage record must not be written at all (see
+            :class:`~pyado.raw.BuildRecordType`).
 
         Args:
             target: The record.
@@ -625,7 +956,8 @@ class TimelineSession:
 
         Feed lines go to the **job** record, show within a fraction of a
         second in a page that is open, and are never stored: a reload drops
-        them.  Use :meth:`append_log` for anything that must stay.
+        them.  Use :meth:`append_log` for anything that must stay.  Lines sent
+        after the step was completed are accepted and never shown.
 
         Args:
             step: A Task (its job is used) or a Job record.
@@ -648,6 +980,42 @@ class TimelineSession:
             job_call, raw.JobFeedPayload(value=list(lines), count=len(lines))
         )
 
+    def add_summaries(
+        self, target: TimelineTarget, summaries: Mapping[str, str | bytes]
+    ) -> None:
+        """Attach summaries (markdown cards) to a Task or Job record.
+
+        Each entry becomes its own card in the build page's **Extensions** tab,
+        titled by the file name, exactly like ``##vso[task.uploadsummary]``.
+        A summary is identified by **record + name**: a name the record already
+        has is replaced, the same name on another record is a second summary.
+        Works with the admin token and on a build that has already finished.
+        A summary cannot be deleted, only replaced.
+
+        The Extensions tab has its own renderer, not the wiki's.  GitHub-style
+        markdown and a sanitized subset of HTML (``details``, ``table``,
+        ``span style``, ``font``, ``br``, ``img`` with an ``https`` source)
+        render; mermaid, math, footnotes, ``:emoji:`` shortcodes and ``data:``
+        images do not, and scripts, ``style``, ``svg``, ``iframe`` and ``on*``
+        handlers are removed.  See ``docs/usage.md``, section "What a summary
+        can contain", and :func:`pyado.raw.put_record_summaries`.
+
+        Args:
+            target: The record (Task or Job) that owns the files.
+            summaries: File name to markdown or HTML (text is sent as UTF-8).
+        """
+        raw.put_record_summaries(
+            self._timeline_call(), str(target.record_id), summaries
+        )
+
+    def iter_summaries(self) -> Iterator[raw.BuildAttachmentInfo]:
+        """Iterate over every summary of the build, whoever wrote it.
+
+        Yields:
+            Each summary; ``record_id`` tells which record owns it.
+        """
+        yield from raw.iter_build_summaries(self._admin, self._build_id)
+
     def _log_id(self, target: TimelineTarget, wait: float) -> BuildLogId:
         """Return the record's log id, waiting for ADO to attach it.
 
@@ -657,10 +1025,14 @@ class TimelineSession:
         Raises:
             AzureDevOpsSessionError: If no log appears within *wait* seconds.
         """
+        cached = self._log_ids.get(target.record_id)
+        if cached is not None:
+            return cached
         deadline = self._clock() + wait
         while True:
             for record in self._records():
                 if record.id == target.record_id and record.log is not None:
+                    self._log_ids[target.record_id] = record.log.id
                     return record.log.id
             if self._clock() >= deadline:
                 msg = f"{target.name!r} has no log after {wait:.0f} s"
@@ -670,7 +1042,9 @@ class TimelineSession:
     def attach_log(self, target: TimelineTarget) -> BuildLogId:
         """Allocate a log and attach it to a record that has none.
 
-        A record you created has no log; a native task already has one.
+        A record you created has no log; a native task already has one.  This
+        also works for the *running task of an agent job*, whose ``log`` is
+        ``null`` while it runs: allocate, attach and append worked from outside.
 
         Args:
             target: The record.
@@ -688,6 +1062,7 @@ class TimelineSession:
                 )
             ]
         )
+        self._log_ids[target.record_id] = info.id
         return info.id
 
     def append_log(
@@ -703,7 +1078,16 @@ class TimelineSession:
         For a native task the log is already attached but may take a few
         seconds to appear, so the call waits.  For a record you created pass
         ``create=True`` to allocate and attach a log on first use.  Appended
-        text shows in the portal after a reload, not live.
+        text shows in the portal after a reload, not live.  The log id is
+        remembered, so only the first append of a record reads the timeline.
+
+        Warning:
+            ADO ends every append with a CR LF pair, so two appends are never
+            joined into one line; a text is always sent with a final newline
+            here.  A multibyte character must not be split across two calls, and
+            one call should stay near 1 MiB (16 MiB timed out).  Text appended
+            after :meth:`complete` can be read through the logs API but is not
+            shown in the task pane.
 
         Args:
             target: The record.
@@ -732,16 +1116,33 @@ class TimelineSession:
         step: TimelineTarget,
         *,
         succeeded: bool = True,
+        result: raw.JobEventResult | None = None,
     ) -> None:
         """Complete the agentless step so the pipeline continues.
 
         Only the System token can do this (a PAT gets HTTP 500).  The token
-        expires at issue time + the job's ``timeoutInMinutes`` + 15 minutes;
-        raise that timeout to cover the longest expected workflow.
+        expires at issue time + the ``timeoutInMinutes`` of the job it was
+        issued to + 15 minutes (measured on agent jobs; for an agentless job
+        that was not measured), so make sure that job outlives the workflow.
+
+        This completes the task and nothing else.  Records you created and left
+        ``inProgress`` are closed by ADO when the build ends, with the build's
+        result; finish them first (:meth:`finish`).
+
+        Warning:
+            ``step`` must be the ``InvokeRESTAPI`` task's **own** record: the
+            task id is resolved by ADO, so a made-up id with the real job id is
+            rejected with HTTP 404 ``No job found with identifier ...``, as is a
+            job that has already ended.  An unknown event is not an error: ADO
+            answers 204 and does nothing.
 
         Args:
             step: The Task record from :meth:`resolve_task`.
-            succeeded: ``False`` completes the step as failed.
+            succeeded: ``False`` completes the step as failed.  Ignored when
+                *result* is given.
+            result: The outcome: ``SUCCEEDED``, ``FAILED`` (task and job fail)
+                or ``SKIPPED`` (the task is skipped, the job still succeeds and
+                the pipeline continues).
 
         Raises:
             AzureDevOpsSessionError: If no System token was given, it has
@@ -754,13 +1155,17 @@ class TimelineSession:
         if remaining is not None and remaining < _SAFETY_SECONDS:
             msg = (
                 "The System token has expired or expires within "
-                f"{_SAFETY_SECONDS:.0f} s; raise the job's timeoutInMinutes "
-                "so it outlives the workflow, or supply a fresh token"
+                f"{_SAFETY_SECONDS:.0f} s; raise the timeoutInMinutes of the job "
+                "it was issued to so it outlives the workflow, or supply a "
+                "fresh token"
             )
             raise AzureDevOpsSessionError(msg)
         if step.parent_id is None:
             msg = f"{step.name!r} has no parent job"
             raise AzureDevOpsSessionError(msg)
+        outcome = result or (
+            raw.JobEventResult.SUCCEEDED if succeeded else raw.JobEventResult.FAILED
+        )
         plan_call = raw.get_plan_api_call(self._system, _HUB, self.plan_id())
         raw.post_job_event(
             plan_call,
@@ -768,8 +1173,6 @@ class TimelineSession:
                 name=raw.JobEventName.TASK_COMPLETED,
                 task_id=step.record_id,
                 job_id=step.parent_id,
-                result=raw.JobEventResult.SUCCEEDED
-                if succeeded
-                else raw.JobEventResult.FAILED,
+                result=outcome,
             ),
         )

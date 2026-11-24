@@ -336,12 +336,10 @@ Obtained via `Project.get_build`, `Project.iter_builds`, `Project.start_build`.
 | `.get_all_log_text(*, separator)` | `-> str` | Fetch and concatenate all log text |
 | `.iter_timeline_records()` | `-> Iterator[BuildRecordInfo]` | Raw timeline records |
 | `.find_task(predicate)` | `(Callable) -> BuildRecordInfo \| None` | First record matching predicate |
-| `.iter_stages()` | `-> Iterator[BuildStage]` | Build stages (with nested jobs/tasks) |
 | `.iter_work_item_ids()` | `-> Iterator[int]` | Linked work item IDs |
 | `.iter_work_items()` | `-> Iterator[WorkItem]` | Linked work items (batch-fetched) |
 | `.iter_work_items_between(older_build, *, top)` | `-> Iterator[WorkItem]` | Work items in build range (exclusive lower bound) |
 | `.iter_work_item_ids_between(older_build, *, top)` | `-> Iterator[int]` | Work item IDs in build range |
-| `.get_distributed_task_session(*, hub_name, plan_id, timeline_id, job_id, task_instance_id)` | `-> DistributedTaskSession` | External/serverless task handle |
 
 ---
 
@@ -358,8 +356,8 @@ TimelineSession.from_tokens(*, org_name, project_id, build_id, admin_token, syst
 .native_phase(step) -> TimelineTarget
 .record_id(key, *, attempt=1) -> UUID
 
-.create_job(name, *, under, key=None, attempt=1, state=...) -> TimelineTarget
-.create_task(name, *, under, key=None, attempt=1, state=...) -> TimelineTarget
+.create_job(name, *, under, key=None, attempt=1, state=..., icon=StatusIcon.COLOURED, order=None) -> TimelineTarget
+.create_task(name, *, under, key=None, attempt=1, state=..., icon=StatusIcon.COLOURED, order=None) -> TimelineTarget
 .set_state(target, *, state=None, result=None, percent=None) -> None
 .finish(target, result=BuildRecordResult.SUCCEEDED) -> None
 .report_issues(target, issues: list[BuildIssue]) -> None
@@ -368,7 +366,7 @@ TimelineSession.from_tokens(*, org_name, project_id, build_id, admin_token, syst
 .feed(step, *lines) -> None               # live only; goes to the job record
 .append_log(target, text, *, create=False, wait=60.0) -> None
 .attach_log(target) -> int
-.complete(step, *, succeeded=True) -> None   # System token; raises AzureDevOpsSessionError
+.complete(step, *, succeeded=True, result=None) -> None   # System token; result: JobEventResult (succeeded/failed/skipped)
 
 LogLines().add(text) / .section(text) / .command(text) / .error(text) / .warning(text)
 LogLines().group(title)                   # context manager, always closes
@@ -766,7 +764,7 @@ iter_build_artifacts(build_api_call) -> Iterator[BuildArtifact]
 iter_build_tags(build_api_call) -> Iterator[str]
     # Tags on the build.
 
-post_build_tag(build_api_call, tag) -> list[str]
+put_build_tag(build_api_call, tag) -> list[str]     # PUT; was post_build_tag
     # Add a tag.
 
 delete_build_tag(build_api_call, tag) -> list[str]

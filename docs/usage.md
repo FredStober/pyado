@@ -602,13 +602,9 @@ build.download_artifact(artifact)  # returns bytes
 for approval in build.iter_approvals():
     print(approval.id, approval.status)
 
-# Timeline — stages, jobs, tasks
-for stage in build.iter_stages():
-    print(stage.name, stage.result)
-    for job in stage.iter_jobs():
-        for task in job.iter_tasks():
-            print(task.name, task.result)
-            log = build.get_log_text(task.log.id)
+# Timeline records (flat; link them through parent_id)
+for record in build.iter_timeline_records():
+    print(record.type_name, record.name, record.result)
 
 # Find a specific task without iterating manually
 task = build.find_task(lambda t: t.name == "Publish Test Results")
@@ -628,16 +624,10 @@ for wi_id in build.iter_work_item_ids_between(older_build):
     print(wi_id)
 for wi in build.iter_work_items_between(older_build, top=50):
     print(wi.title)
-
-# Serverless / external task integration
-active_task = build.get_distributed_task_session(
-    hub_name="build",
-    plan_id=plan_uuid,
-    timeline_id=timeline_uuid,
-    job_id=job_uuid,
-    task_instance_id=task_uuid,
-)
 ```
+
+To report progress of an external task into a build's timeline, see
+`TimelineSession` below.
 
 ### Pipeline
 
@@ -1961,9 +1951,9 @@ Tags on a build are free-form strings, useful for marking release candidates
 or flagging builds for further processing:
 
 ```python
-from pyado.raw import post_build_tag, iter_build_tags, delete_build_tag
+from pyado.raw import put_build_tag, iter_build_tags, delete_build_tag
 
-post_build_tag(build_api, "release-candidate")
+put_build_tag(build_api, "release-candidate")
 for tag in iter_build_tags(build_api):
     print(tag)
 delete_build_tag(build_api, "release-candidate")
@@ -2116,15 +2106,241 @@ Things to know:
   `AzureDevOpsSessionError`.
 * `session.record_id("arn/StateA")` gives a stable id, so a retried Lambda
   updates the same record.  A completed record keeps its `result`, so a rerun
-  needs `attempt=2`.
-* The System token stops working at issue time + the job's `timeoutInMinutes`
-  + 15 minutes.  Set the agentless job's `timeoutInMinutes` to cover the longest
-  expected workflow.  `complete()` raises `AzureDevOpsSessionError` instead of
-  sending a call that would fail.
+  needs `attempt=2`.  The id comes from the key only: `create_job` and
+  `create_task` default the key to the parent id plus the name, but an explicit
+  key used under two parents is one record, and after a stage retry a key that
+  does not change still names the record under the old job.  With the
+  default key you need to do nothing: the parent id is in it.  For an explicit key
+  use `session.for_current_attempt(step)` (reads the attempt of the native job from
+  the timeline) or `session.for_attempt(n)` (`n` = `SYSTEM_JOBATTEMPT`): they mix
+  the attempt into every derived id, and attempt 1 gives the ids of a plain session.
+* Records you leave `inProgress` take the **build's** result when the build ends
+  (`pending` ones become `abandoned`); `complete()` does not close them, so call
+  `finish()` first.
+* The System token stops working at issue time + the `timeoutInMinutes` of the
+  job it was issued to + 15 minutes (measured on agent jobs).  Make sure that job
+  outlives the longest expected workflow.  `complete()` raises
+  `AzureDevOpsSessionError` instead of sending a call that would fail, and takes
+  `result=JobEventResult.SKIPPED` to skip the task without failing the job.
+* The icon colour is chosen with `icon=StatusIcon.GREY` / `StatusIcon.COLOURED`
+  (or any `refName`), the position with `order=RecordOrder.FIRST` / `RecordOrder.LAST`;
+  the icon cannot be changed after creation (ADO stores a `refName` only the first
+  time it is set), so pick it when you create the record.  A Job created `COMPLETED` and a third Task
+  level are stored but not drawn, so `create_job` / `create_task` warn.
+* Never write a `Stage` record: the build's results page then shows "Build not
+  found" for good (the server accepts the write).  `TimelineSession` and
+  `update_timeline_records` (oop) raise `AzureDevOpsSessionError`; the raw
+  `patch_timeline_records` is a thin transport, only documents the hazard and
+  does not refuse it.
 * `##[error]` lines are coloured but create no issue; use
   `session.report_issues(...)`.
 * Build lines with `LogLines` or `pyado.oop.pipelines.log_format`; they keep the
   markers at the start of the line and neutralise `##[` inside your text.
+
+### Task summaries, test results and coverage reports (raw API)
+
+These fill the build page's **Extensions**, **Tests** and **Code Coverage** tabs
+from outside the pipeline.  A PAT is enough; no storage account key is involved.
+Everything below was measured against Azure DevOps Services (see
+`ADO_TIMELINE_API.md`, section 18).  The project call must end in `/_apis`
+(`{org}/{project}/_apis`); the container functions take the organisation call
+(`{org}`).
+
+```python
+from pyado.raw import (
+    SUMMARY_ATTACHMENT_TYPE,
+    TestOutcome,
+    TestResultCreate,
+    TestRunCreate,
+    TestRunState,
+    TestRunUpdate,
+    get_timeline_api_call,
+    make_attachment_request,
+    get_build_container_id,
+    post_test_results,
+    post_test_run,
+    patch_test_run,
+    post_test_result_attachment,
+    publish_coverage_report,
+    put_record_attachment,
+    put_record_summaries,
+    iter_build_summaries,
+)
+
+# 1. Task summary: a markdown card in the Extensions tab, titled with the name
+timeline = get_timeline_api_call(project_api, "build", plan_id, plan_id)
+put_record_attachment(
+    timeline, record_id, SUMMARY_ATTACHMENT_TYPE, "summary", b"# Result\n\nok"
+)
+# ... or several cards at once (a dict of name -> markdown), and read them back
+put_record_summaries(
+    timeline, record_id, {"unit.md": "# Unit\n", "lint.md": "# Lint\n"}
+)
+for summary in iter_build_summaries(project_api, build_id):
+    print(summary.name, summary.record_id)
+
+# 2. Test results: a run, its results, an attachment, then close the run
+run = post_test_run(project_api, TestRunCreate(name="pytest", build={"id": build_id}))
+refs = post_test_results(
+    project_api,
+    run.id,
+    [
+        TestResultCreate(
+            test_case_title="test_x",
+            automated_test_name="pkg.test_x",
+            test_case={"name": "test_x"},
+            outcome=TestOutcome.FAILED,
+            error_message="boom",
+            stack_trace="at x()",
+            computer_name="HOST",
+        )
+    ],
+)
+post_test_result_attachment(
+    project_api, run.id, refs[0].id, make_attachment_request("log.txt", b"...")
+)
+patch_test_run(project_api, run.id, TestRunUpdate(state=TestRunState.COMPLETED))
+
+# 3. Coverage report: upload the files and link the folder in one call
+container_id = get_build_container_id(
+    project_api, build_id
+)  # or BUILD_CONTAINERID in a job
+publish_coverage_report(
+    org_api, project_api, build_id, container_id, {"index.html": html_bytes}
+)
+```
+
+What to expect:
+
+* **Summary:** a `DistributedTask.Core.Summary` attachment (the type `##vso[task.uploadsummary]` writes; the server compares the name case-sensitively) on a Task or Job
+  record appears in the **Extensions** tab (not on the Summary tab); the card
+  title is the attachment name.  `##vso[task.uploadsummary]` is the same call
+  with the file name without its extension as the title.  **A build can hold many
+  summaries.**  One is identified by *record + name* (measured): uploading a name a
+  record already has **replaces** it, a different name is a second card, and the
+  same name on another record is a second summary too.  An empty body is accepted.
+  What a card may contain: see [What a summary can contain](#what-a-summary-can-contain).
+  **A summary cannot be deleted** (`DELETE` answers HTTP 405 on every route tried); to blank a card, upload an empty or placeholder body over the same name.
+  `put_record_summaries` (or `TimelineSession.add_summaries`) writes a whole
+  `{name: markdown}` mapping to one record; `iter_build_summaries` (or
+  `TimelineSession.iter_summaries`) lists all of them, and `record_id` tells two
+  same-named ones apart.
+* **Tests:** the failed result's detail pane shows Owner, "on <computer name>",
+  Comments, Error message, Stack trace, linked Bugs (`associated_bugs` through
+  `patch_test_results`) and attachments.  Create a run with `state` InProgress (the model also allows `NotStarted`)
+  and close it with `patch_test_run`; a run created `Completed` is rejected by the
+  server (HTTP 400), so `TestRunCreate` does not accept that state.  Do not add `dtlTestEnvironment` or `runTimeout` to a run (HTTP 500).
+* **Coverage:** `publish_coverage_report` uploads the files into the folder
+  `Code Coverage Report_<buildId>` and links it as an artifact; a folder with an
+  `index.html` is rendered in the **Code Coverage** tab (checked live: the
+  ReportGenerator page appeared with its per-file links).  `get_build_container_id`
+  finds the container from any container artifact of the build, so the build must
+  have published something; inside a job use `BUILD_CONTAINERID`.
+* **Coverage figures (the Code Coverage tab):**
+  `publish_code_coverage(project_api_id, build_id, [FileCoverage(...)])` writes
+  what `PublishCodeCoverageResults@2` writes, without the task.  It uploads the
+  per-file line status as a blob (`post_file_coverage`, two steps through the
+  test-results service) and then the figures (`post_code_coverage`).  What it fills
+  depends on the build:
+  * **Details** (percentage, line counts, a table per file) and the sub-tabs: call
+    it **while the build runs** and let the build end **after an agent job ran**
+    (the service then finalises the figures, label `line` becomes `Lines`).  A
+    build that is cancelled before a job ran is never finalised.
+  * **Files** (a folder tree): the build must also have **checked out the sources**
+    (`checkout: self`), and every `FileCoverage.file_path` must be the **absolute
+    agent path of a checked-out file** (`/home/runner/work/1/s/src/pkg/mod.py`).
+    The coverage service maps the blob to the checkout itself.  With a
+    repository-relative path, a path that is not in the checkout, or
+    `checkout: none`, Files stays "No code coverage data available" while Details
+    still works.
+  * The Summary page's **"N % covered"** (next to "N % passed") needs a **test run
+    with results** in the build (`post_test_run` and `post_test_results`); without
+    one the block reads "Get started", also for the official task.
+  Both upload calls are needed: the figures alone leave the tab empty.  The project
+  call must use the project **id**.  The older `POST test/codecoverage` answers 204
+  and stores nothing; pyado does not use it.  `get_code_coverage` reads the stored
+  figures.
+* **Reading container files:** `get_container_item_text` returns text and
+  decompresses a file that starts with the gzip magic (`1f 8b`).  Files you upload
+  yourself come back unchanged.
+* **Timing:** writes into a build are accepted while it runs and for at least 13
+  minutes after it ended; a PAT write to a build that ended hours earlier was
+  refused (HTTP 400 "timeline is in a completed state").  Where the boundary lies
+  is not known.
+* **Reading back:** `list_test_results` / `get_test_result` return the outcome,
+  error message, stack trace, comment, computer name, owner and dates;
+  `iter_test_result_attachments` / `iter_test_run_attachments` list the files and
+  `get_test_attachment_bytes` downloads one (byte for byte, also binary).
+  `iter_build_summaries(project_api, build_id)` lists the task summaries of the
+  Extensions tab (name, link and owning `record_id`).
+  `get_container_item_bytes` is the binary counterpart of `get_container_item_text`.
+  `delete_test_run` removes a run with its results.
+* **Duration:** the server computes a result's duration from `completed_date -
+  started_date`; a separate duration value is ignored, so set both dates.
+* **Plan timelines:** `iter_plan_timelines(get_plan_api_call(project_api, "build",
+  plan_id))` lists a plan's timelines.  `##vso[task.logdetail]` records are in a
+  **second** timeline, not in the root one that `iter_timeline_records` reads;
+  `post_plan_timeline` creates an extra one.
+* **Not available:** test-result **tags** (no route; `customFields: Tags` fails),
+  and iteration details (the call is accepted but nothing was seen to render).
+
+
+#### What a summary can contain
+
+The **Extensions** tab renders a summary with its own renderer
+(`dtc-markdown-renderer`), **not** the wiki's.  Microsoft's documentation says so
+([UploadSummary](https://learn.microsoft.com/en-us/azure/devops/pipelines/scripts/logging-commands#uploadsummary-add-some-markdown-content-to-the-build-summary))
+and that Markdown in Azure DevOps "doesn't support JavaScript or iframes"
+([Markdown syntax](https://learn.microsoft.com/en-us/azure/devops/project/wiki/markdown-guidance)).
+Measured on a live organisation (53 cases, `ADO_TIMELINE_API.md` section 18.7):
+
+| Works | Does **not** render (shown as text or a plain code block) |
+|---|---|
+| headings, bold, italic, strikethrough, inline code | **mermaid** (a fence is a plain code block) |
+| nested lists, task lists (disabled checkboxes) | **math** (`$x^2$`, `$$...$$` stay literal) |
+| tables with column alignment | footnotes, definition lists |
+| fenced and indented code (no highlighting) | `:smile:` emoji shortcodes (the character itself works) |
+| block quotes, rules, hard line breaks | images with a `data:` URI |
+| `https` links (open in a new tab), `<https://...>` autolinks, relative, `#anchor` and `mailto:` links | a bare URL (not linked) |
+| `https` images, Unicode | |
+
+**HTML is allowed through a sanitizer.**
+
+* Kept tags: `b i u s em strong code sup sub kbd mark small`, `h1`-`h6 p div blockquote
+  pre hr center br`, `table thead tbody tr th td`, `ul ol li dl dt dd`,
+  `details`/`summary` (collapsible sections, also `open`), `span`, `font`, `a`, `img`
+  (`https` source), `video`, and `input` of type checkbox or text.
+* Kept attributes: inline `style` (colour, background, padding and border work),
+  `class`, `id`, `title`, `align`, `border`, `color`, `size`, `width`, `height`.
+* Removed or shown as text: `script`, `style`, `svg`, `iframe`, `form`, `button`,
+  `select`, `textarea`, `audio`, `object`, `embed`, `meta`, `link`, `base`; every
+  `on*` handler and `data-*` attribute; the `href` of a `javascript:` or `data:`
+  link.  Nothing executed in the measurements.
+* Markdown inside an HTML block works when it is separated by blank lines; HTML
+  inside a markdown table cell works.
+
+* A summary can be put on a **Stage, Phase, Job, Task or Checkpoint** record; each
+  is drawn as its own card.
+* The viewer's **browser requests every external address** in a card (`https`,
+  `http` upgraded to `https`, protocol-relative, markdown images, CSS
+  `background:url()`, `<video>`).  Images load without CORS headers.  Do not put
+  addresses in a summary that you do not want contacted from every viewer's
+  browser.
+* `[[_TOC_]]` on its own line renders a table of contents of the card's headings.
+* Inline `style` is filtered by an allowlist: `width`, `height`, `background`,
+  `border`, `padding`, `color`, `font-size`, `font-weight`, `text-align` and
+  margins work; `position`, `z-index`, `display`, `opacity` and `@import` are
+  removed, so a card cannot cover the page.  `background:url(https://...)` and
+  `http://` images are kept, so a card can make the viewer's browser load an
+  external address.
+* Link schemes: `https`, `http`, `ftp`, `tel`, `mailto`, `file` and `//host` are
+  kept; every `javascript:` form (also upper case, with a leading space or as an
+  entity), `vbscript:`, `blob:` and `data:` lose their `href`.
+* Also not rendered: the `::: mermaid` container, a `KaTeX` fence, the wiki image
+  size `![](url =50x50)`, `<ruby>`, `<wbr>`, `<progress>` and `<meter>`.
+
+Write GitHub-style markdown plus simple HTML (`details`, `table`, `span style`,
+`font`, `br`); give diagrams and formulas as an external `https` image or as text.
 
 ### Environment approvals
 

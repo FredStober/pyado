@@ -5,7 +5,14 @@
 import pytest
 
 from pyado import AzureDevOpsSessionError
-from pyado.oop import LogLines, Project, TimelineSession, TimelineTarget
+from pyado.oop import (
+    LogLines,
+    Project,
+    RecordOrder,
+    StatusIcon,
+    TimelineSession,
+    TimelineTarget,
+)
 from pyado.oop.pipelines.log_format import Ansi, ansi
 from pyado.raw import BuildRecordType
 from tests.integration.raw._support import _take, console
@@ -20,6 +27,15 @@ def test_log_lines_render_a_group() -> None:
         lines.add(ansi("image ok", Ansi.GREEN))
     assert lines.lines()[0] == "##[section]Deploy"
     assert lines.lines()[-1] == "##[endgroup]"
+
+
+def test_icon_and_order_constants() -> None:
+    """The measured ``refName`` and ``order`` values (no ADO call)."""
+    console.print("\n=== StatusIcon / RecordOrder ===")
+    assert StatusIcon.COLOURED.value == "CmdLine1"
+    assert StatusIcon.GREY.value.startswith("JobExtension")
+    assert int(RecordOrder.FIRST) == 0
+    assert int(RecordOrder.LAST) == 2_147_483_646
 
 
 def test_session_resolves_a_step_in_a_finished_build(

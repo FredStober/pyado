@@ -5,20 +5,27 @@
 import base64
 import contextlib
 import json
+import warnings
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 import pytest
 import requests
 
+from pyado import raw
 from pyado.exceptions import (
     AzureDevOpsBadRequestError,
     AzureDevOpsHttpError,
     AzureDevOpsSessionError,
 )
 from pyado.oop import TimelineSession, TimelineTarget
-from pyado.oop.pipelines.timeline_session import decode_token_expiry
+from pyado.oop.pipelines.timeline_session import (
+    RecordOrder,
+    StatusIcon,
+    _RecordWrite,
+    decode_token_expiry,
+)
 from pyado.raw import (
     ApiCall,
     BuildIssue,
@@ -26,6 +33,7 @@ from pyado.raw import (
     BuildRecordResult,
     BuildRecordState,
     BuildRecordType,
+    JobEventResult,
 )
 from tests.conftest import NOW_ISO
 
@@ -33,6 +41,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 BUILD_ID = 77
+# Pinned on purpose: ids derived with attempt 1 must never change.
+_PINNED_NAMESPACE = UUID("9d6e1a3c-6c0e-4d77-9a5e-5f3a1e7d2b10")
 PAT = "unit-test-credential"
 PLAN_ID = uuid4()
 PROJECT_URL = f"https://dev.azure.com/org/{uuid4()}/_apis"
@@ -84,6 +94,7 @@ class FakeAdo(requests.Session):
         self.events: list[dict[str, Any]] = []
         self.requests_seen: list[tuple[str, str]] = []
         self.patched: list[dict[str, Any]] = []
+        self.attachments: dict[tuple[str, str, str], bytes] = {}
         self.hide_log_polls = 0
         self.fail_events_with: int | None = None
         for rec in (
@@ -124,18 +135,61 @@ class FakeAdo(requests.Session):
         route = (method, url.rsplit("/", 1)[-1])
         if method == "POST" and "/logs/" in url:
             route = ("POST", "append")
+        if method == "GET" and "/timeline/" in url:
+            route = ("GET", "sub-timeline")
+        if "/attachments/" in url:
+            route = (method, "attachments")
         handlers: dict[tuple[str, str], Callable[[], Any]] = {
             ("GET", "timeline"): lambda: _response(200, self._timeline()),
+            ("GET", "sub-timeline"): lambda: _response(
+                200, {"id": url.rsplit("/", 1)[-1], "records": []}
+            ),
             ("PATCH", "records"): lambda: self._patch_records(json_body["value"]),
             ("POST", "logs"): lambda: self._new_log(json_body["path"]),
             ("POST", "append"): lambda: self._append(url, data),
             ("POST", "feed"): lambda: self._feed(url, json_body["value"]),
             ("POST", "events"): lambda: self._event(json_body),
+            ("PUT", "attachments"): lambda: self._put_attachment(url, data),
+            ("GET", "attachments"): lambda: self._list_attachments(url),
         }
         if route not in handlers:
             msg = f"unexpected request {method} {url}"
             raise AssertionError(msg)
         return handlers[route]()
+
+    def _put_attachment(self, url: str, data: bytes) -> Any:
+        """Store an attachment under record, type and name (a same name replaces).
+
+        Returns:
+            A mock response with the stored attachment.
+        """
+        parts = url.split("?", maxsplit=1)[0].split("/")
+        record, kind, name = parts[-4], parts[-2], parts[-1]
+        self.attachments[record, kind, name] = data
+        return _response(200, {"name": name, "type": kind, "recordId": record})
+
+    def _list_attachments(self, url: str) -> Any:
+        """List the attachments of one type, as the build route does.
+
+        Returns:
+            A mock response with name and content link per attachment.
+        """
+        kind = url.split("?", maxsplit=1)[0].rsplit("/", 1)[-1]
+        base = url.split("/build/builds/", maxsplit=1)[0]
+        value = [
+            {
+                "name": name,
+                "_links": {
+                    "self": {
+                        "href": f"{base}/build/builds/{BUILD_ID}/{PLAN_ID}/{record}"
+                        f"/attachments/{kind}/{name}"
+                    }
+                },
+            }
+            for (record, k, name) in self.attachments
+            if k == kind
+        ]
+        return _response(200, {"count": len(value), "value": value})
 
     def _new_log(self, path: str) -> Any:
         """Allocate a log id.
@@ -308,6 +362,19 @@ def session(ado: FakeAdo, clock: Clock) -> TimelineSession:
         A session whose System token expires one hour from the fake clock.
     """
     return _session(ado, clock, system=ado, expiry=NOW + 3600)
+
+
+class TestSubTimelineRead:
+    """Reading an earlier attempt's timeline with the raw reader."""
+
+    def test_a_sub_timeline_is_read_by_its_id(self, ado: FakeAdo) -> None:
+        build_call = raw.get_build_api_call(
+            ApiCall(session=ado, url=PROJECT_URL), BUILD_ID
+        )
+        sub_id = uuid4()
+        records = raw.list_timeline_records(build_call, sub_id)
+        assert records == []
+        assert ado.requests_seen[-1][1].endswith(f"/timeline/{sub_id}")
 
 
 class TestResolve:
@@ -791,3 +858,421 @@ class TestFromTokens:
             org_name="org", project_id=uuid4(), build_id=1, admin_token=PAT
         )
         assert only_admin.seconds_until_system_token_expires() is None
+
+
+class TestSummaries:
+    """Several summaries per build (the Extensions tab)."""
+
+    def test_each_name_is_its_own_summary(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        """Different names on one record are separate cards."""
+        step = session.resolve_task("Run workflow")
+        session.add_summaries(step, {"one.md": "# 1", "two.md": b"# 2"})
+        names = sorted(a.name for a in session.iter_summaries())
+        assert names == ["one.md", "two.md"]
+        assert ado.attachments[str(STEP), "DistributedTask.Core.Summary", "two.md"] == (
+            b"# 2"
+        )
+
+    def test_same_name_on_the_same_record_is_replaced(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        """Measured: a second upload of a name overwrites the first."""
+        step = session.resolve_task("Run workflow")
+        session.add_summaries(step, {"s.md": "first"})
+        session.add_summaries(step, {"s.md": "second"})
+        assert [a.name for a in session.iter_summaries()] == ["s.md"]
+        assert ado.attachments[str(STEP), "DistributedTask.Core.Summary", "s.md"] == (
+            b"second"
+        )
+
+    def test_same_name_on_two_records_is_two_summaries(
+        self, session: TimelineSession
+    ) -> None:
+        """The record id of each one tells them apart."""
+        step = session.resolve_task("Run workflow")
+        job = session.find("Job")
+        session.add_summaries(step, {"s.md": "on the task"})
+        session.add_summaries(job, {"s.md": "on the job"})
+        found = {a.record_id for a in session.iter_summaries()}
+        assert found == {str(STEP), str(JOB)}
+
+    def test_summaries_use_the_agent_type_and_utf8(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        """Text is sent as UTF-8 under the type that uploadsummary writes."""
+        step = session.resolve_task("Run workflow")
+        session.add_summaries(step, {"u.md": "äö€"})
+        assert ado.attachments[str(STEP), "DistributedTask.Core.Summary", "u.md"] == (
+            "äö€".encode()
+        )
+
+
+class TestForAttempt:
+    """A session that mixes the job attempt into every id."""
+
+    def test_attempt_one_derives_the_ids_of_a_plain_session(
+        self, session: TimelineSession
+    ) -> None:
+        """Adding for_attempt(1) must not move any existing record."""
+        assert session.attempt == 1
+        same = session.for_attempt(1)
+        assert same.record_id("k") == session.record_id("k")
+        assert same.record_id("k") == uuid5(_PINNED_NAMESPACE, f"{BUILD_ID}/k#1")
+
+    def test_a_later_attempt_gives_other_ids(self, session: TimelineSession) -> None:
+        """The same key under attempt 2 is another record."""
+        second = session.for_attempt(2)
+        assert second.attempt == 2
+        assert second.record_id("k") != session.record_id("k")
+        assert second.record_id("k") == session.record_id("k", attempt=2)
+
+    def test_an_explicit_argument_wins(self, session: TimelineSession) -> None:
+        """attempt= on the call overrides the session's attempt."""
+        second = session.for_attempt(2)
+        assert second.record_id("k", attempt=1) == session.record_id("k")
+
+    def test_explicit_key_follows_a_retry_with_the_attempt(
+        self, ado: FakeAdo, clock: Clock
+    ) -> None:
+        """The trap of an explicit key disappears when the session has the attempt."""
+        first = _session(ado, clock).for_attempt(1)
+        before = first.create_task("Run", under=first.find("Job"), key="fixed")
+        new_job = TestRetryBetweenSessions._retry(ado)
+        second = _session(ado, clock).for_attempt(2)
+        after = second.create_task("Run", under=second.find("Job"), key="fixed")
+        assert after.record_id != before.record_id
+        assert ado.records[str(after.record_id)]["parentId"] == str(new_job)
+
+    def test_jobs_use_the_session_attempt_too(self, session: TimelineSession) -> None:
+        """create_job derives its id with the session's attempt."""
+        phase = session.native_phase(session.resolve_task("Run workflow"))
+        one = session.create_job("J", under=phase)
+        two = session.for_attempt(2).create_job("J", under=phase)
+        assert one.record_id != two.record_id
+
+    def test_the_record_attempt_field_stays_one(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        """ADO owns the record's attempt; only the id changes."""
+        task = session.for_attempt(3).create_task("T", under=session.find("Job"))
+        assert ado.records[str(task.record_id)]["attempt"] == 1
+
+    def test_the_new_session_has_its_own_caches(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        """A retry changes the timeline, so nothing is shared with the old session."""
+        session.create_task("T", under=session.find("Job"))
+        fresh = session.for_attempt(2)
+        before = sum(1 for _, u in ado.requests_seen if u.endswith("/timeline"))
+        fresh.create_task("T", under=fresh.find("Job"))
+        after = sum(1 for _, u in ado.requests_seen if u.endswith("/timeline"))
+        assert after > before
+
+    def test_attempt_below_one_is_refused(self, session: TimelineSession) -> None:
+        """Attempts count from 1."""
+        with pytest.raises(ValueError, match="at least 1"):
+            session.for_attempt(0)
+
+
+class TestForCurrentAttempt:
+    """The attempt is read from the native job, not typed by hand."""
+
+    def test_a_job_that_was_never_retried_is_attempt_one(
+        self, session: TimelineSession
+    ) -> None:
+        """Attempt 1 derives the ids of a plain session."""
+        current = session.for_current_attempt(session.resolve_task("Run workflow"))
+        assert current.attempt == 1
+        assert current.record_id("k") == session.record_id("k")
+
+    def test_a_retried_job_reports_its_attempt(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        """The new job of a retry carries attempt 2, and ids follow it."""
+        ado.records[str(JOB)]["attempt"] = 2
+        current = session.for_current_attempt(session.resolve_task("Run workflow"))
+        assert current.attempt == 2
+        assert current.record_id("k") != session.record_id("k")
+
+    def test_a_job_target_works_too(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        """A Job record can be passed directly."""
+        ado.records[str(JOB)]["attempt"] = 3
+        assert session.for_current_attempt(session.find("Job")).attempt == 3
+
+    def test_an_unknown_job_is_an_error(self, session: TimelineSession) -> None:
+        """A target without a job in the timeline cannot give an attempt."""
+        ghost = TimelineTarget(
+            record_id=uuid4(),
+            parent_id=uuid4(),
+            type_name=BuildRecordType.TASK,
+            name="x",
+        )
+        with pytest.raises(AzureDevOpsSessionError, match="no job"):
+            session.for_current_attempt(ghost)
+
+
+class TestRetryBetweenSessions:
+    """A stage or job retry gives the job a new id; the writer restarts."""
+
+    @staticmethod
+    def _retry(ado: FakeAdo) -> UUID:
+        """Replace the native job by a new one, as a job retry does.
+
+        Returns:
+            The id of the new job.
+        """
+        new_job = uuid4()
+        old = ado.records.pop(str(JOB))
+        ado.records[str(new_job)] = _record(new_job, old["name"], "Job", PHASE)
+        ado.records[str(STEP)]["parentId"] = str(new_job)
+        return new_job
+
+    def test_default_key_follows_the_new_job(self, ado: FakeAdo, clock: Clock) -> None:
+        """The key holds the parent id, so a retry writes a fresh record."""
+        first = _session(ado, clock)
+        before = first.create_task("Run", under=first.find("Job"))
+        new_job = self._retry(ado)
+        second = _session(ado, clock)
+        after = second.create_task("Run", under=second.find("Job"))
+        assert after.record_id != before.record_id
+        assert ado.records[str(after.record_id)]["parentId"] == str(new_job)
+
+    def test_explicit_key_hits_the_old_record(self, ado: FakeAdo, clock: Clock) -> None:
+        """The documented trap: the same explicit key is the same record id."""
+        first = _session(ado, clock)
+        before = first.create_task("Run", under=first.find("Job"), key="fixed")
+        self._retry(ado)
+        second = _session(ado, clock)
+        after = second.create_task("Run", under=second.find("Job"), key="fixed")
+        assert after.record_id == before.record_id
+
+    def test_a_key_with_the_attempt_is_a_new_record(
+        self, ado: FakeAdo, clock: Clock
+    ) -> None:
+        """The advice in the docs: put the attempt into the key."""
+        first = _session(ado, clock)
+        before = first.create_task("Run", under=first.find("Job"), key="k#1")
+        new_job = self._retry(ado)
+        second = _session(ado, clock)
+        after = second.create_task("Run", under=second.find("Job"), key="k#2")
+        assert after.record_id != before.record_id
+        assert ado.records[str(after.record_id)]["parentId"] == str(new_job)
+
+
+class TestIdPitfalls:
+    """The ids of virtual records and what they hide."""
+
+    def test_default_key_depends_on_the_parent(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        """The same name under two parents gives two records."""
+        phase = session.native_phase(session.resolve_task("Run workflow"))
+        job_a = session.create_job("A", under=phase)
+        job_b = session.create_job("B", under=phase)
+        first = session.create_task("Run", under=job_a)
+        second = session.create_task("Run", under=job_b)
+        assert first.record_id != second.record_id
+        assert ado.records[str(first.record_id)]["parentId"] == str(job_a.record_id)
+        assert ado.records[str(second.record_id)]["parentId"] == str(job_b.record_id)
+
+    def test_default_key_is_stable_for_one_parent(
+        self, session: TimelineSession
+    ) -> None:
+        """A restarted writer finds the same record again."""
+        job = session.find("Job")
+        assert (
+            session.create_task("Run", under=job).record_id
+            == session.create_task("Run", under=job).record_id
+        )
+
+    def test_explicit_key_still_ignores_the_parent(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        """The documented trap: an explicit key is the whole identity."""
+        phase = session.native_phase(session.resolve_task("Run workflow"))
+        job_a = session.create_job("A", under=phase)
+        job_b = session.create_job("B", under=phase)
+        first = session.create_task("Run", under=job_a, key="k")
+        second = session.create_task("Run", under=job_b, key="k")
+        assert first.record_id == second.record_id
+        assert ado.records[str(first.record_id)]["parentId"] == str(job_a.record_id)
+
+    def test_native_ids_are_read_once(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        """Creating many records does not re-read the timeline each time."""
+        job = session.find("Job")
+        session.create_task("T0", under=job)
+        reads_after_first = sum(
+            1 for _, u in ado.requests_seen if u.endswith("/timeline")
+        )
+        for i in range(1, 4):
+            session.create_task(f"T{i}", under=job)
+        reads_after_last = sum(
+            1 for _, u in ado.requests_seen if u.endswith("/timeline")
+        )
+        # only the first creation reads the native ids
+        assert reads_after_last == reads_after_first
+
+    def test_worker_name_marks_a_native_record(
+        self, session: TimelineSession, ado: FakeAdo, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An infrastructure task has a worker but no task definition."""
+        infra = uuid4()
+        record = _record(infra, "Initialize job", "Task", JOB, workerName="agent 1")
+        ado.records[str(infra)] = record
+        monkeypatch.setattr(TimelineSession, "record_id", lambda *_a, **_k: infra)
+        with pytest.raises(AzureDevOpsSessionError, match="native record"):
+            session.create_task("hijack", under=session.find("Job"))
+
+
+class TestIconAndOrder:
+    """Status icon colour and sort position."""
+
+    def test_default_icon_is_coloured(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        task = session.create_task("T", under=session.find("Job"))
+        assert ado.records[str(task.record_id)]["refName"] == "CmdLine1"
+
+    def test_grey_icon_and_order(self, session: TimelineSession, ado: FakeAdo) -> None:
+        task = session.create_task(
+            "T",
+            under=session.find("Job"),
+            icon=StatusIcon.GREY,
+            order=RecordOrder.FIRST,
+        )
+        stored = ado.records[str(task.record_id)]
+        assert stored["refName"] == "JobExtension"
+        assert stored["order"] == 0
+
+    def test_icon_may_be_any_ref_name(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        task = session.create_task("T", under=session.find("Job"), icon="Bash1")
+        assert ado.records[str(task.record_id)]["refName"] == "Bash1"
+
+    def test_order_is_not_sent_when_unset(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        session.create_task("T", under=session.find("Job"))
+        assert "order" not in ado.patched[-1]
+
+    def test_job_takes_icon_and_order(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        phase = session.native_phase(session.resolve_task("Run workflow"))
+        job = session.create_job(
+            "J", under=phase, icon=StatusIcon.GREY, order=RecordOrder.LAST
+        )
+        stored = ado.records[str(job.record_id)]
+        assert stored["refName"] == "JobExtension"
+        assert stored["order"] == RecordOrder.LAST
+
+    def test_icon_is_chosen_at_creation(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        grey = session.create_task("G", under=session.find("Job"), icon=StatusIcon.GREY)
+        green = session.create_task("C", under=session.find("Job"))
+        assert ado.records[str(grey.record_id)]["refName"] == "JobExtension"
+        assert ado.records[str(green.record_id)]["refName"] == "CmdLine1"
+
+    def test_there_is_no_way_to_change_the_icon_later(
+        self, session: TimelineSession
+    ) -> None:
+        assert not hasattr(session, "set_icon")
+
+    def test_order_constants(self) -> None:
+        assert int(RecordOrder.FIRST) == 0
+        assert int(RecordOrder.LAST) == 2_147_483_646
+
+
+class TestWarnings:
+    """Things the portal stores but does not draw."""
+
+    def test_completed_job_warns(self, session: TimelineSession) -> None:
+        phase = session.native_phase(session.resolve_task("Run workflow"))
+        with pytest.warns(UserWarning, match="COMPLETED"):
+            session.create_job("J", under=phase, state=BuildRecordState.COMPLETED)
+
+    def test_running_job_does_not_warn(self, session: TimelineSession) -> None:
+        phase = session.native_phase(session.resolve_task("Run workflow"))
+        with warnings_as_errors():
+            session.create_job("J", under=phase)
+
+    def test_third_task_level_warns(self, session: TimelineSession) -> None:
+        job = session.find("Job")
+        first = session.create_task("L1", under=job)
+        second = session.create_task("L2", under=first)
+        with pytest.warns(UserWarning, match="two levels"):
+            session.create_task("L3", under=second)
+
+    def test_second_task_level_does_not_warn(self, session: TimelineSession) -> None:
+        job = session.find("Job")
+        first = session.create_task("L1", under=job)
+        with warnings_as_errors():
+            session.create_task("L2", under=first)
+
+
+def warnings_as_errors() -> Any:
+    """Return a context manager that turns every warning into an error.
+
+    Returns:
+        The context manager.
+    """
+    return warnings.catch_warnings(action="error")
+
+
+class TestStageIsRefused:
+    """A dynamic Stage record breaks the build's results page."""
+
+    def test_a_stage_write_is_refused(self) -> None:
+        with pytest.raises(AzureDevOpsSessionError, match="Build not found"):
+            _RecordWrite(id=uuid4(), type_name=BuildRecordType.STAGE)
+
+    def test_other_types_are_allowed(self) -> None:
+        assert _RecordWrite(id=uuid4(), type_name=BuildRecordType.JOB).type_name
+
+
+class TestLogIdCache:
+    """The log id is read from the timeline once per record."""
+
+    def test_second_append_does_not_read_the_timeline(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        ado.records[str(STEP)]["log"] = {
+            "id": 5,
+            "type": "Container",
+            "url": "https://dev.azure.com/org/p/_apis/build/builds/1/logs/5",
+        }
+        ado.logs[5] = []
+        step = session.resolve_task("Run workflow")
+        session.append_log(step, "one")
+        reads = sum(1 for m, u in ado.requests_seen if u.endswith("/timeline"))
+        session.append_log(step, "two")
+        assert sum(1 for m, u in ado.requests_seen if u.endswith("/timeline")) == reads
+        assert ado.logs[5] == ["one\n", "two\n"]
+
+
+class TestCompleteResult:
+    """The outcome of a completed step."""
+
+    def test_skipped(self, session: TimelineSession, ado: FakeAdo) -> None:
+        session.complete(
+            session.resolve_task("Run workflow"), result=JobEventResult.SKIPPED
+        )
+        assert ado.events[0]["result"] == "skipped"
+
+    def test_result_wins_over_succeeded(
+        self, session: TimelineSession, ado: FakeAdo
+    ) -> None:
+        session.complete(
+            session.resolve_task("Run workflow"),
+            succeeded=False,
+            result=JobEventResult.SUCCEEDED,
+        )
+        assert ado.events[0]["result"] == "succeeded"

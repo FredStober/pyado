@@ -50,6 +50,7 @@ __all__ = [
     "PipelineRunRequest",
     "PipelineRunResult",
     "PipelineRunState",
+    "PlanTimelineInfo",
     "TimelineRecordsUpdatePayload",
     "get_job_api_call",
     "get_log_api_call",
@@ -60,6 +61,7 @@ __all__ = [
     "iter_approvals",
     "iter_pipeline_runs",
     "iter_pipelines",
+    "iter_plan_timelines",
     "list_approvals",
     "list_pipeline_runs",
     "list_pipelines",
@@ -71,6 +73,7 @@ __all__ = [
     "post_job_logs",
     "post_new_log",
     "post_pipeline_run",
+    "post_plan_timeline",
 ]
 
 JobId: TypeAlias = UUID
@@ -88,10 +91,20 @@ class JobEventName(StrEnum):
 
 
 class JobEventResult(StrEnum):
-    """Outcome value reported with a job completion event."""
+    """Outcome value reported with a job completion event.
+
+    Measured against a live organisation (``TaskCompleted`` on an agentless
+    ``InvokeRESTAPI`` job, HTTP 204 for all three):
+
+    * ``SUCCEEDED``: the task and the job succeed, the pipeline continues.
+    * ``FAILED``: the task and the job fail.
+    * ``SKIPPED``: the task ends ``skipped`` and the job still ``succeeded``,
+      so the pipeline continues.
+    """
 
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    SKIPPED = "skipped"
 
 
 class PipelineRunState(StrEnum):
@@ -496,6 +509,55 @@ def get_job_api_call(
     return api_call.build_call("records", job_id)
 
 
+class PlanTimelineInfo(AdoBaseModel, extra="ignore"):
+    """One timeline of a plan.
+
+    A plan always has the root timeline (its id equals the plan id).  An agent
+    job that runs ``##vso[task.logdetail]`` adds a second one: those records
+    are **not** in the root timeline that ``iter_timeline_records`` reads.
+    """
+
+    id: TimelineId
+    change_id: int | None = None
+    location: str | None = None
+
+
+class _PlanTimelineInfos(AdoBaseModel):
+    value: list[PlanTimelineInfo]
+
+
+def iter_plan_timelines(plan_api_call: ApiCall) -> Iterator[PlanTimelineInfo]:
+    """Iterate over the timelines of a plan.
+
+    Args:
+        plan_api_call: Plan-level call (from :func:`get_plan_api_call`).
+
+    Yields:
+        The root timeline and any extra timelines (for example the one that
+        ``task.logdetail`` records go to).
+    """
+    response = plan_api_call.get("timelines", version="7.1")
+    yield from _PlanTimelineInfos.model_validate(response).value
+
+
+def post_plan_timeline(plan_api_call: ApiCall, timeline_id: TimelineId) -> None:
+    """Create an extra timeline in a plan.
+
+    Behaviour measured against a live organisation: the call answers HTTP 200
+    and ``iter_plan_timelines`` then lists it.  Records written to an extra
+    timeline are not drawn in the build's root tree.
+
+    Args:
+        plan_api_call: Plan-level call.
+        timeline_id: The id to give the new timeline.
+    """
+    plan_api_call.post(
+        "timelines",
+        version="7.1",
+        json={"id": str(timeline_id), "changeId": 0},
+    )
+
+
 def get_log_api_call(
     project_api_call: ApiCall,
     hub_name: str,
@@ -580,6 +642,25 @@ def post_job_feed(job_api_call: ApiCall, payload: JobFeedPayload) -> None:
 def post_job_logs(log_api_call: ApiCall, message: str) -> None:
     """Sends messages to the log of the running task.
 
+    Behaviour measured against a live organisation:
+
+    * The server ends **every append with a CR LF pair**, so appends are not
+      concatenated: appending ``x`` and then ``y`` plus a newline reads back as
+      ``x``, CR LF, ``y``, CR LF.  Send whole lines, one append per flush.
+    * A multibyte character split across two appends is corrupted; keep each
+      append on character boundaries.
+    * One append of 4 MiB worked and 16 MiB timed out client-side; stay near
+      1 MiB.  Parallel appends were neither lost nor torn (per-thread order is
+      kept; the order between threads is not).
+    * ``application/octet-stream`` (what this function sends) works with a PAT
+      and with the System token; a PAT is rejected for ``text/plain``.
+    * An append made before the log is attached to a record is kept.  Text
+      appended after ``TaskCompleted`` can be read through the build logs API
+      but the portal's task pane does not show it.
+    * A record that an outsider created has no log until one is allocated
+      (:func:`post_new_log`) and attached; a *running agent task* gets one the
+      same way (allocate, attach with :func:`patch_timeline_records`, append).
+
     Reference: https://github.com/MicrosoftDocs/vsts-rest-api-specs/blob/master
     /specification/distributedTask/7.1/httpExamples/logs/
     POST__distributedtask_AppendLogContent_.json
@@ -599,6 +680,24 @@ def post_job_event(plan_api_call: ApiCall, payload: JobEventPayload) -> None:
     (found by its display name) as ``task_id`` and ``job_id``, not the
     ``SYSTEM_TASKINSTANCEID`` / ``SYSTEM_JOBID`` variables.
 
+    Behaviour measured against a live organisation:
+
+    * The call returns HTTP 204.  ``task_id`` **is** resolved: a made-up
+      ``task_id`` with the real ``job_id`` answers HTTP 404 ``No job found with
+      identifier ...`` and changes nothing.  The same 404 follows once the job
+      has ended; a missing orchestration session gives a different "session ...
+      not found" message.
+    * ``result`` decides how the task ends, see :class:`JobEventResult`.
+    * Only the task is completed.  Records an external writer created and left
+      ``inProgress`` are *not* finished here; when the build ends they take the
+      **build's** result (``pending`` ones become ``abandoned``), whichever job
+      they sit under.
+    * An event ``name`` that ADO does not know is accepted (HTTP 204) and does
+      nothing, so a typo is not reported.
+    * A task that is never completed ends when its job's ``timeoutInMinutes``
+      expires: the task is ``canceled`` and the job ``failed`` (a *task*-level
+      timeout gives a ``failed`` task instead).
+
     Reference: https://github.com/MicrosoftDocs/vsts-rest-api-specs/blob/master
     /specification/distributedTask/7.1/httpExamples/events/
     POST_distributedtask_PostEvent.json
@@ -614,7 +713,47 @@ def patch_timeline_records(
     timeline_api_call: ApiCall,
     payload: TimelineRecordsUpdatePayload,
 ) -> None:
-    """Update the timeline records."""
+    """Create or update timeline records.
+
+    This is the low-level write: *payload* must hold complete
+    :class:`~pyado.raw.BuildRecordInfo` objects, so a partial update (a few
+    fields of an existing record) is not possible here;
+    :class:`~pyado.oop.TimelineSession` sends partial writes instead.
+
+    Behaviour measured against a live organisation (the server validates very
+    little):
+
+    * The URL must carry the **project id**, not the project name: with the name
+      the server answers an empty HTTP 400, while reads accept either.
+    * A record id that exists is **overwritten** (an upsert): name, state and
+      the other fields change, ``type`` and ``parent_id`` keep their first value.
+      A partial update of an unknown id is HTTP 400.  The id of a *native*
+      record can be overwritten too, which renames it.
+    * ``count`` is ignored.  The same id twice in one batch is HTTP 500; an empty
+      batch is HTTP 400; 2000 records in one call were accepted.
+    * An explicit ``None`` is ignored (a field cannot be cleared), except that
+      ``percent_complete=0`` is stored.  ``result`` cannot be reset either.
+      Completing a record clears its ``percent_complete`` and
+      ``current_operation``.
+    * ``name`` is cut to 512 characters.  An issue of an unknown ``type`` is
+      stored as ``error``.  ``warning_count`` / ``error_count`` are derived
+      from the issues that were sent and do not fall when the list shrinks.
+    * There is no optimistic concurrency; the last writer wins.
+    * ``type`` is not validated.  The reader maps unknown types to
+      :attr:`~pyado.raw.BuildRecordType.OTHER`.
+    * **A dynamic ``Stage`` record breaks the build's results page.**  The
+      server accepts it (HTTP 200), but the portal then shows "Build not found"
+      instead of the summary, the Errors/Warnings tabs and the stage list, also
+      after the build ends; no way to undo this is known.  This function does
+      **not** guard against it (it is a thin transport and may legitimately
+      patch a *native* Stage, e.g. its ``result``); the :mod:`pyado.oop` layer
+      refuses new Stage records.  Callers of this function must not create one.
+    * A write into a finished build is accepted and drawn.
+    * What the portal draws: a ``Job`` only under a native ``Phase`` (also on the
+      stage card and in the Jobs tab); a ``Job`` under a ``Stage`` or another
+      ``Job`` gets no row; ``Task`` nesting is drawn two levels deep; ``Phase``
+      and ``Checkpoint*`` records are not drawn.
+    """
     timeline_api_call.patch(
         "records",
         version="7.1",

@@ -2,6 +2,7 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
+from typing import ClassVar
 from unittest.mock import patch
 
 import requests
@@ -237,3 +238,45 @@ class TestApprovalCheckSettings:
         assert settings.approvers == []
         assert not settings.instructions
         assert settings.required_approver_count == 1
+
+
+class TestDeploymentRecordFields:
+    """The fields the server really sends (measured against a live org)."""
+
+    LIVE: ClassVar[dict[str, object]] = {
+        "id": 122,
+        "requestIdentifier": "p.stagedeploy.deploytodev",
+        "environmentId": 1,
+        "planType": "Build",
+        "planId": "ffd0249a-7610-46e4-a481-7184f0fabf67",
+        "stageName": "StageDeploy",
+        "jobName": "DeployToDev",
+        "stageAttempt": 1,
+        "jobAttempt": 2,
+        "definition": {"id": 1, "name": "onpremise", "_links": {}},
+        "owner": {"id": 2375, "name": "20261123.1", "_links": {}},
+        "result": "succeeded",
+        "queueTime": "2026-11-23T01:42:53.5206404Z",
+        "startTime": "2026-11-23T01:42:53.7227727Z",
+        "finishTime": "2026-11-23T01:43:06.2718298Z",
+    }
+
+    def test_nested_definition_fills_the_name(self) -> None:
+        """definition.name is the only place the API sends the name."""
+        record = EnvironmentDeploymentRecord.model_validate(self.LIVE)
+        assert record.definition_name == "onpremise"
+
+    def test_stage_job_plan_and_build_are_read(self) -> None:
+        record = EnvironmentDeploymentRecord.model_validate(self.LIVE)
+        assert (record.stage_name, record.job_name) == ("StageDeploy", "DeployToDev")
+        assert record.job_attempt == 2
+        assert record.plan_id == "ffd0249a-7610-46e4-a481-7184f0fabf67"
+        assert record.build_id == 2375
+        assert record.queue_time is not None
+
+    def test_flat_definition_name_still_works(self) -> None:
+        record = EnvironmentDeploymentRecord.model_validate(
+            {"id": 1, "definitionName": "CI"}
+        )
+        assert record.definition_name == "CI"
+        assert record.build_id is None

@@ -6,8 +6,10 @@ from typing import cast
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+import pytest
 import requests
 
+from pyado.exceptions import AzureDevOpsSessionError
 from pyado.oop import Pipeline, Project
 from pyado.oop.pipelines._build import (
     approve_pipeline,
@@ -115,6 +117,17 @@ class TestUpdateTimelineRecords:
         assert call.args[0] == "PATCH"
         sent_json = call.kwargs.get("json") or {}
         assert sent_json.get("count") == 1
+
+    @staticmethod
+    def test_refuses_a_stage_record(api_call: ApiCall) -> None:
+        """A Stage record breaks the build's results page, so it is not sent."""
+        record = BuildRecordInfo.model_validate(make_build_record_dict(type="Stage"))
+        with (
+            patch.object(requests.Session, "request") as mock_req,
+            pytest.raises(AzureDevOpsSessionError, match="Build not found"),
+        ):
+            update_timeline_records(api_call, [record])
+        mock_req.assert_not_called()
 
 
 class TestIterPendingApprovals:
