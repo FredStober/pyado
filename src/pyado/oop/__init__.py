@@ -72,6 +72,7 @@ __all__ = [
     "Branch",
     "Build",
     "BuildPolicy",
+    "CodeCoverage",
     "CommentRequirementsPolicy",
     "Commit",
     "CommitAuthorEmailPolicy",
@@ -115,6 +116,8 @@ __all__ = [
     "Tag",
     "TaskGroup",
     "Team",
+    "TestResult",
+    "TestRun",
     "TimelineSession",
     "TimelineTarget",
     "VariableGroup",
@@ -138,6 +141,7 @@ from pyado.oop.overview.wiki import Wiki
 from pyado.oop.pipelines import PipelineLibrary, ProjectPipelines
 from pyado.oop.pipelines.agent import Agent, AgentPool, AgentQueue
 from pyado.oop.pipelines.build import Build
+from pyado.oop.pipelines.build_tests import CodeCoverage, TestResult, TestRun
 from pyado.oop.pipelines.environment import Environment
 from pyado.oop.pipelines.log_format import LogLines
 from pyado.oop.pipelines.pipeline import Pipeline, PipelineRun

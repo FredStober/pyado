@@ -1959,6 +1959,68 @@ for tag in iter_build_tags(build_api):
 delete_build_tag(build_api, "release-candidate")
 ```
 
+### Test runs and code coverage
+
+The build page's **Tests** and **Code Coverage** tabs map onto three classes.
+A build can have **many test runs** (for example one per matrix job), and the
+API stores the coverage **per flavor/platform pair** (both empty when nothing
+was given; the portal's "Build configuration | Build platform" selector may show
+fewer entries than the API returns, see the notes):
+
+```python
+build = project.pipelines.get_build(2482)
+
+for run in build.iter_test_runs():  # TestRun
+    print(run.name, run.flavor, run.platform)
+    for result in run.iter_results():  # TestResult (ids restart per run)
+        print("  ", result.name, result.outcome)
+
+for entry in build.iter_code_coverage():  # CodeCoverage, one per pair
+    print(entry.flavor, entry.platform, entry.percent("line"), entry.percent("branch"))
+
+debug = build.get_code_coverage("Debug", "x64")  # one pair, or None
+cover = build.get_coverage_for_run(run)  # the entry matching a run
+all_results = build.list_test_results()  # flat, like the Tests tab
+```
+
+Notes:
+
+* The run list does not contain the pair; `run.flavor` and `run.platform` read
+  the run once, on first access.
+* `entry.stat("line")` finds a figure by label (case-insensitive prefix, as the
+  service renames `line` to `Lines` when the build ends); the server does not
+  order the figures.
+* A result id is unique only inside its run, so a `TestResult` keeps `result.run`.
+* **Do not tag runs with a flavor/platform when the build also publishes coverage.**
+  Measured: a build with such a run never finalises its coverage (it stays
+  `inProgress`, the Code Coverage tab stays empty). Runs without a pair are fine, and
+  the Tests tab does not show the pair.
+* `build.iter_test_runs()` skips deleted runs (the API still lists them with
+  state `"255"`, and reading them answers 404); pass `include_deleted=True` to
+  see them and use `run.is_deleted` to tell them apart.
+* When a build that ran an agent job ends, the service finalises the coverage
+  (`status` becomes `finalized`) and, if per-file coverage was posted, may add an
+  entry **without a pair** whose figure is derived from the files (label `Lines`).
+  Look entries up by pair, not by position.  On such a build the portal's
+  selector listed **only** that pair-less entry (measured), not the pairs
+  written with `post_code_coverage`.
+* The Tests tab shows one row per run with its result count (`(2/2)`).  A run
+  without results was not listed, and the summary counted only the completed
+  runs.
+* The Code Coverage tab shows nothing for a build that ended without running an
+  agent job, although the API still returns the entries.
+
+Task summaries (the Extensions tab) are written with
+`build.add_summaries(record_id, {"name.md": "markdown"})` (record ids from `build.find_task`)
+and read with `build.iter_summaries()`.  They need the project **id** in the URL; the method
+does that for you.  Coverage is written with `build.publish_code_coverage(files, flavor=, platform=)`
+and a report with `build.publish_coverage_report({...})`.  The portal's Code Coverage view
+showed only the entry derived from the **last** file upload.
+
+Timeline attachments and the build's file container are on `Build` as well:
+`build.iter_attachments(SUMMARY_ATTACHMENT_TYPE)`, `build.iter_container_items()`
+and `build.get_container_file(path)`.
+
 ### Work items associated with a build
 
 ```python

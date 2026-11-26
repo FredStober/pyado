@@ -2,16 +2,19 @@
 # Copyright (c) 2023, Fred Stober
 # SPDX-License-Identifier: MIT
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+from uuid import UUID
 
 from pyado import raw
 from pyado.oop.pipelines import _build
+from pyado.oop.pipelines.build_tests import CodeCoverage, TestResult, TestRun
 from pyado.oop.pipelines.pipeline import Pipeline, PipelineRun
 from pyado.raw import (
     ApiCall,
     BuildArtifact,
+    BuildAttachmentInfo,
     BuildDetails,
     BuildExpand,
     BuildLogId,
@@ -19,9 +22,13 @@ from pyado.raw import (
     BuildRecordInfo,
     BuildResult,
     BuildStatus,
+    ContainerItem,
+    FileCoverage,
     PipelineApproval,
     PipelineApprovalStatus,
     PipelineRunInfo,
+    TestRunCreate,
+    TestRunState,
     WorkItemId,
 )
 
@@ -343,6 +350,317 @@ class Build:
             Raw artifact bytes, or ``None`` if no download URL is available.
         """
         return raw.get_build_artifact_bytes(self._api_call, artifact)
+
+    # ------------------------------------------------------------------
+    # Tests tab and Code Coverage tab
+    # ------------------------------------------------------------------
+
+    def iter_test_runs(self, *, include_deleted: bool = False) -> Iterator[TestRun]:
+        """Iterate over the test runs of the build (the Tests tab groups).
+
+        A build can have many runs, for example one per matrix job.  A deleted
+        run is still listed by the API (state ``"255"``) but cannot be read, so
+        it is skipped like the portal does.
+
+        Args:
+            include_deleted: Also yield the deleted runs.
+
+        Yields:
+            A :class:`TestRun` for each run.
+        """
+        for info in raw.iter_build_test_runs(self._project.api_call, self.id):
+            run = TestRun(self, info)
+            if include_deleted or not run.is_deleted:
+                yield run
+
+    def list_test_runs(self, *, include_deleted: bool = False) -> list[TestRun]:
+        """Return the test runs of this build as a list."""
+        return list(self.iter_test_runs(include_deleted=include_deleted))
+
+    def add_test_run(
+        self,
+        name: str,
+        *,
+        flavor: str | None = None,
+        platform: str | None = None,
+        comment: str | None = None,
+        state: Literal[TestRunState.NOT_STARTED, TestRunState.IN_PROGRESS] = (
+            TestRunState.IN_PROGRESS
+        ),
+    ) -> TestRun:
+        """Create a test run for this build.
+
+        The flavor and platform tag the run; the same pair on a coverage entry
+        links the two (see :meth:`get_coverage_for_run`).
+
+        **Warning (measured):** in a build that has a run with a non-empty
+        flavor or platform, the coverage stays ``inProgress`` after the build
+        ends: it is never finalised, no entry without a pair is derived, and the
+        Code Coverage tab stays empty.  Runs without a pair, and builds without
+        runs, finalise normally.  The pair on a run is not shown by the Tests tab
+        (it groups by run name).  Leave ``flavor`` and ``platform`` unset when
+        the build also publishes coverage.
+
+        A run is created
+        ``InProgress``; close it with :meth:`TestRun.complete` after its results
+        are added.  An in-progress run without results was not listed by the portal
+        (measured; the two causes were not separated).
+
+        Args:
+            name: Run name, shown as the group row of the Tests tab.
+            flavor: Build flavor (configuration), for example ``"Debug"``.
+            platform: Build platform, for example ``"x64"``.
+            comment: Optional run comment.
+            state: ``NotStarted`` or ``InProgress`` (a run cannot start completed).
+
+        Returns:
+            The created run.
+        """
+        request = TestRunCreate(
+            name=name,
+            build={"id": self.id},
+            build_flavor=flavor,
+            build_platform=platform,
+            comment=comment,
+            state=state,
+        )
+        info = raw.post_test_run(self._project.api_call, request)
+        return TestRun(self, info)
+
+    def iter_test_results(self) -> Iterator["TestResult"]:
+        """Iterate over the results of all runs, like the flat Tests tab.
+
+        Yields:
+            A :class:`TestResult` for each result; ``result.run`` tells which
+            run it belongs to.
+        """
+        for run in self.iter_test_runs():
+            yield from run.iter_results()
+
+    def list_test_results(self) -> list["TestResult"]:
+        """Return the results of all runs as a list."""
+        return list(self.iter_test_results())
+
+    def iter_code_coverage(self) -> Iterator[CodeCoverage]:
+        """Iterate over the coverage entries (one per flavor/platform pair).
+
+        These are the entries of the Code Coverage tab's "Build configuration |
+        Build platform" selector.  Nothing is yielded when the build has no
+        coverage.
+
+        Yields:
+            A :class:`CodeCoverage` for each pair.
+        """
+        summary = raw.get_code_coverage(self._project.api_call, self.id)
+        for data in summary.coverage_data:
+            yield CodeCoverage(self, data, summary.status)
+
+    def list_code_coverage(self) -> list[CodeCoverage]:
+        """Return all coverage entries of this build as a list."""
+        return list(self.iter_code_coverage())
+
+    def publish_code_coverage(
+        self,
+        files: list[FileCoverage],
+        *,
+        flavor: str = "",
+        platform: str = "",
+        label: str = "line",
+    ) -> None:
+        """Write the coverage of this build the way the publish task does.
+
+        Stores the per-file line status and one figure (computed from the files)
+        under the given flavor/platform pair.  Do it while the build runs, or
+        shortly after.  When the build ends after an agent job, the service
+        adds an entry without a pair, derived from the files; the portal listed
+        only that entry in the measurements (see ``docs/usage.md``).
+
+        Args:
+            files: Line status per source file (absolute agent paths).
+            flavor: Build flavor (configuration) of the figure.
+            platform: Build platform of the figure.
+            label: Figure label; the service renames ``line`` to ``Lines``.
+        """
+        raw.publish_code_coverage(
+            self._project.api_call,
+            self.id,
+            files,
+            label=label,
+            build_flavor=flavor,
+            build_platform=platform,
+        )
+
+    def publish_coverage_report(self, files: dict[str, bytes]) -> "raw.BuildArtifact":
+        """Upload a coverage report folder, so the Code Coverage tab shows it.
+
+        Args:
+            files: Path inside the report folder to content; needs an
+                ``index.html`` and no empty file.
+
+        Returns:
+            The created artifact.
+
+        Raises:
+            ValueError: If the build has no file container.
+        """
+        container_id = raw.get_build_container_id(self._project.api_call, self.id)
+        if container_id is None:
+            msg = f"build {self.id} has no file container"
+            raise ValueError(msg)
+        return raw.publish_coverage_report(
+            self._service.oop_api.org_base_api_call,
+            self._project.api_call,
+            self.id,
+            container_id,
+            files,
+        )
+
+    def get_code_coverage(
+        self, flavor: str = "", platform: str = ""
+    ) -> CodeCoverage | None:
+        """Find the coverage entry of one flavor/platform pair.
+
+        Args:
+            flavor: Build flavor (configuration); empty for the entry without one.
+            platform: Build platform; empty for the entry without one.
+
+        Returns:
+            The entry, or ``None`` when the build has none for that pair.
+        """
+        for coverage in self.iter_code_coverage():
+            if coverage.flavor == flavor and coverage.platform == platform:
+                return coverage
+        return None
+
+    def get_coverage_for_run(self, run: TestRun) -> CodeCoverage | None:
+        """Find the coverage entry that belongs to a test run.
+
+        The run and the entry are linked by their flavor/platform pair.
+
+        Args:
+            run: A run of this build.
+
+        Returns:
+            The matching entry, or ``None`` when there is none.
+        """
+        return self.get_code_coverage(run.flavor, run.platform)
+
+    # ------------------------------------------------------------------
+    # Timeline attachments and the build file container
+    # ------------------------------------------------------------------
+
+    def iter_attachments(self, attachment_type: str) -> Iterator[BuildAttachmentInfo]:
+        """Iterate over the timeline attachments of one type.
+
+        Args:
+            attachment_type: For example ``raw.SUMMARY_ATTACHMENT_TYPE`` for the
+                task summaries of the Extensions tab.
+
+        Yields:
+            BuildAttachmentInfo for each attachment.
+        """
+        yield from raw.iter_build_attachments(
+            self._project.api_call, self.id, attachment_type
+        )
+
+    def list_attachments(self, attachment_type: str) -> list[BuildAttachmentInfo]:
+        """Return the timeline attachments of one type as a list."""
+        return list(self.iter_attachments(attachment_type))
+
+    def iter_summaries(self) -> Iterator[BuildAttachmentInfo]:
+        """Iterate over the task summaries (cards of the Extensions tab).
+
+        Yields:
+            BuildAttachmentInfo for each summary; ``record_id`` tells which
+            timeline record owns it (a name can appear on several records).
+        """
+        yield from raw.iter_build_summaries(self._project.api_call, self.id)
+
+    def list_summaries(self) -> list[BuildAttachmentInfo]:
+        """Return all task summaries of this build as a list."""
+        return list(self.iter_summaries())
+
+    def add_summaries(
+        self, record_id: UUID, summaries: Mapping[str, str | bytes]
+    ) -> None:
+        """Attach summaries (markdown cards) to a Task or Job record.
+
+        Each entry becomes a card of the Extensions tab, titled by the file name.
+        A summary is identified by record plus name: an existing name is
+        replaced.  This also works on a build that has already finished.  A
+        summary cannot be deleted.
+
+        Args:
+            record_id: Id of a Task or Job record (see :meth:`find_task`).
+            summaries: File name to markdown or HTML (text is sent as UTF-8).
+
+        Raises:
+            ValueError: If the build has no timeline yet.
+        """
+        timeline = self._api_call.get("timeline", version="7.1")
+        plan = timeline.get("id") if isinstance(timeline, dict) else None
+        if plan is None:
+            msg = f"build {self.id} has no timeline yet"
+            raise ValueError(msg)
+        timeline_call = raw.get_timeline_api_call(
+            self._project_id_api_call(), "build", UUID(str(plan)), UUID(str(plan))
+        )
+        raw.put_record_summaries(timeline_call, str(record_id), summaries)
+
+    def _project_id_api_call(self) -> ApiCall:
+        """Project call addressed by the project *id*.
+
+        The ``distributedtask`` write routes answer an empty HTTP 400 when the URL
+        carries the project name (measured), so they need this call.
+
+        Returns:
+            The project-level call with the project UUID in the URL.
+        """
+        return self._service.oop_api.make_project_api_call(str(self._project.id))
+
+    def _container_api_call(self) -> ApiCall | None:
+        """Call for the build's file container, or ``None`` if it has none.
+
+        Returns:
+            The container call, or ``None``.
+        """
+        container_id = raw.get_build_container_id(self._project.api_call, self.id)
+        if container_id is None:
+            return None
+        return raw.get_container_api_call(
+            self._service.oop_api.org_base_api_call, container_id
+        )
+
+    def iter_container_items(self, path: str = "") -> Iterator[ContainerItem]:
+        """Iterate over the files and folders of the build's file container.
+
+        Args:
+            path: Folder below the container root; empty for the root.
+
+        Yields:
+            A ContainerItem for each file or folder (nothing without a container).
+        """
+        container = self._container_api_call()
+        if container is not None:
+            yield from raw.iter_container_items(container, path)
+
+    def list_container_items(self, path: str = "") -> list[ContainerItem]:
+        """Return the container items below ``path`` as a list."""
+        return list(self.iter_container_items(path))
+
+    def get_container_file(self, path: str) -> bytes | None:
+        """Read one file of the build's file container.
+
+        Args:
+            path: File path inside the container.
+
+        Returns:
+            The bytes, or ``None`` when the build has no container.
+        """
+        container = self._container_api_call()
+        if container is None:
+            return None
+        return raw.get_container_item_bytes(container, path)
 
     # ------------------------------------------------------------------
     # Tags

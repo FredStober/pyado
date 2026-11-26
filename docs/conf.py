@@ -12,5 +12,5 @@ extensions = [
     "myst_parser",
 ]
 autodoc_typehints = "description"
-myst_heading_anchors = 3
+myst_heading_anchors = 4
 html_theme = "furo"

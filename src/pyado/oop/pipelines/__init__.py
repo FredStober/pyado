@@ -9,6 +9,7 @@ object — plus re-exports of all resource classes in this sub-package.
 
 from pyado.oop.pipelines.agent import Agent, AgentPool, AgentQueue
 from pyado.oop.pipelines.build import Build
+from pyado.oop.pipelines.build_tests import CodeCoverage, TestResult, TestRun
 from pyado.oop.pipelines.environment import Environment
 from pyado.oop.pipelines.log_format import LogLines
 from pyado.oop.pipelines.pipeline import Pipeline, PipelineRun
@@ -30,6 +31,7 @@ __all__ = [
     "AgentPool",
     "AgentQueue",
     "Build",
+    "CodeCoverage",
     "Environment",
     "LogLines",
     "Pipeline",
@@ -41,6 +43,8 @@ __all__ = [
     "ServiceEndpoint",
     "StatusIcon",
     "TaskGroup",
+    "TestResult",
+    "TestRun",
     "TimelineSession",
     "TimelineTarget",
     "VariableGroup",

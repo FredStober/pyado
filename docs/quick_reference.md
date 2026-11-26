@@ -340,6 +340,24 @@ Obtained via `Project.get_build`, `Project.iter_builds`, `Project.start_build`.
 | `.iter_work_items()` | `-> Iterator[WorkItem]` | Linked work items (batch-fetched) |
 | `.iter_work_items_between(older_build, *, top)` | `-> Iterator[WorkItem]` | Work items in build range (exclusive lower bound) |
 | `.iter_work_item_ids_between(older_build, *, top)` | `-> Iterator[int]` | Work item IDs in build range |
+| `.iter_test_runs()` | `-> Iterator[TestRun]` | Test runs of the build (many per build possible) |
+| `.iter_test_results()` | `-> Iterator[TestResult]` | Results of all runs, flat like the Tests tab |
+| `.iter_code_coverage()` | `-> Iterator[CodeCoverage]` | One entry per flavor/platform pair |
+| `.get_code_coverage(flavor, platform)` | `(str, str) -> CodeCoverage \| None` | Coverage of one pair (empty strings = no pair) |
+| `.get_coverage_for_run(run)` | `(TestRun) -> CodeCoverage \| None` | The entry matching a run's pair |
+| `.iter_attachments(type)` | `(str) -> Iterator[BuildAttachmentInfo]` | Timeline attachments of one type |
+| `.iter_container_items(path)` | `(str) -> Iterator[ContainerItem]` | Files in the build's file container |
+| `.get_container_file(path)` | `(str) -> bytes \| None` | One container file (`None` without a container) |
+
+### `TestRun`, `TestResult`, `CodeCoverage`
+
+Obtained from `Build.iter_test_runs()`, `TestRun.iter_results()` and `Build.iter_code_coverage()`.
+
+| Class | Members |
+|---|---|
+| `TestRun` | `.id`, `.name`, `.build`, `.flavor`, `.platform` (lazy, one GET), `.refresh()`, `.iter_results()`, `.iter_attachments()`, `.get_attachment_bytes(att)` |
+| `TestResult` | `.id` (unique per run only), `.run`, `.outcome`, `.name`, `.iter_attachments()`, `.get_attachment_bytes(att)` |
+| `CodeCoverage` | `.flavor`, `.platform`, `.status`, `.stats`, `.stat(label)`, `.percent(label)` |
 
 ---
 

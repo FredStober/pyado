@@ -587,7 +587,17 @@ class TestPublishCodeCoverage:
                 side_effect=write_figures,
             ) as figures,
         ):
-            publish_code_coverage(ApiCall(url=PROJECT_CALL_URL), 9, FILES)
+            publish_code_coverage(
+                ApiCall(url=PROJECT_CALL_URL),
+                9,
+                FILES,
+                build_flavor="Debug",
+                build_platform="x64",
+            )
         assert order == ["files", "figures"]
         stats = figures.call_args.args[2]
         assert (stats[0].label, stats[0].covered, stats[0].total) == ("line", 2, 3)
+        assert figures.call_args.kwargs == {
+            "build_flavor": "Debug",
+            "build_platform": "x64",
+        }

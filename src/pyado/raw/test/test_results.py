@@ -176,8 +176,22 @@ class TestRunUpdate(AdoBaseModel):
     completed_date: datetime | None = None
 
 
+class _BuildConfiguration(AdoBaseModel, extra="ignore"):
+    """The build's flavor and platform stored on a run."""
+
+    flavor: str = ""
+    platform: str = ""
+
+
 class TestRunInfo(AdoBaseModel, extra="ignore"):
-    """A test run as returned by the API."""
+    """A test run as returned by the API.
+
+    ``build_configuration`` is only sent by :func:`get_test_run`; the list calls
+    (:func:`iter_build_test_runs`) leave it out, so :attr:`build_flavor` and
+    :attr:`build_platform` are ``None`` there (measured).  A run created without
+    a pair reads back as two empty strings, exactly like a coverage entry
+    without one.
+    """
 
     __test__ = False
 
@@ -187,6 +201,21 @@ class TestRunInfo(AdoBaseModel, extra="ignore"):
     total_tests: int | None = None
     passed_tests: int | None = None
     unanalyzed_tests: int | None = None
+    build_configuration: _BuildConfiguration | None = None
+
+    @property
+    def build_flavor(self) -> str | None:
+        """Build flavor (configuration, e.g. ``Debug``); ``None`` when not sent."""
+        if self.build_configuration is None:
+            return None
+        return self.build_configuration.flavor
+
+    @property
+    def build_platform(self) -> str | None:
+        """Build platform (e.g. ``x64``); ``None`` when not sent."""
+        if self.build_configuration is None:
+            return None
+        return self.build_configuration.platform
 
 
 class _TestRunResults(AdoBaseModel):
@@ -770,7 +799,9 @@ def post_code_coverage(
         test_results_api_call: From :func:`get_test_results_api_call`.
         build_id: The build.
         stats: The figures, for example ``label="line"``, ``position=4``.
-        build_platform: Platform text (usually empty).
+        build_platform: Platform text (usually empty).  The API stores and
+            returns one entry per pair, but the portal's Code Coverage tab
+            did not list pairs written this way (measured).
         build_flavor: Flavor text (usually empty).
     """
     body = {
@@ -837,6 +868,8 @@ def publish_code_coverage(
     files: list[FileCoverage],
     *,
     label: str = "line",
+    build_flavor: str = "",
+    build_platform: str = "",
 ) -> None:
     """Write the coverage of a build the way ``PublishCodeCoverageResults@2`` does.
 
@@ -860,6 +893,10 @@ def publish_code_coverage(
         build_id: The build.
         files: Line status per source file.
         label: Label of the figure; the service rewrites ``line`` to ``Lines``.
+        build_flavor: Flavor (configuration) the figure is stored under.
+        build_platform: Platform the figure is stored under.  The per-file data
+            carries no pair, and the service derives a further entry without
+            one from it when the build ends (measured).
     """
     results = get_test_results_api_call(project_api_call)
     covered = sum(
@@ -871,4 +908,6 @@ def publish_code_coverage(
         results,
         build_id,
         [CodeCoverageStats(label=label, position=4, total=total, covered=covered)],
+        build_flavor=build_flavor,
+        build_platform=build_platform,
     )
