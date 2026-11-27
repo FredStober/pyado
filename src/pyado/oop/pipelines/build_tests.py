@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 from pyado import raw
-from pyado.exceptions import AzureDevOpsNotFoundError
 from pyado.raw import (
     ApiCall,
     CodeCoverageData,
@@ -34,14 +33,9 @@ class TestRun:
 
     **ADO concept:** a build can have many test runs, for example one per
     ``PublishTestResults`` task or one per matrix job.  Each run owns its
-    results; result ids are only unique *within* a run.  A run is tagged with
-    the build's flavor (configuration) and platform, which is the key that
-    links it to a :class:`CodeCoverage` entry of the same build.
+    results; result ids are only unique *within* a run.
 
     Instances come from :meth:`Build.iter_test_runs`.
-
-    The run list does not carry the flavor and platform, so :attr:`flavor` and
-    :attr:`platform` fetch the run once on first access.
     """
 
     __test__ = False
@@ -55,9 +49,6 @@ class TestRun:
         """
         self._build = build
         self._info = info
-        self._detail: TestRunInfo | None = (
-            info if info.build_flavor is not None else None
-        )
 
     @property
     def info(self) -> TestRunInfo:
@@ -94,34 +85,9 @@ class TestRun:
         """Project-level API call for direct use with pyado.raw functions."""
         return self._build.project.api_call
 
-    @property
-    def detail(self) -> TestRunInfo:
-        """The run as read by ``get_test_run`` (adds flavor and platform).
-
-        A *deleted* run is still listed by the build but cannot be read any
-        more (HTTP 404); then the list data is returned, without a pair.
-        """
-        if self._detail is None:
-            try:
-                self._detail = raw.get_test_run(self.api_call, self.id)
-            except AzureDevOpsNotFoundError:
-                self._detail = self._info
-        return self._detail
-
-    @property
-    def flavor(self) -> str:
-        """Build flavor (configuration); empty when the run has none."""
-        return self.detail.build_flavor or ""
-
-    @property
-    def platform(self) -> str:
-        """Build platform; empty when the run has none."""
-        return self.detail.build_platform or ""
-
     def refresh(self) -> None:
         """Re-read the run, including its counters, from the API."""
-        self._detail = raw.get_test_run(self.api_call, self.id)
-        self._info = self._detail
+        self._info = raw.get_test_run(self.api_call, self.id)
 
     def add_results(self, results: list[TestResultCreate]) -> list["TestResult"]:
         """Add results to the run.
@@ -162,7 +128,6 @@ class TestRun:
         """
         raw.delete_test_run(self.api_call, self.id)
         self._info = self._info.model_copy(update={"state": TestRunState.OTHER})
-        self._detail = self._info
 
     def add_attachment(
         self,
@@ -346,15 +311,14 @@ class TestResult:
 
 
 class CodeCoverage:
-    """The coverage of one build for one flavor/platform pair.
+    """The coverage of one build, as the API returns it.
 
-    **ADO concept:** the API stores one entry per (configuration, platform)
-    pair; an entry without a pair has both values empty (the portal prints
-    "empty").  The **Code Coverage** tab has a selector "Build configuration |
-    Build platform", but an entry can exist without being shown there:
-    measured on a finished build, three pairs written with
-    ``post_code_coverage`` were all returned by the API, while the portal listed
-    only the pair-less entry that the service derived from the per-file data.
+    The API keeps one entry per flavor/platform pair.  pyado writes only the
+    entry without a pair (both values empty; the portal prints "empty"), as the
+    real publish task does.  Entries with a pair can exist on builds written by
+    other tools and are read as they are, but a pair cannot be shown in Azure
+    DevOps: the Code Coverage tab's selector listed only the empty pair in every
+    measured build, so the pair is no use for a user of the portal.
 
     Instances come from :meth:`Build.iter_code_coverage`.
     """

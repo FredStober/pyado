@@ -11,8 +11,7 @@ _SCAN_BUILDS = 40
 
 def _exercise_run(run: TestRun) -> None:
     """Read a run's pair, results and attachments."""
-    assert isinstance(run.flavor, str)
-    assert isinstance(run.platform, str)
+    assert isinstance(run.name, str)
     for result in _take(run.iter_results(), 3):
         assert isinstance(result, TestResult)
         assert result.run is run
@@ -26,9 +25,7 @@ def _exercise_coverage(build: Build, entry: CodeCoverage) -> None:
     _ = (entry.flavor, entry.platform, entry.status, entry.stats)
     entry.percent("line")
     entry.stat("branch")
-    found = build.get_code_coverage(entry.flavor, entry.platform)
-    assert found is not None
-    assert (found.flavor, found.platform) == (entry.flavor, entry.platform)
+    assert entry.build is build
 
 
 def test_build_tests_read(proj: Project) -> None:
@@ -49,8 +46,6 @@ def test_build_tests_read(proj: Project) -> None:
             with_coverage = True
             for entry in entries:
                 _exercise_coverage(build, entry)
-            for run in runs[:1]:
-                build.get_coverage_for_run(run)
         if with_runs and with_coverage:
             break
     if builds:

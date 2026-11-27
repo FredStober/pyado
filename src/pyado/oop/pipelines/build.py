@@ -381,8 +381,6 @@ class Build:
         self,
         name: str,
         *,
-        flavor: str | None = None,
-        platform: str | None = None,
         comment: str | None = None,
         state: Literal[TestRunState.NOT_STARTED, TestRunState.IN_PROGRESS] = (
             TestRunState.IN_PROGRESS
@@ -390,16 +388,11 @@ class Build:
     ) -> TestRun:
         """Create a test run for this build.
 
-        The flavor and platform tag the run; the same pair on a coverage entry
-        links the two (see :meth:`get_coverage_for_run`).
-
-        **Warning (measured):** in a build that has a run with a non-empty
-        flavor or platform, the coverage stays ``inProgress`` after the build
-        ends: it is never finalised, no entry without a pair is derived, and the
-        Code Coverage tab stays empty.  Runs without a pair, and builds without
-        runs, finalise normally.  The pair on a run is not shown by the Tests tab
-        (it groups by run name).  Leave ``flavor`` and ``platform`` unset when
-        the build also publishes coverage.
+        There is no flavor/platform argument.  A pair on a test run is stored by
+        Azure DevOps but not shown by the Tests tab (it groups by run name), and
+        tagged runs together with coverage written only under non-empty pairs
+        left the coverage ``inProgress`` for 15 minutes in two lab builds, so
+        trying to use them can cause finalisation problems.
 
         A run is created
         ``InProgress``; close it with :meth:`TestRun.complete` after its results
@@ -408,8 +401,6 @@ class Build:
 
         Args:
             name: Run name, shown as the group row of the Tests tab.
-            flavor: Build flavor (configuration), for example ``"Debug"``.
-            platform: Build platform, for example ``"x64"``.
             comment: Optional run comment.
             state: ``NotStarted`` or ``InProgress`` (a run cannot start completed).
 
@@ -419,8 +410,6 @@ class Build:
         request = TestRunCreate(
             name=name,
             build={"id": self.id},
-            build_flavor=flavor,
-            build_platform=platform,
             comment=comment,
             state=state,
         )
@@ -444,9 +433,8 @@ class Build:
     def iter_code_coverage(self) -> Iterator[CodeCoverage]:
         """Iterate over the coverage entries (one per flavor/platform pair).
 
-        These are the entries of the Code Coverage tab's "Build configuration |
-        Build platform" selector.  Nothing is yielded when the build has no
-        coverage.
+        One entry per flavor/platform pair the API holds; pyado writes only the
+        entry without a pair.  Nothing is yielded when the build has no coverage.
 
         Yields:
             A :class:`CodeCoverage` for each pair.
@@ -463,22 +451,20 @@ class Build:
         self,
         files: list[FileCoverage],
         *,
-        flavor: str = "",
-        platform: str = "",
         label: str = "line",
     ) -> None:
         """Write the coverage of this build the way the publish task does.
 
         Stores the per-file line status and one figure (computed from the files)
-        under the given flavor/platform pair.  Do it while the build runs, or
-        shortly after.  When the build ends after an agent job, the service
-        adds an entry without a pair, derived from the files; the portal listed
-        only that entry in the measurements (see ``docs/usage.md``).
+        under the empty flavor/platform pair, as the real publish task does.  Do
+        it while the build runs, or shortly after.  There is no pair argument: a
+        pair cannot be shown in Azure DevOps, and coverage written only under
+        non-empty pairs, together with tagged test runs, stayed ``inProgress``
+        for 15 minutes in two lab builds.  When the build ends after an agent
+        job, the service adds an entry derived from the files.
 
         Args:
             files: Line status per source file (absolute agent paths).
-            flavor: Build flavor (configuration) of the figure.
-            platform: Build platform of the figure.
             label: Figure label; the service renames ``line`` to ``Lines``.
         """
         raw.publish_code_coverage(
@@ -486,8 +472,6 @@ class Build:
             self.id,
             files,
             label=label,
-            build_flavor=flavor,
-            build_platform=platform,
         )
 
     def publish_coverage_report(self, files: dict[str, bytes]) -> "raw.BuildArtifact":
@@ -514,36 +498,6 @@ class Build:
             container_id,
             files,
         )
-
-    def get_code_coverage(
-        self, flavor: str = "", platform: str = ""
-    ) -> CodeCoverage | None:
-        """Find the coverage entry of one flavor/platform pair.
-
-        Args:
-            flavor: Build flavor (configuration); empty for the entry without one.
-            platform: Build platform; empty for the entry without one.
-
-        Returns:
-            The entry, or ``None`` when the build has none for that pair.
-        """
-        for coverage in self.iter_code_coverage():
-            if coverage.flavor == flavor and coverage.platform == platform:
-                return coverage
-        return None
-
-    def get_coverage_for_run(self, run: TestRun) -> CodeCoverage | None:
-        """Find the coverage entry that belongs to a test run.
-
-        The run and the entry are linked by their flavor/platform pair.
-
-        Args:
-            run: A run of this build.
-
-        Returns:
-            The matching entry, or ``None`` when there is none.
-        """
-        return self.get_code_coverage(run.flavor, run.platform)
 
     # ------------------------------------------------------------------
     # Timeline attachments and the build file container

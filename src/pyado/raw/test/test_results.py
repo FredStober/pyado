@@ -149,6 +149,13 @@ class TestRunCreate(AdoBaseModel):
     ``NotStarted`` and ``InProgress``: a run created ``Completed`` is rejected
     with HTTP 400 ("Test Run cannot be created with Completed state ... use
     update to mark it completed"); close it with :func:`patch_test_run`.
+
+    A flavor/platform pair cannot be shown in Azure DevOps and is deliberately not
+    offered: neither the Tests tab nor the Code Coverage tab's selector listed a pair
+    written through the API (the real tasks only write the empty pair), and coverage
+    written under non-empty pairs together with tagged test runs stayed
+    ``inProgress`` for 15 minutes in two lab builds, so trying to use them can
+    cause finalisation problems.
     """
 
     __test__ = False
@@ -161,8 +168,6 @@ class TestRunCreate(AdoBaseModel):
     )
     started_date: datetime | None = None
     comment: str | None = None
-    build_platform: str | None = None
-    build_flavor: str | None = None
     owner: TestIdentity | None = None
 
 
@@ -176,22 +181,8 @@ class TestRunUpdate(AdoBaseModel):
     completed_date: datetime | None = None
 
 
-class _BuildConfiguration(AdoBaseModel, extra="ignore"):
-    """The build's flavor and platform stored on a run."""
-
-    flavor: str = ""
-    platform: str = ""
-
-
 class TestRunInfo(AdoBaseModel, extra="ignore"):
-    """A test run as returned by the API.
-
-    ``build_configuration`` is only sent by :func:`get_test_run`; the list calls
-    (:func:`iter_build_test_runs`) leave it out, so :attr:`build_flavor` and
-    :attr:`build_platform` are ``None`` there (measured).  A run created without
-    a pair reads back as two empty strings, exactly like a coverage entry
-    without one.
-    """
+    """A test run as returned by the API."""
 
     __test__ = False
 
@@ -201,21 +192,6 @@ class TestRunInfo(AdoBaseModel, extra="ignore"):
     total_tests: int | None = None
     passed_tests: int | None = None
     unanalyzed_tests: int | None = None
-    build_configuration: _BuildConfiguration | None = None
-
-    @property
-    def build_flavor(self) -> str | None:
-        """Build flavor (configuration, e.g. ``Debug``); ``None`` when not sent."""
-        if self.build_configuration is None:
-            return None
-        return self.build_configuration.flavor
-
-    @property
-    def build_platform(self) -> str | None:
-        """Build platform (e.g. ``x64``); ``None`` when not sent."""
-        if self.build_configuration is None:
-            return None
-        return self.build_configuration.platform
 
 
 class _TestRunResults(AdoBaseModel):
@@ -377,7 +353,11 @@ class CodeCoverageStats(AdoBaseModel):
 
 
 class CodeCoverageData(AdoBaseModel):
-    """Coverage of one flavor/platform combination."""
+    """Coverage of one flavor/platform combination as the API returns it.
+
+    Only the empty pair can be written through pyado (see :func:`post_code_coverage`);
+    builds written by other tools may hold non-empty pairs, which are read as they are.
+    """
 
     build_flavor: str = ""
     build_platform: str = ""
@@ -775,9 +755,6 @@ def post_code_coverage(
     test_results_api_call: ApiCall,
     build_id: BuildId,
     stats: list[CodeCoverageStats],
-    *,
-    build_platform: str = "",
-    build_flavor: str = "",
 ) -> None:
     """Store the coverage figures (header percentage and Details table) of a build.
 
@@ -795,21 +772,23 @@ def post_code_coverage(
       the per-file data of :func:`post_file_coverage` as well; use
       :func:`publish_code_coverage` for both.
 
+    The figures are stored under the empty flavor/platform pair, as the real
+    publish task does.  A non-empty pair cannot be shown in Azure DevOps and
+    is not offered: the Code Coverage tab's selector listed only the empty
+    pair, and coverage written only under non-empty pairs, together with tagged
+    test runs, stayed ``inProgress`` for 15 minutes in two lab builds.
+
     Args:
         test_results_api_call: From :func:`get_test_results_api_call`.
         build_id: The build.
         stats: The figures, for example ``label="line"``, ``position=4``.
-        build_platform: Platform text (usually empty).  The API stores and
-            returns one entry per pair, but the portal's Code Coverage tab
-            did not list pairs written this way (measured).
-        build_flavor: Flavor text (usually empty).
     """
     body = {
         "coverageStats": [
             {**s.model_dump(by_alias=True, mode="json"), "delta": 0.0} for s in stats
         ],
-        "buildPlatform": build_platform,
-        "buildFlavor": build_flavor,
+        "buildPlatform": "",
+        "buildFlavor": "",
     }
     test_results_api_call.post(
         "codecoverage",
@@ -868,8 +847,6 @@ def publish_code_coverage(
     files: list[FileCoverage],
     *,
     label: str = "line",
-    build_flavor: str = "",
-    build_platform: str = "",
 ) -> None:
     """Write the coverage of a build the way ``PublishCodeCoverageResults@2`` does.
 
@@ -893,10 +870,6 @@ def publish_code_coverage(
         build_id: The build.
         files: Line status per source file.
         label: Label of the figure; the service rewrites ``line`` to ``Lines``.
-        build_flavor: Flavor (configuration) the figure is stored under.
-        build_platform: Platform the figure is stored under.  The per-file data
-            carries no pair, and the service derives a further entry without
-            one from it when the build ends (measured).
     """
     results = get_test_results_api_call(project_api_call)
     covered = sum(
@@ -908,6 +881,4 @@ def publish_code_coverage(
         results,
         build_id,
         [CodeCoverageStats(label=label, position=4, total=total, covered=covered)],
-        build_flavor=build_flavor,
-        build_platform=build_platform,
     )

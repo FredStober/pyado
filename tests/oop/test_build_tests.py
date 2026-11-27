@@ -7,7 +7,6 @@ from uuid import uuid4
 
 import pytest
 
-from pyado.exceptions import AzureDevOpsNotFoundError
 from pyado.oop import Build, CodeCoverage, TestResult, TestRun
 from pyado.raw import (
     CodeCoverageData,
@@ -32,15 +31,12 @@ _PATH = "pyado.oop.pipelines.build_tests.raw"
 _BUILD_PATH = "pyado.oop.pipelines.build.raw"
 
 
-def _run_info(run_id: int = 7, *, pair: tuple[str, str] | None = None) -> TestRunInfo:
-    data: dict[str, object] = {"id": run_id, "name": f"run {run_id}"}
-    if pair is not None:
-        data["buildConfiguration"] = {"flavor": pair[0], "platform": pair[1]}
-    return TestRunInfo.model_validate(data)
+def _run_info(run_id: int = 7) -> TestRunInfo:
+    return TestRunInfo.model_validate({"id": run_id, "name": f"run {run_id}"})
 
 
-def _run(build: Build | None = None, *, pair: tuple[str, str] | None = None) -> TestRun:
-    return TestRun(build or _make_build(), _run_info(pair=pair))
+def _run(build: Build | None = None) -> TestRun:
+    return TestRun(build or _make_build(), _run_info())
 
 
 def _stats(
@@ -69,21 +65,6 @@ def _summary() -> CodeCoverageSummary:
     )
 
 
-class TestRunInfoPair:
-    """The run's flavor and platform come from ``buildConfiguration``."""
-
-    @staticmethod
-    def test_pair_is_none_when_the_list_omits_it() -> None:
-        info = _run_info()
-        assert info.build_flavor is None
-        assert info.build_platform is None
-
-    @staticmethod
-    def test_pair_is_read() -> None:
-        info = _run_info(pair=("Debug", "x64"))
-        assert (info.build_flavor, info.build_platform) == ("Debug", "x64")
-
-
 class TestTestRun:
     """Tests for TestRun."""
 
@@ -99,52 +80,14 @@ class TestTestRun:
         assert run.info.id == 9
 
     @staticmethod
-    def test_pair_is_fetched_lazily_once() -> None:
-        run = _run()
-        with patch(f"{_PATH}.get_test_run") as mock_get:
-            mock_get.return_value = _run_info(pair=("Release", "arm64"))
-            assert (run.flavor, run.platform) == ("Release", "arm64")
-            assert run.detail.id == 7
-        mock_get.assert_called_once()
-
-    @staticmethod
-    def test_pair_known_from_the_list_needs_no_call() -> None:
-        run = _run(pair=("Debug", "x64"))
-        with patch(f"{_PATH}.get_test_run") as mock_get:
-            assert (run.flavor, run.platform) == ("Debug", "x64")
-        mock_get.assert_not_called()
-
-    @staticmethod
-    def test_run_without_pair_has_empty_strings() -> None:
-        run = _run()
-        with patch(f"{_PATH}.get_test_run") as mock_get:
-            mock_get.return_value = _run_info(pair=("", ""))
-            assert (run.flavor, run.platform) == ("", "")
-
-    @staticmethod
-    def test_pair_is_empty_when_the_server_sends_none() -> None:
-        run = _run()
-        with patch(f"{_PATH}.get_test_run") as mock_get:
-            mock_get.return_value = _run_info()
-            assert (run.flavor, run.platform) == ("", "")
-
-    @staticmethod
-    def test_deleted_run_has_no_pair() -> None:
-        """A deleted run is listed but answers 404; the pair reads as empty."""
-        run = _run()
-        with patch(f"{_PATH}.get_test_run") as mock_get:
-            mock_get.side_effect = AzureDevOpsNotFoundError(404, "gone")
-            assert (run.flavor, run.platform) == ("", "")
-            assert run.detail.id == 7
-        mock_get.assert_called_once()
-
-    @staticmethod
     def test_refresh_rereads_the_run() -> None:
         run = _run()
-        with patch(f"{_PATH}.get_test_run") as mock_get:
-            mock_get.return_value = _run_info(pair=("Debug", "x64"))
+        fresh = TestRunInfo.model_validate(
+            {"id": 7, "name": "run 7", "totalTests": 4, "passedTests": 3}
+        )
+        with patch(f"{_PATH}.get_test_run", return_value=fresh) as mock_get:
             run.refresh()
-            assert run.flavor == "Debug"
+        assert (run.info.total_tests, run.info.passed_tests) == (4, 3)
         mock_get.assert_called_once()
 
     @staticmethod
@@ -290,18 +233,11 @@ class TestBuildTests:
         assert [(r.run.id, r.id) for r in results] == [(1, 100000), (2, 100000)]
 
     @staticmethod
-    def test_code_coverage_entries_and_lookup() -> None:
+    def test_code_coverage_entries_are_read_as_the_api_holds_them() -> None:
         build = _make_build()
         with patch(f"{_BUILD_PATH}.get_code_coverage", return_value=_summary()):
             entries = build.list_code_coverage()
-            debug = build.get_code_coverage("Debug", "x64")
-            empty = build.get_code_coverage()
-            missing = build.get_code_coverage("Release", "x64")
         assert [(e.flavor, e.platform) for e in entries] == [("Debug", "x64"), ("", "")]
-        assert debug is not None
-        assert empty is not None
-        assert (empty.flavor, empty.platform) == ("", "")
-        assert missing is None
 
     @staticmethod
     def test_no_coverage_yields_nothing() -> None:
@@ -310,15 +246,6 @@ class TestBuildTests:
             f"{_BUILD_PATH}.get_code_coverage", return_value=CodeCoverageSummary()
         ):
             assert build.list_code_coverage() == []
-
-    @staticmethod
-    def test_coverage_is_joined_to_a_run_by_pair() -> None:
-        build = _make_build()
-        run = _run(build, pair=("Debug", "x64"))
-        with patch(f"{_BUILD_PATH}.get_code_coverage", return_value=_summary()):
-            entry = build.get_coverage_for_run(run)
-        assert entry is not None
-        assert entry.platform == "x64"
 
     @staticmethod
     def test_attachments() -> None:
@@ -460,30 +387,27 @@ class TestBuildWrites:
     """Tests for the Build methods that create runs and publish coverage."""
 
     @staticmethod
-    def test_add_test_run_tags_the_run_with_the_pair() -> None:
+    def test_add_test_run_sends_no_pair() -> None:
         build = _make_build()
         with patch(
-            f"{_BUILD_PATH}.post_test_run",
-            return_value=_run_info(5, pair=("Debug", "x64")),
+            f"{_BUILD_PATH}.post_test_run", return_value=_run_info(5)
         ) as mock_post:
-            run = build.add_test_run("unit", flavor="Debug", platform="x64")
+            run = build.add_test_run("unit", comment="c")
         request = mock_post.call_args.args[1]
-        assert (request.build_flavor, request.build_platform) == ("Debug", "x64")
+        body = request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        assert "buildFlavor" not in body
+        assert "buildPlatform" not in body
         assert request.build.id == 100
-        assert (run.id, run.flavor, run.platform) == (5, "Debug", "x64")
+        assert (run.id, run.name) == (5, "run 5")
 
     @staticmethod
-    def test_publish_code_coverage_passes_the_pair() -> None:
+    def test_publish_code_coverage_has_no_pair() -> None:
         build = _make_build()
         files = [FileCoverage(file_path="/a.py", line_coverage_status={"1": "covered"})]
         with patch(f"{_BUILD_PATH}.publish_code_coverage") as mock_pub:
-            build.publish_code_coverage(files, flavor="Debug", platform="x64")
+            build.publish_code_coverage(files)
         assert mock_pub.call_args.args[1:] == (100, files)
-        assert mock_pub.call_args.kwargs == {
-            "label": "line",
-            "build_flavor": "Debug",
-            "build_platform": "x64",
-        }
+        assert mock_pub.call_args.kwargs == {"label": "line"}
 
     @staticmethod
     def test_publish_coverage_report() -> None:
